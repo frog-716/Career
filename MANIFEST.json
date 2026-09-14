@@ -1,0 +1,149 @@
+{
+  "formatVersion": 1,
+  "kit": "workplace-workbench-kit",
+  "date": "2026-09-14",
+  "scope": "clean design kit, not an implemented application",
+  "manifestExcludesItself": true,
+  "files": [
+    {
+      "path": ".agents/skills/workbench-implement/SKILL.md",
+      "bytes": 1186,
+      "sha256": "1bc8b220a53f2c4a93dbcc12d3426e6210a2e004defa8a445f9e0e103d3182a9"
+    },
+    {
+      "path": ".agents/skills/workbench-plan/SKILL.md",
+      "bytes": 1047,
+      "sha256": "6c250278a1f9336c5c49255f7722e3a8e75f697d542cb2adb2020393ba5f46bc"
+    },
+    {
+      "path": ".agents/skills/workbench-review/SKILL.md",
+      "bytes": 1142,
+      "sha256": "febe4c17fe201ff59e6eee2a063fb87340655fe8ed246127503697926bf6bb89"
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 173,
+      "sha256": "724f0d973d2d7f07ce2fe421e2f43a70d8f3d7d833a5ea9279c35fd4aa8a2d96"
+    },
+    {
+      "path": "AGENTS.md",
+      "bytes": 1729,
+      "sha256": "e6f713cc6564ea22aa5f23dfd5324fa07f54fbefdff9db675b887c850acbd953"
+    },
+    {
+      "path": "PACKAGING-REPORT.md",
+      "bytes": 2390,
+      "sha256": "f7890ec1ecbf38c3634db61567f8c8bedfd01f3d20b3f3de646be3b883375a54"
+    },
+    {
+      "path": "README.md",
+      "bytes": 3414,
+      "sha256": "4468460eab5ade7ea33d7cdb3c23b9bc57abb35d1256480d07c2a3544c9dcabf"
+    },
+    {
+      "path": "config-templates/codex-config.toml.example",
+      "bytes": 346,
+      "sha256": "433c4b90b72a920399c0e2e2089cd7f5f3a25175190e8c0a4af04f9fc51c34e8"
+    },
+    {
+      "path": "docs/00-authority.md",
+      "bytes": 2448,
+      "sha256": "df8952aab90326ac6a80e9d310526737ba50b77b3dceefbf40b0330b79bd5840"
+    },
+    {
+      "path": "docs/01-product.md",
+      "bytes": 3169,
+      "sha256": "4b9d6491c348e9da67fda1b71b8a13d5d419f7c24965fe7d9ad9403f235b1e27"
+    },
+    {
+      "path": "docs/02-context-contract.md",
+      "bytes": 4663,
+      "sha256": "2c403e6c2872e1ea465d7c987f76e8dcfe680b8bd7ede93e637d25fcd824d189"
+    },
+    {
+      "path": "docs/03-architecture.md",
+      "bytes": 5519,
+      "sha256": "3825bd5b178e8a5a63ffd30d854429542800ac3714ae5073d594af3f2ef6c16e"
+    },
+    {
+      "path": "docs/04-journeys.md",
+      "bytes": 4258,
+      "sha256": "3fd9130aa0718d7e20548b06584bff32622884eda0e4a8b6a8ecdca6b28b9002"
+    },
+    {
+      "path": "docs/05-acceptance.md",
+      "bytes": 3618,
+      "sha256": "d2fdd81c6137bc9b5029fe2504b9edb7bb14899b19335e6006569cf88061106d"
+    },
+    {
+      "path": "docs/06-agent-workflow.md",
+      "bytes": 3143,
+      "sha256": "385e3021d2a23563c6c71afc6ac44eeaec3610d8b807e45516703f9f67045426"
+    },
+    {
+      "path": "docs/07-roadmap.md",
+      "bytes": 2569,
+      "sha256": "80bef317c896df18088edeac180ddec1f29ee53b19ac7027bb3beb2901efcf24"
+    },
+    {
+      "path": "docs/08-provenance.md",
+      "bytes": 3905,
+      "sha256": "04dfe58a035d51ab928c115ad7b79162dcc7246cf0a85bfa6453f3830aa6ef38"
+    },
+    {
+      "path": "fixtures/scenarios.json",
+      "bytes": 2924,
+      "sha256": "c1e2b18071c8c3dc6794ba3e915941baeb07284cc1faa0ae4b3e2b2dbdaaf74d"
+    },
+    {
+      "path": "prompts/LUNA-TASK.md",
+      "bytes": 1288,
+      "sha256": "b381ac498bd637eff75a847659ff5a8ddb802ea2bad5e592e335e1c20c3659a7"
+    },
+    {
+      "path": "prompts/RESUME.md",
+      "bytes": 736,
+      "sha256": "f72229b8db5073b939e9178612cfbe3e495bea27c69f6a375afc7f1e4c02fee5"
+    },
+    {
+      "path": "prompts/START.md",
+      "bytes": 4491,
+      "sha256": "e9c41568e0bbe72237533612f471f3f57b712ca66b7353227ce297c92a90ff2f"
+    },
+    {
+      "path": "reference_code/README.md",
+      "bytes": 1110,
+      "sha256": "3484664f88f632fa17b960998d0835d362c94b86be4c2a0740965e50a31e6e8d"
+    },
+    {
+      "path": "reference_code/resume-local-seam.md",
+      "bytes": 1773,
+      "sha256": "28db6156c2153f6119281b46ffc6aaa0f4c93f81ef5d55f2f61e15337e116a7b"
+    },
+    {
+      "path": "reference_code/sqlite_archive.py",
+      "bytes": 1597,
+      "sha256": "4ff8532d5dd85f7c30344922dbc9c7668d5bba1020f9a49c4d51039fa47bcb9d"
+    },
+    {
+      "path": "reference_code/tests/test_sqlite_archive.py",
+      "bytes": 3448,
+      "sha256": "755aab73b02854f4a834504369e710a0990e3234941709fc547c88029353753f"
+    },
+    {
+      "path": "scripts/build_bundle.py",
+      "bytes": 2451,
+      "sha256": "7e787c3797a9296312aa8852d7cd4bbea3d36edcd38c74fc4f1e82467f9a6e95"
+    },
+    {
+      "path": "scripts/check_archive.py",
+      "bytes": 3671,
+      "sha256": "71ca9b265d7e084ec5c7aa7791d4d182c2cc26b0109c8db99e2fa0815bd0c7a9"
+    },
+    {
+      "path": "scripts/verify_bundle.py",
+      "bytes": 4048,
+      "sha256": "5b7e31af1c4247f59f0bc353136b6dc50d0346b48fbe90dc666c20f4187da0a1"
+    }
+  ]
+}
