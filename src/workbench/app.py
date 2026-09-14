@@ -66,9 +66,9 @@ def create_app(store=None):
     @app.post('/api/versions/{id}/pdf')
     def pdf(id:str,b:dict):return s.export_pdf(id)
     @app.get('/api/artifacts/{id}')
-    def artifact(id:str):
+    def artifact(id:str,download:bool=False):
         p,a=s.artifact(id)
-        return FileResponse(p,media_type=a['media_type'],filename=p.name,content_disposition_type='inline')
+        return FileResponse(p,media_type=a['media_type'],filename=p.name,content_disposition_type='attachment' if download else 'inline')
     @app.post('/api/applications')
     def application(b:dict):return s.record_application(b)
     @app.post('/api/applications/{id}/status')
