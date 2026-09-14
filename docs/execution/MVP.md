@@ -28,3 +28,7 @@ artifacts.py: ArtifactError(Exception); write_pdf(data_dir:Path, artifact_id:str
 
 ## 验收
 C01-C08 适用当前文本正本与提案；D01/D03/D05；MVP J01/J03；R01/R02/R04/R05。实际请求排除旧事实/分析/反馈，revision 竞争、proposal 幂等、PDF 文件和投递不可变、重启持久化、反馈原话保留和导出。R03 用隔离备份恢复。真实 AI 缺凭据待验收，禁止 Mock 冒充。
+
+## 本批结果
+
+本地独立链路已验收，真实 AI 因运行时配置缺失待验收。详情见 EVIDENCE.md，当前状态与下一步只见 STATUS.md。`GET /artifacts/{id}?download=true` 为浏览器不支持 PDF 预览时的下载路径。前端完整主链由主控接手整合；Luna完成Provider/Artifact、CSS及独立审查。

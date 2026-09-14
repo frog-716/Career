@@ -1,4 +1,14 @@
-# 职场中台系统 · 新项目启动包
+# Career OS · 职场中台系统
+
+当前 MVP 实施与验收见 [STATUS](docs/execution/STATUS.md)。本地启动：
+
+```sh
+.venv/bin/python scripts/run.py
+```
+
+首次安装、AI 配置、测试和备份恢复见 [服务 README](src/workbench/README.md)。入口 http://127.0.0.1:8765，生产数据与代码分离。
+
+## 启动包说明（保留来源）
 
 版本：1.0 · 2026-09-14。用途：解压后作为全新本地项目的根目录，交给 Astra 主控、Luna 执行。此包是精选需求、工程契约、工作技能和可运行参考代码，不是已完成应用，也不包含用户业务数据库。
 
