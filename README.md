@@ -36,13 +36,20 @@ App 图标源文件为 `macos/career-icon.png`，生成器会自动制作标准 
 | 位置 | 内容 | 什么时候读 |
 | --- | --- | --- |
 | `AGENTS.md` | 精简项目入口、权威顺序、执行约束 | 自动/首先 |
-| `docs/00-authority.md` | 已确认需求、建议与未知的优先级 | 首轮 |
-| `docs/01-product.md` | 产品目标、用户任务、界面要求、做不了的部分 | 首轮 |
-| `docs/02-context-contract.md` | 最新上下文、原件、提案、并发与隔离契约 | 首轮和资料/AI开发 |
-| `docs/03-architecture.md` | 深模块、数据对象、落盘、扩展与维护 | 首轮和架构修改 |
-| `docs/04-journeys.md` | 全链路场景的输入、输出和边界 | 对应功能开发 |
-| `docs/05-acceptance.md` | 可执行验收、质量与不能冒充完成的情况 | 拆批和验收 |
-| `docs/07-roadmap.md` | 分批顺序、交付范围、状态记录规则 | 首轮 |
+| [docs/00-authority.md](docs/00-authority.md) | 模块权威、冲突规则、目标与证据的区别 | 首先读取，再判断任务模块 |
+| [Opportunity Product Model](docs/target/opportunity/opportunity-product-model.md) | Opportunity产品目标正本 | 所有Opportunity任务 |
+| [Opportunity Domain Model](docs/target/opportunity/opportunity-domain-model.md) | Opportunity领域语义正本 | 所有Opportunity任务 |
+| [Opportunity UI Flow](docs/target/opportunity/opportunity-ui-flow.md) | Opportunity用户动作正本 | 所有Opportunity任务 |
+| [Context & Ingestion](docs/target/opportunity/context-ingestion.md) | 本周期资料与AI生命周期正本 | 所有Opportunity任务及相关资料/AI边界变更 |
+| [docs/01-product.md](docs/01-product.md) | 产品总览、非本期模块边界 | 对应产品任务，不能覆盖模块正本 |
+| [docs/02-context-contract.md](docs/02-context-contract.md) | 当前机制与目标Context合同 | 资料/AI任务完整读取 |
+| [docs/03-architecture.md](docs/03-architecture.md) | Current Architecture、Stable Contracts、Target Direction | 接口、架构、持久化及工程审查 |
+| [docs/04-journeys.md](docs/04-journeys.md) | 场景输入、动作、产出与状态变化 | 对应功能开发 |
+| [docs/05-acceptance.md](docs/05-acceptance.md) | Target acceptance及验证边界 | 拆批、实施和验收读取相关条目 |
+| [docs/07-roadmap.md](docs/07-roadmap.md) | Current / Next / Later范围和推进顺序 | 拆批与范围调整 |
+| [docs/execution/STATUS.md](docs/execution/STATUS.md) | 当前交付、已知问题和本批状态 | 核对现状与下一步；不是产品规格 |
+| [AS-IS System Map](docs/audit/AS-IS-system-map.md) | 现状证据快照 | 核对代码/运行/测试边界，不作目标规范 |
+| [Opportunity Gap Analysis](docs/audit/OPPORTUNITY-GAP-ANALYSIS.md) | 差异、迁移与增量批次建议快照 | 规划迁移和重构；不代表实施授权或完成 |
 | `.agents/skills/` | `mattpocock/skills` 通用技能与 Career OS 专用技能 | 按description触发 |
 | `fixtures/` | 明确虚构的求职与任职验收案例 | 开发和测试 |
 | `src/workbench/` | 本地服务、领域模块、备份和 Provider | 运行及后端开发 |

@@ -3,7 +3,7 @@ name: workbench-implement
 description: 按已明确的职场中台批次任务实现代码、验证用户路径并返回证据。
 ---
 
-先读当前批次、相关Interface文档与允许修改路径。资料/AI任务读docs/02-context-contract.md；界面任务读docs/01-product.md和对应journey；验收读docs/05-acceptance.md相关条目。
+先读项目根目录AGENTS.md和docs/00-authority.md，判断任务模块，按authority读取该模块authoritative Spec与相关Acceptance。再读当前批次、Interface及允许修改路径；按任务补读architecture、context、journey、roadmap，资料/AI任务完整读Context合同。STATUS和审计用于核对现状，target规范用于实施目标；历史批次不覆盖当前模块正本。
 
 1. 编码前从用户要求确定可观察的验收条件；存在会影响结果的不明确之处时，先与用户对齐。修复缺陷时先确认并复现具体触发条件。验证依赖已满足，检查工作树并保留他人改动。
 2. 对接口、持久化、权限、迁移、数据正确性、不可变历史、幂等、并发和主链行为建立对应测试，再最小实现；低风险文案、样式和局部布局修改只做一次实际页面检查，不新增自动化测试。

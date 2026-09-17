@@ -1,6 +1,42 @@
 # 验收契约
 
-真实运行才记录通过；本文件是未来应用的验收需求，不是已有测试报告。工程先用 [虚构案例](../fixtures/scenarios.json)。测试关注Interface、主路径、持久化、关键回归；不为未实现未来需求堆测试。
+真实运行才记录通过；本文件是验收需求，不是已有测试报告。按[authority](00-authority.md)读取模块Spec，再选择本批验收；Opportunity以四份[target规范](target/opportunity/opportunity-domain-model.md)为准。工程先用[虚构案例](../fixtures/scenarios.json)，关注Interface、主路径、持久化和关键回归，不为未实施的全部未来需求先堆测试。
+
+**下列Opportunity条目全部是 target acceptance / 待实施验收，不是当前通过声明。** 既有部分基础能力有测试证据，但不能据此勾选整个目标。2026-09-17审计为69通过、2失败及typecheck通过；本次文档对齐不重跑、不修复。状态与证据见[STATUS](execution/STATUS.md)、[AS-IS §11](audit/AS-IS-system-map.md)。
+
+## Opportunity Vertical — Target acceptance
+
+来源：Product、Domain、UI Flow、Context & Ingestion；工程迁移边界参考[Gap Analysis](audit/OPPORTUNITY-GAP-ANALYSIS.md)。本表将目标转成可观察条件，字段/语义变更回所属正本，不在验收里另造产品规则。
+
+| ID | 场景与必须观察到的结果 | 状态 |
+| --- | --- | --- |
+| O01 | 创建一次具体尝试，关联/新建明确Company，默认写简历＋active；JD/action_url由Opportunity拥有，不要求OrgUnit/SearchCycle或已有Resume | Target / 待验 |
+| O02 | phase仅四阶段；result为active/accepted/rejected/withdrawn；任意阶段可rejected/withdrawn，accepted仅Offer；result!=active进入已结束View，最后phase不变 | Target / 待验 |
+| O03 | 阶段日期来自真实领域动作；确认面试当天进入面试，不用未来面试日期或计划due_date；添加第二轮不变成新phase，也不伪造历史日期 | Target / 待验 |
+| O04 | 两个Opportunity分别创建/编辑自己的ResumeDocument互不污染；每机会0..1，首次加工才创建；旧editor-main不得静默分配所有权，独立入口也不能绕过隔离 | Target / 待验 |
+| O05 | 普通自动保存不创建普通ResumeVersion，主动保存才创建；有简历投递总建特殊投递版，选已有普通版也如此；两类版本均在Resume Workspace可回看 | Target / 待验 |
+| O06 | 记录已投递支持当前稿/指定旧版/无简历；不要求日期/渠道/备注重复录入；自动记录今天，冻结Greeting及可选简历并切阶段；一个Opportunity最多一条Submission | Target / 待验 |
+| O07 | 投递后修改工作稿、profile/Wiki、JD或Research，旧Submission/投递版本/Greeting/PDF仍保持原内容和字节；删除普通来源版本不得破坏投递引用 | Target / 待验 |
+| O08 | 登记投递或接受Patch发生重试、并发、附件失败时，不重复事件、不半成功；CAS失败保留输入；新key或旧入口不能绕过唯一性/冻结约束 | Target / 待验 |
+| O09 | Communication统一线上/电话/其他，谈薪使用purpose=negotiation；同一typed活动与Raw/note不重复展示，不创建另一套PhoneCall/Negotiation系统 | Target / 待验 |
+| O10 | real轮次名称/日期必需；支持多轮和未投递先确认；simulation必须绑定同Opportunity的real，不能绑定simulation或跨机会；准备使用实际投递材料而非新工作稿 | Target / 待验 |
+| O11 | 可复制Simulation Context Pack供用户新开ChatGPT语音；上传带时间戳文本后进入同一复盘链；模拟AI面试官虚构信息不能提升为现实事实，用户自述只能提待确认个人Patch | Target / 待验 |
+| O12 | 新求职Raw确认修正覆盖当前正文，不保留旧Raw正文历史；revision/hash递增且旧依赖stale；不借run/proposal/log暗存旧正文；旧库历史仍保留；Offer原件及投递材料不被此动作覆盖 | Target / 待验 |
+| O13 | 每轮只有一份当前FinalReview，包含五项规定内容且可手动编辑；不长期保存AI原版与用户终版两套；复盘结论不自动变正式事实 | Target / 待验 |
+| O14 | AI只提出Patch，按目标分组；接受/编辑后接受立即Apply，拒绝不写；手动正式编辑直接保存；目标或来源revision变化后提案不可直接应用 | Target / 待验 |
+| O15 | 同Company的机会共享CompanyResearch，各自OpportunityResearch隔离；公司/目录description不因关联自动进Context；机会资料不能未经明确目标与确认提升成公司结论 | Target / 待验 |
+| O16 | Timeline从Opportunity创建、Submission、Communication、Interview、Offer及result聚合；可排序/摘要/跳回源对象，无第二份事实库；不计普通保存、字号、AI重跑或接受Patch | Target / 待验 |
+| O17 | 一个机会最多一个当前Offer，条件可更新、原件不变；谈薪复用沟通；结束不自动建Employment，不引入Offer Comparison | Target / 待验 |
+| O18 | 每项AI任务声明required/optional/forbidden context、output schema、allowed patch targets、confirmation requirement、budget；捕获实际payload验证范围、当前revision、总预算及Feedback/任职私聊隔离 | Target / 待验 |
+| O19 | 历史ID、来源、版本、PDF、用途、快照、Raw/Wiki与revisions可回读；备份能隔离恢复；多Submission、多Offer、公司冲突或未知轮次不得自动删合/猜测；迁移前后内容/hash可核对 | Target / 待验 |
+| O20 | 实际页面从管线整行进入Workspace，稳定顶部＋阶段动作＋岗位情报＋投递材料＋Timeline；切换/错误后可继续；Employment/Project原入口与数据不受本期影响 | Target / 待验 |
+
+完整主链按[Journey](04-journeys.md)执行，至少覆盖无简历分支、选旧版仍生成投递版、多机会隔离、多轮与模拟父级、结束及历史不变。具体批次只运行相关条目；通过证据必须指向当次版本/命令/页面，不能用目标文档或旧案例代替。
+
+## 其他条目的适用范围
+
+下面C/D/R是跨批次基础验收要求，未标通过；J01/J03/J04按本周期Opportunity目标解释，J02保留任职场景且不触发本期重构。J05自动招聘源、J06内置语音及对抗表中的平台采集/Offer比较等属于后续能力，不能将其作为本周期前置。与本周期Raw/Submission相关的旧表述已由上表和模块正本取代。
+
 
 ## 上下文（关键批次必测）
 
@@ -15,20 +51,20 @@
 
 ## 资料与事件
 
-- D01 自动保存只更新工作稿；正式保存产生不可变版本；导入/恢复不污染正式版本历史。
+- D01 自动保存只更新工作稿；主动保存产生普通版本，投递动作按O05生成特殊版本；导入/恢复不冒充普通保存或投递。
 - D02 同工作稿lineage的经历ID保留；新文件导入不自动关联旧事实。
-- D03 保存版本不创建投递；记录投递引用正确版本，修改当前稿不改变历史PDF。
-- D04 原始转写不覆盖，纠正有来源；后续改进答案不能冒充实际回答。
+- D03 保存普通版本不创建投递；有简历投递按O05–O07创建并冻结实际投递版本，无简历分支可用，当前编辑不改变历史PDF。
+- D04 新求职Raw按O12覆盖当前修正版且无旧正文历史；后续改进答案不能冒充实际回答。任职原话及更正历史仍按原有模块边界保存。
 - D05 删除岗位后不再出现于活动列表或下轮采集；历史投递/面试仍可回看。
 
 ## 实际任务闭环
 
-- J01 添加真实结构的虚构岗位→有来源分析→简历与PDF→明确记录投递→聊天跟进→面试复盘→练习→Offer与下一动作。
+- J01 用虚构资料走创建Opportunity→可选简历/Greeting→投递→沟通→真实轮次及绑定模拟→复盘→Offer/谈薪→结果结束；AI部分单独标测试模式/真实验证。
 - J02 一张工作卡→交接/聊天→多个可证伪解释→行动→结果→阶段总结→确认新经历。
 - J03 多岗位不串材料；多轮面试与先聊后投可用，不强制单向步骤。
 - J04 模拟必须先回答再追问；真实高频与练习次数分开；模糊转写不作确定评分。
-- J05 首个招聘源读到真实数据或明确报不可访问；采集失败不等同零岗位。
-- J06 按轮语音实际录入、转写、追问、播放；文字降级可用。无实测不报“自然语音已完成”。
+- J05 【Later】首个招聘源读到真实数据或明确报不可访问；采集失败不等同零岗位。
+- J06 【Later / 内置语音】按轮语音实际录入、转写、追问、播放；文字降级可用。无实测不报“自然语音已完成”；本期模拟按O11验收Context Pack与文本回传。
 
 ## 可靠性
 
@@ -72,7 +108,7 @@ Spy/Fake Provider只验证请求与工作流；界面和报告必须标“测试
 | 公司同名或来源过时 | 研究错误主体 | 主体/官网核对，采集日期、来源和反证 | 私有内部事实不可凭公开资料推断为事实 |
 | 把被拒当作话术不够好 | 过度追问、无效投入 | 区分岗位关闭/资格/时机/未知，提供结束选项 | 补救话术不能保证逆转拒绝 |
 | 领导模型先入为主 | 放大偏见与冲突 | 观察、多个假设、反证、验证行动分离；随证据更新 | 无法读心、诊断人格或知道隐藏动机 |
-| 转写错字/说话人错归属 | 复盘评价失真 | 保留音频及时间戳，低置信标记，用户纠正后重建 | 噪声/口音/设备限制不能保证零错误 |
+| 转写错字/说话人错归属 | 复盘评价失真 | 本期保留带时间戳当前文本和来源角色，低置信标记，纠正后重建；不要求长期保存audio | 噪声/口音/设备限制不能保证零错误 |
 | “模拟评分高”变“录用概率高” | 错误信心 | 仅评价可观察回答表现与练习变化 | 面试官标准与竞争者情况未知 |
 | Offer各项价值混算 | 不同风险条款被当成现金 | 原条款、保证现金/条件收入/权益分列，显示假设与敏感性 | 税法/合同效力需地区及时效核验 |
 | 本地运行被理解为全部断网可用 | 无网络AI/搜索失败 | 页面逐能力说明依赖；手动路径独立可用 | 更新依赖/模型下载/联网查询仍需网络 |
@@ -93,6 +129,6 @@ Spy/Fake Provider只验证请求与工作流；界面和报告必须标“测试
 ## 事实闭环增量验收
 
 - 从确认Wiki选材进结构化稿，来源revision/hash可追溯，来源变更仅提示；改稿/恢复后旧正式版本、投递、PDF不变。
-- 面试/研究/任职原件不覆盖，更正历史可读；选段默认原scope，个人提升需显式确认；候选未确认不进实际Provider payload。
+- 任职原件与更正历史维持原规则；新求职Raw按O12覆盖修正且不清理旧库历史。选段默认原scope，个人提升需显式确认；候选不得作为正式事实进入普通分析payload，指定ingestion仍可读本次Raw。
 - 旧profile显式整理后完整原文仍可查，当前身份字段与Wiki职责分离；跨页未保存输入、CAS冲突及幂等重试可恢复。
 - 实际浏览器验证首次空白稿导入、未保存稿先保存、鼠标/键盘新增、撤销/重做、版本恢复与来源返回；运行证据见execution/EVIDENCE.md。

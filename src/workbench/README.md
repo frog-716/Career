@@ -74,6 +74,19 @@ npm --prefix frontend run build
 
 恢复后用 CAREER_DATA_DIR 指向新目录启动；不要将生成备份放进仓库。仅同机备份不能抵御磁盘损坏。
 
+迁移前使用只读盘点与恢复比较（schema v1；必须显式传入已核对的路径）：
+
+```sh
+.venv/bin/python scripts/migration_baseline.py inventory /绝对路径/现有数据目录 --output /绝对路径/独立证据目录/new-inventory.json
+.venv/bin/python scripts/migration_baseline.py verify /绝对路径/备份目录 /绝对路径/隔离恢复目录 --output /绝对路径/独立证据目录/new-verification.json
+```
+
+证据目录需预先存在，报告以0600新建，拒绝覆盖或写入受检目录。inventory不初始化Store，不执行DDL；输出schema/全表计数、ID与逐行hash、Opportunity映射候选、公司/多投递/多Offer/面试语义歧义、简历和资料引用及附件hash。历史revisions逐行保全，但不声称已验证每条历史引用的业务语义。退出码0仅说明本次完整性检查通过，**不是迁移许可**；仍需检查`migration_gates`和`demo_legacy_findings`，不能自动决定归属、合并或删除。
+
+backup拒绝把备份写入源数据目录或覆盖已存在备份；restore只接受新目录，并拒绝恢复到备份内部。verify比较全部表行/冻结内容、schema及附件与原备份manifest；恢复副本先保持未启动状态完成此比较，再另建副本做启动演练。现有Store启动初始化可能改变SQLite物理hash；逻辑hash与物理hash分开记录。
+
+针对性测试：`PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -B -m pytest tests/test_migration_baseline.py tests/test_backup.py -q -p no:cacheprovider`。真实生产备份、恢复与运行版本核验见[Opportunity Batch A](../../docs/execution/OPPORTUNITY-BATCH-A.md)。本机启动脚本会复用健康服务，源码更新后需停止旧进程再启动；仅看到源码版本不能证明长驻服务已经加载。
+
 ## 固定版本投递（冷启动整改）
 
 `POST /api/applications` 复用已有 applications 表：`job_id, version_id, artifact_id, applied_at（含时区）, channel, status, idempotency_key`。服务根据记录 kind 接受 `editor_version` 或旧 `version`；结构化版本必须已存在匹配机会/PDF/hash 的 `resume_use`，方向用途不能替代机会用途。新写入的 `version_kind` 标注来源，旧记录缺省为文字版；`channel` 对旧客户端可省略，页面必填。不存在404、关系或PDF损坏422、幂等键不同内容409。

@@ -77,14 +77,17 @@ def _validate_manifest_against_db(root, manifest, artifact_records):
 def backup(data_dir,output_dir,backup_name=None):
     source=_outside(data_dir);output=_outside(output_dir)
     if not (source/'workspace.sqlite3').is_file():raise Invalid('源数据库不存在')
-    output.mkdir(parents=True,exist_ok=True,mode=0o700)
-    staging=Path(tempfile.mkdtemp(prefix='.partial-',dir=str(output)))
+    if output==source or source in output.parents:raise Invalid('备份目录不能位于源数据目录内')
     if backup_name is not None:
         if not isinstance(backup_name, str) or not backup_name or Path(backup_name).name != backup_name:
             raise Invalid('备份名称不合法')
         final=output/backup_name
     else:
         final=output/('career-backup-'+str(uuid.uuid4()))
+    if final.exists() or final.is_symlink():raise Invalid('备份目标已存在，不会覆盖')
+    if final==source or final in source.parents:raise Invalid('备份目标不能覆盖源数据目录')
+    output.mkdir(parents=True,exist_ok=True,mode=0o700)
+    staging=Path(tempfile.mkdtemp(prefix='.partial-',dir=str(output)))
     try:
         # Hold a SQLite write reservation while taking the DB snapshot and
         # collecting its referenced files. This gives the two halves one
@@ -121,6 +124,7 @@ def backup(data_dir,output_dir,backup_name=None):
 def restore(backup_dir,destination):
     source=_outside(backup_dir);dest=_outside(destination)
     if dest.exists():raise Invalid('恢复目标必须是不存在的新目录，不会覆盖已有数据')
+    if source in dest.parents:raise Invalid('恢复目录不能位于备份目录内')
     manifest=json.loads((source/'manifest.json').read_text())
     if manifest.get('schemaVersion')!=1 or 'workspace.sqlite3' not in manifest.get('files',{}):raise Invalid('备份清单版本不支持')
     database = source/'workspace.sqlite3'
