@@ -1,0 +1,20 @@
+真实 Safari AX 证据（2026-09-15）：
+
+HTML内容 URL: 127.0.0.1:8768/#wiki
+标签 (selected) 职业 Wiki
+按钮 WIKI_HOTEL 个人 · 当前有效
+标题 WIKI_HOTEL
+文本 个人 · v1 · 当前有效
+文本 WIKI_BODY_HOTEL
+按钮 编辑
+按钮 历史
+
+该状态来自点击“整理为待确认内容”→“保存”→“确认入 Wiki”后的最新 AX state。
+
+岗位研究记录真实 AX 证据（同一隔离站）：
+
+文本 记录已保存。
+按钮 RESEARCH_HOTEL 09/15 09:39 · 研究
+标题 RESEARCH_HOTEL
+按钮 COMPANY_ECHO · ROLE_FOXTROT
+文本 RESEARCH_BODY_HOTEL
