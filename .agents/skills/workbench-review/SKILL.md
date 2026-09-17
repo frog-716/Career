@@ -3,7 +3,7 @@ name: workbench-review
 description: 验收职场中台一个批次的变更，分别检查需求符合度与工程规范，识别上下文污染和假完成。
 ---
 
-确定审查基线、当前批次与变更文件，不默认整个工作树都是本批。按需读docs/02-context-contract.md、docs/03-architecture.md、docs/05-acceptance.md及当前journey。
+先读项目根目录AGENTS.md和docs/00-authority.md，判断任务模块，按authority读取该模块authoritative Spec、相关Acceptance与Engineering Contract。再按任务补读architecture、context、journey、roadmap；资料/AI任务完整读Context合同。确定审查基线、当前批次与变更文件，不默认整个工作树都是本批；STATUS和审计只提供现状证据，不覆盖目标规格。
 
 运行两轴审查：规格轴核对用户结果、事实/提案、最新资料、历史原件与真实能力；规范轴核对Interface深度、文件所有权、事务、幂等、可恢复性及有效测试。当前主 Agent 依据实际 diff 做一次与风险相称的针对性审查，并实际验收；实现过程中的自报不直接当证据。
 

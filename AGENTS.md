@@ -2,7 +2,9 @@
 
 默认中文，事实、推断、未知分开。以当前用户指令为准；包内权威顺序见 [docs/00-authority.md](docs/00-authority.md)。
 
-首次开发依次读 `docs/00-authority.md`、`docs/01-product.md`、`docs/02-context-contract.md`、`docs/03-architecture.md`、`docs/07-roadmap.md`。其他文档按 README 的触发条件加载。`docs/archive/` 只用于历史追溯，不得让旧启动包、旧 Interface 或旧实现覆盖当前产品。
+先读 `docs/00-authority.md`，判断任务所属业务模块，再读该模块的 authoritative docs；按任务加载 architecture / context / journey / acceptance / roadmap，具体入口见 README 文档地图。跨模块任务分别确认所属正本与边界。
+
+`docs/audit/` 是现状证据或分析快照，不是目标规范；`docs/target/` 是目标规范，不代表已经实现。实际状态查 `docs/execution/STATUS.md` 并按需核验代码与运行证据。`docs/archive/` 仅用于历史追溯，不覆盖当前权威。
 
 开发技能：拆批用 `$workbench-plan`；执行具体批次用 `$workbench-implement`；验收变更用 `$workbench-review`。技能路径在 `.agents/skills/`；若宿主不自动发现，读取对应 `SKILL.md` 执行即可。
 
