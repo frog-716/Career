@@ -59,3 +59,53 @@ Proposal至少包含目标ID、expectedRevision、before/after差异、依据、
 ## 验收引用
 
 验收C01–C08与D01–D04见 [验收清单](05-acceptance.md)。特别检查旧事实是否出现在实际请求体，而非只观察最后回答有没有提到。
+
+## 资料库与分析的彻底分离如何落地
+
+「存储上下文不污染分析」意味着分析不得继承存储整理过程中的对话、旧版本和推断，并非不能读取资料库。资料库是事实来源，ContextPacket 是每次任务的受控读模型。开发助手的聊天、产品里的显示历史、模型供应方会话均不是这个读模型。
+
+核心接口如下（已实现范围与待扩展项以 STATUS 为准）：
+
+```text
+ContextEntry {
+  id, revision, scope: personal | episode:<id> | job:<id>,
+  type: goal | constraint | experience | skill | preference,
+  content, valid_from, valid_to?, source_refs[],
+  verification: user_asserted | source_checked | disputed,
+  status: active | withdrawn
+}
+ContextPacket {
+  task_kind, task_id, instruction, context_epoch, policy_version,
+  sources: [{id, revision, hash, purpose, selected_content}],
+  unknowns[], conflicts[], omissions[], budget_used
+}
+```
+
+是否用户确认、是否有证据核验必须分开。AI写入走ChangeCommand，带明确目标、expected_revision、变更内容、依据和幂等ID；分析工具没有applyChange权限。恢复也走新revision，不能通过降低版本绕过过期检查。
+
+选材次序：范围/权限过滤 → 当前目标/硬约束/禁止虚构表述 → 与决策相关的项目与技能 → 对应任务事件 → 反证和未知 → 必要原文。初期使用类别、关键词和人工勾选；数据增加后再做检索。建议的可配置预算分配为目标约束20%、相关经历50%、任务事件20%、未知/反证10%，这只是实现起点，不是按比例截断事实的规则。预算不足必须显式提示遗漏；硬约束/矛盾挤不下时拒绝静默截断，要求缩小任务或分步分析。
+
+来源ID校验只能验证引用存在，不能证明结论受来源支持。输出至少区分观察事实、推断、建议、未知；涉及新增数字/职责/技能的简历提案要展示对应证据，缺依据就留空或追问。建议格式为「要解决的问题、依据、备选解释、下一动作、需用户判断的事项」。置信度用证据充分/待核实的定性说明，不制造精确心理或录用分数。
+
+当用户手改一条经历时，事务提交新revision及失效标记；之后的新分析只可读该revision。分析执行期间再次修改，则旧结果只能作为过期记录查看。应用前再做CAS。撤回条目不进入新packet，历史原件只可按旧任务事件显式引用。任务切换重新选材；A公司聊天、B公司JD、任职期私人记录不能因同一窗口打开就互相继承。
+
+对话里的“继续”只继承当前有效任务目标/表达偏好，不复制旧助手长答案。需要继续讨论某提案时，检查其依赖后作为proposal用途加入，不能改成current_fact。存储整理助手可看本次用户输入和目标条目；分析助手只收构建好的packet；两者不共享可写内存。
+
+原始资料无需全量发送远端。选择本地模型时记录Provider能力与性能验证；选择远端时先展示本轮材料范围。匿名化可降低暴露，不保证任意经历文本无法再识别。当前本机终端拥有者仍可读取数据库，因此逻辑隔离不等于抗本机管理员攻击。
+
+## Wiki 编译增量规则（2026-09-14）
+
+- RawSource不可覆盖；ExtractedCandidate可以修正、拒绝、确认。只有确认事务创建的active Wiki条目可参与正常分析，原始资料/候选/修订历史均不得被默认检索。
+- 基础profile保持唯一身份正本（姓名/电话/邮箱/微信/GitHub/个人网页），content由这些字段生成；显式保存后在同一事务中同步当前简历的姓名与联系方式区，GitHub和其他个人网页位于第二行。未整理的旧自由文本保持兼容；用户明确整理时归档完整原件、其余转待确认候选，当前profile只保留身份。没有基础profile时，可以用已确认条目构造分析材料。
+- `wiki_ids` 是每轮明确选材列表。个人goal/constraint强制保留，其余需要勾选；任职scope一律不进入普通job/resume分析。job条目只能匹配当前job，作为task_context；personal条目作为用户陈述的current_fact，而非独立核验结论。
+- 同事务回正本读取最新revision和hash；选材列表保存的是ID而不是缓存正文。确认/修改/撤回Wiki都bump epoch；原件登记和候选修正不改变当前事实。预览之后确认或改Wiki会使旧请求返回409。
+- 当前Wiki选材上限30条、所选正文总量100k，超限明确拒绝，不静默遗漏约束。每次输入保留完整来源清单；没有自动相关性排序或向量摘要，不宣称智能Compiler已经完成。
+- 一个条目可以引用多份同scope原件，来源链接变更同样产生revision；不同范围不能借修改引用完成隐式提升。源链接只证明可追溯，不证明所有表述成立。
+- 业务目录中的公司/组织名称与简历用途关联不自动成为模型背景；研究必须作为有来源的任务Wiki条目被明确选择。分析输出不是新的CareerFact，仍经候选与确认返回事实层。
+
+
+### 记录回流与简历选材约束
+
+`journey_note` 原件及 `journey_note_revision` 更正均不直接进入普通求职Context。选段候选保留来源记录ID、revision/hash、原范围及固定投递引用；默认同scope，只有显式允许才能提升personal。候选确认沿用Wiki事务及epoch；记录更正、来源归档、候选创建不代表已确认事实。
+
+简历的 `meta.source_refs` 由服务维护，记录曾经选材的来源及版本；不属于第二份CareerFact。普通保存/撤销保留refs，删除表达后来源显示removed，允许重新选材并另记来源历史。历史版本恢复采用该版本的refs。旧版本/投递不跟随Wiki或profile变化；编辑器材料清单不开放任职scope。

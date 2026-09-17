@@ -11,7 +11,7 @@ from pathlib import Path
 from .providers import get_provider, ProviderError
 from .artifacts import write_pdf, write_screenshot, read_artifact
 
-APP_VERSION = '0.1.0'
+APP_VERSION = '0.2.0'
 ROOT = Path(__file__).resolve().parents[2]
 
 class Invalid(Exception): pass
@@ -28,7 +28,7 @@ def required(x, name, limit=100000):
 
 class Store:
     def __init__(self, data_dir=None, provider=None):
-        self.data_dir=Path(data_dir or os.environ.get('CAREER_DATA_DIR') or Path.home()/'Library/Application Support/CareerOS').expanduser().resolve()
+        self.data_dir=Path(data_dir or os.environ.get('CAREER_DATA_DIR') or Path.home()/'Library/Application Support/Career Data').expanduser().resolve()
         if self.data_dir==ROOT or ROOT in self.data_dir.parents: raise Invalid('数据目录必须在代码目录之外')
         self.data_dir.mkdir(parents=True,exist_ok=True,mode=0o700)
         os.chmod(self.data_dir,0o700)
@@ -93,36 +93,62 @@ class Store:
 
     def state(self):
         with self.connect(False) as c:
-            return dict(profile=self._get(c,'profile'),jobs=self._current(c,'job'),resumes=self._current(c,'resume'),versions=self._records(c,'version'),artifacts=self._records(c,'artifact'),applications=[json.loads(r[0]) for r in c.execute('SELECT body FROM applications ORDER BY rowid DESC')],feedback=self._records(c,'feedback'),runs=self._records(c,'run'),diagnostics=dict(app_version=APP_VERSION,data_dir=str(self.data_dir),provider=self.provider.diagnostics()))
+            from .opportunity import current_opportunities, _context
+            return dict(profile=self._get(c,'profile'),jobs=self._current(c,'job'),
+                        opportunities=[o if 'context' in o else dict(o,context=_context(self,c,o['legacy_job_id'])) for o in current_opportunities(self,c)],
+                        resumes=self._current(c,'resume'),versions=self._records(c,'version'),
+                        artifacts=self._records(c,'artifact'),applications=[json.loads(r[0]) for r in c.execute('SELECT body FROM applications ORDER BY rowid DESC')],
+                        feedback=self._records(c,'feedback'),runs=self._records(c,'run'),diagnostics=dict(app_version=APP_VERSION,data_dir=str(self.data_dir),provider=self.provider.diagnostics()))
 
     def save_profile(self,content,expected):
         if not isinstance(content,str) or len(content)>100000:raise Invalid('资料内容过长')
         with self.connect() as c:
+            if self._get(c,'profile','profile').get('mode')=='structured':raise Invalid('基础资料已整理，请仅编辑姓名和联系方式；目标经历请维护Wiki')
             obj=self._save(c,'profile',dict(id='profile',content=content,verified=False,source='user-edit'),expected)
             self._bump(c);return obj
 
     def save_job(self,body,id=None):
+        from .opportunity import sync_job
         with self.connect() as c:
-            old=self._get(c,id,'job') if id else {}
-            obj=dict(id=id or uid(),company=required(body.get('company'),'公司',500),title=required(body.get('title'),'岗位',500),jd=required(body.get('jd'),'JD'),url=body.get('url',''),status=body.get('status','active'),source='manual',created_at=old.get('created_at',now()))
-            if not isinstance(obj['url'],str) or len(obj['url'])>2000:raise Invalid('URL 不合法')
-            if obj['url'] and not obj['url'].startswith(('http://','https://')):raise Invalid('URL 仅支持 http/https')
-            if obj['status'] not in ('active','excluded','deleted'):raise Invalid('岗位状态不合法')
-            obj=self._save(c,'job',obj,body.get('expected_revision') if id else 0)
+            obj=self._save_job_in_transaction(c,body,id)
             self._bump(c);return obj
 
-    def _packet(self,c,job_id,kind,instruction):
-        if kind not in ('job','resume'):raise Invalid('分析任务不支持')
-        if not isinstance(instruction,str) or len(instruction)>10000:raise Invalid('指令过长')
-        p=self._get(c,'profile','profile');j=self._get(c,job_id,'job')
-        if j['status']!='active':raise Invalid('岗位已删除或排除，请先恢复再分析')
-        if not p['content'].strip():raise Invalid('请先保存个人资料')
-        sources=[]
-        for o,content,purpose in [(p,p['content'],'current_fact'),(j,{k:j[k] for k in ('company','title','jd','url')},'target_jd')]:
-            sources.append(dict(id=o['id'],revision=o['revision'],hash=digest(content),purpose=purpose,content=content))
-        return dict(schemaVersion=1,taskKind=kind,taskId=job_id,epoch=self._epoch(c),instruction=instruction,sources=sources)
-    def context(self,job_id,kind,instruction=''):
-        with self.connect(False) as c:return self._packet(c,job_id,kind,instruction)
+    def _save_job_in_transaction(self,c,body,id=None):
+        old=self._get(c,id,'job') if id else {}
+        obj=dict(id=id or uid(),company=required(body.get('company'),'公司',500),title=required(body.get('title'),'岗位',500),jd=required(body.get('jd'),'JD'),url=body.get('url',''),status=body.get('status','active'),source='manual',created_at=old.get('created_at',now()))
+        if not isinstance(obj['url'],str) or len(obj['url'])>2000:raise Invalid('URL 不合法')
+        if obj['url'] and not obj['url'].startswith(('http://','https://')):raise Invalid('URL 仅支持 http/https')
+        if obj['status'] not in ('active','excluded','deleted'):raise Invalid('岗位状态不合法')
+        saved=self._save(c,'job',obj,body.get('expected_revision') if id else 0)
+        from .opportunity import sync_job
+        sync_job(self,c,saved)
+        return saved
+
+    def save_opportunity(self,body,opportunity_id=None):
+        from .opportunity import canonical_id
+        with self.connect() as c:
+            if opportunity_id:
+                oid=opportunity_id if opportunity_id.startswith('opportunity:') else canonical_id(opportunity_id)
+                row=c.execute("SELECT body FROM current WHERE id=? AND kind='opportunity'",(oid,)).fetchone()
+                if row:
+                    opportunity=json.loads(row[0]); job=self._get(c,opportunity['legacy_job_id'],'job')
+                    if body.get('expected_revision') != opportunity['revision']:
+                        raise Conflict('机会已在其它窗口更新，请重新载入')
+                else:
+                    job=self._get(c,oid.split(':',1)[1],'job')
+                body=dict(body,expected_revision=job['revision'])
+                self._save_job_in_transaction(c,body,job['id'])
+                self._bump(c)
+                return self._get(c,oid,'opportunity')
+            job=self._save_job_in_transaction(c,body)
+            self._bump(c)
+            return self._get(c,'opportunity:'+job['id'],'opportunity')
+
+    def _packet(self,c,job_id,kind,instruction,wiki_ids=None):
+        from .context import ContextCompiler
+        return ContextCompiler(self).compile(c, job_id, kind, instruction, wiki_ids)
+    def context(self,job_id,kind,instruction='',wiki_ids=None):
+        with self.connect(False) as c:return self._packet(c,job_id,kind,instruction,wiki_ids)
 
     def _resume(self,c,job_id):
         self._get(c,job_id,'job')
@@ -157,16 +183,16 @@ class Store:
             if any(not isinstance(s,str) or s not in ids for s in claim['source_ids']):raise Invalid('模型引用了本轮资料之外的来源')
             if claim['kind']=='Fact' and not claim['source_ids']:raise Invalid('事实判断缺少来源')
 
-    def analyze(self,job_id,kind,instruction='',expected_epoch=None,idempotency_key=None):
+    def analyze(self,job_id,kind,instruction='',expected_epoch=None,idempotency_key=None,wiki_ids=None):
         key=required(idempotency_key or uid(),'请求标识',100)
-        fingerprint=digest([job_id,kind,instruction,expected_epoch])
+        fingerprint=digest([job_id,kind,instruction,expected_epoch,wiki_ids])
         with self.connect() as c:
             previous=c.execute("SELECT body FROM records WHERE kind='run' AND json_extract(body,'$.idempotency_key')=?",(key,)).fetchone()
             if previous:
                 run=json.loads(previous[0])
                 if run.get('request_fingerprint')!=fingerprint:raise Conflict('请求标识已用于不同分析')
                 return run
-            packet=self._packet(c,job_id,kind,instruction)
+            packet=self._packet(c,job_id,kind,instruction,wiki_ids)
             if expected_epoch is not None and packet['epoch']!=expected_epoch:raise Conflict('预览后的资料已更新，请重新查看本次发送范围')
             draft=self._resume(c,job_id) if kind=='resume' else None
             payload=self.provider.build_payload(packet)
@@ -239,24 +265,81 @@ class Store:
         if not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest()!=a['sha256']:raise Invalid('附件丢失或哈希校验失败')
         return p,a
 
+    def _opportunity_snapshot(self,c,opportunity_id,job):
+        opportunity=self._get(c,opportunity_id,'opportunity')
+        context=self._get(c,'opportunity-context:'+job['id'],'opportunity_context') if c.execute("SELECT 1 FROM current WHERE id=? AND kind='opportunity_context'",('opportunity-context:'+job['id'],)).fetchone() else None
+        refs={}
+        kinds={'company_id':'company','org_unit_id':'org_unit','target_role_id':'target_role','search_cycle_id':'search_cycle'}
+        for field,kind in kinds.items():
+            ident=context.get(field) if context else None
+            refs[field]=self._get(c,ident,'domain_'+kind) if ident else None
+        return dict(opportunity=opportunity,job_posting=job,context=context,relations=refs)
+
     def record_application(self,b):
         key=required(b.get('idempotency_key'),'请求标识',100)
         try:
             time=datetime.fromisoformat(b.get('applied_at','').replace('Z','+00:00'))
             if time.tzinfo is None:raise ValueError()
-        except (ValueError,TypeError):raise Invalid('投递时间必须包含时区')
+        except (ValueError,TypeError,AttributeError):raise Invalid('投递时间必须包含时区')
         status=b.get('status','applied');self._status(status)
+        channel=b.get('channel','')
+        if not isinstance(channel,str) or len(channel)>500:raise Invalid('投递渠道不合法')
+        channel=channel.strip()
+        fingerprint=digest([b.get('opportunity_id') or b.get('job_id'),b.get('version_id'),b.get('artifact_id'),b.get('applied_at'),channel,status])
         with self.connect() as c:
             existing=c.execute('SELECT body FROM applications WHERE idempotency_key=?',(key,)).fetchone()
             if existing:
                 obj=json.loads(existing[0])
-                if any(obj[k]!=b.get(k) for k in ('job_id','version_id','artifact_id','applied_at')):raise Conflict('请求标识已用于不同投递')
+                if obj.get('request_fingerprint'):
+                    if obj['request_fingerprint']!=fingerprint:raise Conflict('请求标识已用于不同投递')
+                elif any(obj[k]!=b.get(k) for k in ('job_id','version_id','artifact_id','applied_at')) or obj.get('channel','')!=channel:
+                    raise Conflict('请求标识已用于不同投递')
                 return obj
-            j=self._get(c,b.get('job_id'),'job');v=self._get(c,b.get('version_id'),'version',True);a=self._get(c,b.get('artifact_id'),'artifact',True)
-            if v['job_id']!=j['id'] or a.get('version_id')!=v['id']:raise Invalid('岗位、简历版本与 PDF 不匹配')
+            from .opportunity import canonical_id
+            requested_job_id=b.get('job_id')
+            requested_opportunity_id=b.get('opportunity_id')
+            if requested_opportunity_id:
+                opportunity_id=required(requested_opportunity_id,'机会',500)
+                try:
+                    opportunity=self._get(c,opportunity_id,'opportunity')
+                except Missing:
+                    if not opportunity_id.startswith('opportunity:'):
+                        raise
+                    requested_job_id=opportunity_id.split(':',1)[1]
+                    j=self._get(c,requested_job_id,'job')
+                    from .opportunity import sync_job
+                    opportunity=sync_job(self,c,j)
+                if requested_job_id and requested_job_id!=opportunity['legacy_job_id']:
+                    raise Invalid('机会与岗位不匹配')
+                requested_job_id=opportunity['legacy_job_id']
+            else:
+                requested_job_id=required(requested_job_id,'岗位',500)
+                opportunity_id=canonical_id(requested_job_id)
+                try:
+                    opportunity=self._get(c,opportunity_id,'opportunity')
+                except Missing:
+                    j=self._get(c,requested_job_id,'job')
+                    from .opportunity import sync_job
+                    opportunity=sync_job(self,c,j)
+            j=self._get(c,requested_job_id,'job')
+            vid=required(b.get('version_id'),'版本',500)
+            row=c.execute("SELECT kind,body FROM records WHERE id=? AND kind IN ('version','editor_version')",(vid,)).fetchone()
+            if not row:raise Missing('简历版本不存在')
+            version_kind=row[0];v=json.loads(row[1])
+            a=self._get(c,required(b.get('artifact_id'),'PDF',500),'artifact',True)
+            if a.get('version_id')!=v['id']:raise Invalid('简历版本与 PDF 不匹配')
+            if version_kind=='editor_version':
+                if v['artifact_id']!=a['id']:raise Invalid('必须使用该正式版本保存的 PDF')
+                uses=self._records(c,'resume_use')
+                if not any(((u['scope_type']=='opportunity' and u['scope_id']==opportunity_id) or
+                            (u['scope_type']=='job' and u['scope_id']==j['id'])) and u['version_id']==v['id']
+                           and u['artifact_id']==a['id'] and u['artifact_hash']==a['sha256'] for u in uses):
+                    raise Invalid('请先将此固定版本关联到这次机会')
+            elif v['job_id']!=j['id']:raise Invalid('岗位、简历版本与 PDF 不匹配')
             p=read_artifact(self.data_dir,a['path'])
             if not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest()!=a['sha256']:raise Invalid('PDF 不存在或已损坏')
-            obj=dict(id=uid(),job_id=j['id'],version_id=v['id'],artifact_id=a['id'],applied_at=b['applied_at'],status=status,created_at=now(),job_snapshot=j,resume_snapshot=v,artifact_snapshot=a)
+            opportunity_snapshot=self._opportunity_snapshot(c,opportunity_id,j)
+            obj=dict(id=uid(),job_id=j['id'],opportunity_id=opportunity_id,version_id=v['id'],artifact_id=a['id'],applied_at=b['applied_at'],status=status,channel=channel,version_kind=version_kind,request_fingerprint=fingerprint,created_at=now(),status_history=[dict(status=status,changed_at=now(),source='created')],job_snapshot=j,opportunity_snapshot=opportunity_snapshot,resume_snapshot=v,artifact_snapshot=a)
             c.execute('INSERT INTO applications VALUES(?,?,?,?,?,?)',(obj['id'],j['id'],v['id'],a['id'],key,dump(obj)))
             return obj
     def _status(self,s):
@@ -267,6 +350,7 @@ class Store:
             row=c.execute('SELECT body FROM applications WHERE id=?',(id,)).fetchone()
             if not row:raise Missing('投递不存在')
             obj=json.loads(row[0]);obj['status']=status
+            obj.setdefault('status_history', []).append(dict(status=status,changed_at=now(),source='user'))
             c.execute('UPDATE applications SET body=? WHERE id=?',(dump(obj),id));return obj
 
     def feedback(self,b):

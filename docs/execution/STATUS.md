@@ -1,36 +1,45 @@
 # 当前状态
 
-2026-09-14：本地 MVP 独立能力已实现并实际验收；**真实 AI 尚未验收，不能称完整真实 AI 闭环完成**。停止功能扩展，等待本地 Provider 配置与用户试用。
+最后整理：2026-09-16。本文只维护当前交付范围、现役入口、外部 Gate 与技术债；历史批次的过程和证据留在各自文档。
 
-当前范围与 Interface：[MVP](MVP.md)。运行证据、命令、浏览器路径及两轴审查：[EVIDENCE](EVIDENCE.md)。启动与配置：[服务 README](../../src/workbench/README.md)。
+## 当前交付
 
-## 已完成
+[Career OS 结构优化与产品化重构](STRUCTURE-REFACTOR.md) B1—B5 已交付。当前应用以 Opportunity 与 Employment 为两条任务主干：
 
-- 个人资料创建/编辑/当前版本/持久化，手动 JD 多岗位/编辑/排除/可恢复删除。
-- Context 当前白名单、revision/epoch、实际请求体审计，Test/Real Provider 隔离；简历 AI 提案与确认工作流（Test 验证）。
-- 简历人工编辑/自动保存/正式版本、真实中文 PDF、投递事件与不可变材料关联。
-- 全局单文本反馈、可选截图、追加补充、JSON/Markdown 导出；反馈不进入 AI Context。
-- 同源保护、密钥服务端读取、数据目录分离、备份与隔离恢复。
+- Opportunity → Wiki 选材 / Context → 正式简历与 PDF → Submission → 研究、沟通、面试、Offer。
+- Employment → Stage → Project → 参与者 / 事件 → Achievement → Evidence → 可确认的 Wiki 候选。
 
-## 验收结论
+结构化编辑器是唯一可写简历链，旧文字简历只读兼容；状态驱动页面、基础资料、全局反馈和设置页案例装载/删除入口已接入。虚构案例 `career-os-b5-demo-v1` 已保留供用户熟悉，删除仅由用户主动触发。
 
-21 项后端自动化测试通过；TypeScript typecheck 和 Vite build 通过。实际浏览器走通测试模式主链、双窗口冲突、多个岗位隔离、删除后历史保留、反馈附件/导出。PDF 经 Poppler 渲染、macOS 预览实际打开，下载也已触发。实际停止/重启进程后数据与附件哈希一致。
+基础资料支持姓名、邮箱、电话、微信、GitHub 与个人网页，并可同步到当前简历。人工事实闭环已经覆盖原件、候选、确认、修订、撤回、显式选材、预览、正式版本/PDF、投递冻结、原话更正和回流候选。真实 AI 语义质量仍受下述外部 Gate 限制。
 
-生产入口：http://127.0.0.1:8765。默认生产目录 `~/Library/Application Support/CareerOS`，首次为空，未写入虚构样例。验收目录 `/tmp/career-os-mvp-browser` 与生产隔离，测试服务验收后停止。
+## 现役入口与证据
+
+- 启动、配置和模块说明：[服务 README](../../src/workbench/README.md)
+- 当前架构和边界：[03-architecture](../03-architecture.md)
+- 当前证据索引：[EVIDENCE](EVIDENCE.md)
+- 当前最新交付批次：[STRUCTURE-REFACTOR](STRUCTURE-REFACTOR.md)
+- 人工事实闭环：[FACT-LOOP](FACT-LOOP.md)
+
+生产入口为 `http://127.0.0.1:8765`；默认数据目录为 `~/Library/Application Support/Career Data`。代码、测试资料和生产数据必须隔离。早期纯文本 MVP 契约已经撤回并归档，不再作为当前 Interface。
 
 ## 外部条件 Gate
 
-`CAREER_AI_API_KEY` / `OPENAI_API_KEY` / `CAREER_AI_MODEL` 未配置。没有真实模型调用，岗位分析质量、简历适配质量仍待验收；不能用 TestProvider 或模拟 HTTP 成功代替。按服务 README 在本地终端配置，不把密钥发到聊天。配置后仅继续验收当前主链，不扩展路线图。
+当前没有已验证的真实 Provider 配置。缺少 `CAREER_AI_API_KEY` / `OPENAI_API_KEY` / `CAREER_AI_MODEL` 时，本地编辑、记录、版本与导出仍可使用，但岗位分析和简历适配的语义质量不能验收。TestProvider 或模拟 HTTP 成功不能代替真实模型调用。
 
-主控实际模型/reasoning：无独立运行配置可读，无法核验。后台工具接受显式 `gpt-5.6-luna` / `medium` 参数并返回执行结果；已使用 Subagent。宿主可能显示它们的聊天面板，没有使用 create_thread 或创建额外分支/worktree。
+模型、语音、招聘来源和其他外部能力均须逐项使用真实配置与隔离资料验证；不要把密钥发送到聊天，也不因外部能力缺失阻塞独立的本地闭环。
 
 ## 当前简化与技术债
 
-- 资料为一份自由文本，按整体预览发送；尚无经历粒度选材/文件导入。请只维护当前求职所需资料与硬约束。
-- 简历是纯文本排版 PDF；AI 每轮从当前事实重建，不自动读取手改草稿，无聊天式逐段修订。
-- 全局 epoch 保守失效；失败/中断任务不自动收费重试。数据量较小时 state 一次读取全部本地记录，后续有证据再分页。
-- 备份为命令行操作，恢复只允许新目录；同盘备份不能防整盘损坏。schema v1，后续迁移必须先备份并按版本实现。
-- 浏览器 PDF 内嵌预览受宿主支持影响；已提供并验证下载后用本机预览打开的路径。截图导出包含引用，附件二进制在本地 artifact 存储。
-- 原子文件写入与数据库登记间崩溃可能遗留无引用文件，不会形成假成功；尚无自动孤儿回收。
+- 文件解析、AI 候选提取、自动相关性排序、结构化简历内容 patch 和多 ResumeDocument 尚未完成。
+- 细粒度研究快照、独立 JobPosting、EvidenceLink 页/行定位与 Repository Ingestion 仍待后续批次。
+- 全局 epoch 采用保守失效；失败或中断的远端任务不自动收费重试。
+- 数据量较小时 state 一次读取全部本地记录；有性能证据后再分页或引入索引。
+- 备份仍以本地命令行为主，同盘备份不能防整盘损坏；schema 迁移必须先备份并显式按版本执行。
+- 数据库登记前后的极端崩溃可能遗留无引用附件；不会形成假成功，但尚无自动孤儿回收。
 
-本地提交：后端基线 `71776ce`；前端与验收 `9db7692`。未 push、deploy 或 publish。
+## 历史交付
+
+按时间保留：[任务工作台首试](TASK-WORKSPACE.md)、[单窗口工作区](FOCUSED-WORKSPACE.md)、[既有工作台本地接入](RESUME-WORKBENCH.md)、[职业 Wiki 与业务对象整合](WIKI-DOMAIN.md)、[冷启动整改](COLD-START-REPAIR.md)、[事实闭环整改](FACT-LOOP.md)。完整早期证据和已撤回的 MVP 契约位于 [archive](../archive/README.md)，仅用于追溯。
+
+仓库记录过的本地提交基线为后端 `71776ce`、前端与验收 `9db7692`；这只说明历史基线，不代表当前工作树已提交、push、deploy 或 publish。

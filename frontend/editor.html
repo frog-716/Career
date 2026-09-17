@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <link rel="icon" href="data:,">
+  <title>简历工作台</title>
+</head>
+<body>
+  <header class="app-bar">
+    <div class="brand">
+      <strong>简历工作台</strong>
+      <span id="saveStatus" role="status">正在载入</span>
+      <span id="pageStatus" class="page-status">A4 检查中</span>
+    </div>
+    <div class="toolbar" aria-label="编辑操作">
+      <button id="undo" class="icon-button" title="上一步（⌘Z）" aria-label="上一步" disabled>
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 10h10a8 8 0 0 1 8 8v2M3 10l6 6m-6-6 6-6"/></svg>
+      </button>
+      <button id="redo" class="icon-button" title="下一步（⇧⌘Z）" aria-label="下一步" disabled>
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 10H11a8 8 0 0 0-8 8v2m18-10-6 6m6-6-6-6"/></svg>
+      </button>
+    </div>
+    <div class="document-actions">
+      <a href="/" class="back-link">← 返回 Career OS</a>
+      <button id="exportMarkdown" title="导出当前简历为 Markdown">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m10 20 4-16m4 4 4 4-4 4M6 16l-4-4 4-4"/></svg>
+        <span>导出 MD</span>
+      </button>
+      <button id="saveDraft" title="保存当前工作稿，不创建正式版本">保存草稿</button>
+      <button id="openMaterials" title="从职业 Wiki 选择事实导入当前工作稿">从 Wiki 选材</button>
+      <button id="openSources" title="查看当前工作稿引用的材料来源">材料来源</button>
+      <button id="exportJson" title="导出结构化 JSON 备份">导出 JSON</button>
+      <span class="action-divider" aria-hidden="true"></span>
+      <button id="saveVersion" title="保存可编辑简历和 PDF 到本地历史版本">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 7H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3m-1 4-3 3m0 0-3-3m3 3V4"/></svg>
+        <span>保存版本</span>
+      </button>
+      <button id="openVersions" title="查看、恢复或下载历史版本">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+        <span>历史版本</span>
+      </button>
+      <button id="exportPdf" class="primary" title="下载 PDF，并同时保存到本地历史版本">
+        <span>导出 PDF</span>
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m14 5 7 7m0 0-7 7m7-7H3"/></svg>
+      </button>
+    </div>
+  </header>
+  <p class="pdf-hint">沿用原工作台的图片式 PDF，文字不可直接选中。</p>
+  <div id="versionRetry" class="version-retry" hidden><span id="versionRetryMessage"></span><button id="retryVersion">重试保存同一版本</button><button id="cancelVersion">关闭此次保存提示</button></div>
+  <main class="workspace">
+    <section class="paper" id="paper" aria-label="A4 简历"></section>
+  </main>
+  <dialog id="versionDialog">
+    <form method="dialog" class="dialog-head">
+      <div>
+        <h2>历史版本</h2>
+        <p>每个版本都包含可恢复的简历内容和可下载的 PDF。</p>
+      </div>
+      <button aria-label="关闭">关闭</button>
+    </form>
+    <div id="versionList" class="version-list"></div>
+  </dialog>
+  <dialog id="restoreDialog" class="restore-dialog">
+    <div class="dialog-head">
+      <div>
+        <h2>恢复历史版本</h2>
+        <p id="restoreDialogMessage">当前内容如何处理？</p>
+      </div>
+    </div>
+    <div class="restore-actions">
+      <button id="discardCurrent" class="danger" type="button">放弃当前内容并恢复</button>
+      <button id="saveCurrent" type="button">先保存当前内容</button>
+      <button id="cancelRestore" type="button">取消</button>
+    </div>
+  </dialog>
+  <dialog id="materialsDialog" class="materials-dialog">
+    <form method="dialog" class="dialog-head">
+      <div><h2>从 Wiki 选材</h2><p>只导入你明确勾选的条目和分区；当前输入会先保存。</p></div>
+      <button aria-label="关闭">关闭</button>
+    </form>
+    <div class="materials-toolbar"><span id="materialsScope"></span><button id="reloadMaterials" type="button">重新读取</button></div>
+    <div id="materialsList" class="materials-list"><div class="empty-state">正在读取…</div></div>
+    <div class="materials-actions"><button id="cancelMaterials" type="button">取消</button><button id="importMaterials" class="primary" type="button">导入选中材料</button></div>
+  </dialog>
+  <dialog id="sourcesDialog" class="sources-dialog">
+    <form method="dialog" class="dialog-head"><div><h2>材料来源</h2><p>来源变化只提示，不会自动同步到当前稿。</p></div><button aria-label="关闭">关闭</button></form>
+    <div id="sourcesList" class="sources-list"><div class="empty-state">正在读取…</div></div>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <button id="captureFeedback" class="feedback-fab" type="button">记录反馈</button>
+  <script type="module" src="/src/editor/legacy-entry.ts"></script>
+</body>
+</html>
