@@ -19,11 +19,31 @@ _MAX_PACKET_BYTES = 2 * 1024 * 1024
 def _packet_result(packet: Dict[str, Any]) -> Dict[str, Any]:
     sources = packet.get("sources") or []
     task_type = packet.get("task_type", packet.get("taskKind"))
+    if task_type == "legacy_analysis":
+        task_type = packet.get("taskKind")
     if task_type == "resume":
         sources = [s for s in sources if s.get("purpose") == "current_fact"]
     ids = [str(s.get("id")) for s in sources if s.get("id") is not None]
     text = "\n".join(str(s.get("selected_content", s.get("content", ""))) for s in sources)
     claim = {"kind": "Fact", "text": text[:1000] or "当前资料未提供可核验内容。", "source_ids": ids[:20]}
+    if task_type == "interview_final_review":
+        return {
+            "summary": "测试模式复盘：请依据当前 Raw 人工核对。",
+            "key_qa": [text[:1000]] if text else [],
+            "patterns": [], "discoveries": [], "next_actions": ["人工核对后保存当前复盘"],
+        }
+    if task_type == "interview_research_patch":
+        return {"items": [{"category": "unknown", "content": "测试模式候选：请依据真实面试 Raw 人工核对。"}]}
+    if task_type == "research_update":
+        web = [s.get("selected_content", {}) for s in sources if s.get("purpose") == "web_source"]
+        refs = [{"url": item.get("url"), "title": item.get("title"), "retrieved_at": item.get("retrieved_at")} for item in web if item.get("url")]
+        return {
+            "company_items": [{"category": "company", "classification": "unknown", "content": "测试模式：请根据来源人工核对公司信息。", "source_refs": refs[:1]}],
+            "opportunity_items": [{"category": "unknown", "classification": "unknown", "content": "测试模式：当前岗位情报待人工核对。", "source_refs": refs[:1]}],
+        }
+    if task_type == "resume_optimization":
+        current = next((s.get("selected_content") for s in sources if s.get("purpose") == "current_resume_document"), {})
+        return {"document": current, "suggestions": ["测试模式建议：请人工核对当前岗位与简历表达。"], "claims": [claim]}
     if task_type == "resume":
         return {"draft": text[:4000], "claims": [claim]}
     return {

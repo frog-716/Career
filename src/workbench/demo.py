@@ -83,6 +83,7 @@ def _source_set(store, c, manifest, episode_id, job_id):
 
 
 def _load_dataset(store):
+    raise Conflict('legacy_demo_disabled: v2禁止旧整包写入')
     data_dir = Path(store.data_dir)
     pdf_written = False
     manifest = {"schemaVersion": 1, "dataset_id": DATASET_ID, "current": [],
@@ -212,6 +213,7 @@ def _load_dataset(store):
 
 
 def _remove_dataset(store):
+    raise Conflict('legacy_demo_disabled: v2禁止旧整包写入')
     data_dir = Path(store.data_dir)
     with store.connect() as c:
         row = c.execute("SELECT body FROM records WHERE id=? AND kind='demo_manifest'", (DATASET_ID,)).fetchone()
@@ -264,10 +266,10 @@ def demo_router(store):
 
     @router.post("/api/demo/load")
     def load():
-        return _load_dataset(store)
+        raise Conflict('legacy_demo_disabled: 隔离v2仅保留旧案例读取，不能装载旧整包')
 
     @router.post("/api/demo/remove")
     def remove():
-        return _remove_dataset(store)
+        raise Conflict('legacy_demo_disabled: 隔离v2不删除旧案例或其引用资料')
 
     return router

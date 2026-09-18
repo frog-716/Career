@@ -20,12 +20,9 @@ def _text(value, field, limit=100000):
 
 
 def _opportunity(store, c, value):
-    value = required(value, "机会", 500)
-    if value.startswith("opportunity:"):
-        opportunity = store._get(c, value, "opportunity")
-        return value, opportunity["legacy_job_id"]
-    store._get(c, value, "job")
-    return "opportunity:" + value, value
+    from .opportunity import active
+    opportunity=active(store,c,value)
+    return opportunity['id'], opportunity.get('legacy_job_id') or opportunity['id'].split(':',1)[1]
 
 
 def _opportunities(store, c, values):
@@ -75,6 +72,8 @@ def _raw(store, c, body, kind, job_id, submission_id=None):
 def create_activity(store, c, kind, body):
     if kind not in TYPED:
         raise Invalid("活动类型不支持")
+    if kind == "communication":
+        raise Conflict("communication_action_required: 请在Opportunity中记录沟通")
     title = body.get("title", "")
     if not isinstance(title, str) or len(title) > 500:
         raise Invalid("标题超出长度限制")
@@ -85,6 +84,7 @@ def create_activity(store, c, kind, body):
     previous, key, fingerprint = _request(store, c, key, "create_" + kind, payload)
     if previous is not None:
         return previous
+    if kind in {"interview","offer"}:raise Conflict("lifecycle_action_pending: 隔离v2等待真实轮次/Offer动作接管")
 
     if kind == "research":
         requested = body.get("opportunity_ids")

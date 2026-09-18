@@ -1,3 +1,4 @@
+from batch_b_helpers import save_job
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -8,7 +9,7 @@ from workbench.providers import TestProvider
 
 def client_for(tmp_path):
     store = Store(tmp_path, TestProvider())
-    app = FastAPI()
+    app = FastAPI(); app.state.store=store
     for cls, code in ((Invalid, 422), (Conflict, 409), (Missing, 404)):
         async def handle(request, exc, status=code):
             from fastapi.responses import JSONResponse
@@ -19,15 +20,16 @@ def client_for(tmp_path):
 
 
 def make_job(store):
-    return store.save_job({"company": "虚构公司", "title": "研究员", "jd": "虚构 JD"})
+    return save_job(store,{"company": "虚构公司", "title": "研究员", "jd": "虚构 JD"})
 
 
 def note(client, job, key="n1", content="原始私聊", submission_id=None):
-    return client.post("/api/journey/notes", json={
-        "scope_type": "job", "scope_id": job["id"], "kind": "interview",
-        "title": "原始标题", "content": content, "idempotency_key": key,
-        "submission_id": submission_id,
-    }).json()
+    # Existing v1 interview raw fixture; B pauses NEW interviews, not corrections.
+    from workbench.core import uid,now
+    body=dict(id=uid(),scope_type='job',scope_id=job['id'],kind='interview',title='原始标题',content=content,idempotency_key=key,submission_id=submission_id,created_at=now())
+    with client.app.state.store.connect() as db:client.app.state.store._record(db,'journey_note',body)
+    return body
+
 
 
 def test_correction_is_revisioned_and_original_note_immutable(tmp_path):
@@ -92,7 +94,8 @@ def test_candidate_requires_explicit_personal_promotion_and_submission_matches_j
     with store.connect() as db:
         db.execute("INSERT INTO records VALUES(?,?,?)", ("v", "version", '{"id":"v"}'))
         db.execute("INSERT INTO records VALUES(?,?,?)", ("a", "artifact", '{"id":"a"}'))
-        db.execute("INSERT INTO applications VALUES(?,?,?,?,?,?)", ("sub-1", job["id"], "v", "a", "k", '{"id":"sub-1","job_id":"'+job["id"]+'"}'))
+        from batch_c_helpers import insert_legacy_application
+        insert_legacy_application(db, ("sub-1", job["id"], "v", "a", "k", '{"id":"sub-1","job_id":"'+job["id"]+'"}'))
     n = note(c, job, submission_id="sub-1")
     common = {"expected_revision": 0, "title": "结论", "content": "选段",
               "entry_type": "experience", "scope_type": "personal", "scope_id": "",

@@ -1,4 +1,4 @@
-"""Read-only schema-v1 inventory and restore verification; never instantiate Store.
+"""Read-only schema-v1 through v6 inventory and restore verification; never instantiate Store.
 
 Reports contain identifiers, relationships and hashes, not personal prose. This
 module proposes no mutations and cannot perform a domain/schema migration.
@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import unicodedata
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,8 +57,8 @@ def inventory(data_dir):
         c.execute('PRAGMA query_only=ON')
         c.execute('BEGIN')
         version = c.execute('PRAGMA user_version').fetchone()[0]
-        if version != 1:
-            raise ValueError('只支持已核对的schema version 1，不推断未知schema')
+        if version not in (1, 2, 3, 4, 5, 6):
+            raise ValueError('只支持已核对的schema version 1/2/3/4/5/6，不推断未知schema')
         schema = [tuple(r) for r in c.execute(
             "SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name")]
         rows = {table: [dict(r) for r in c.execute('SELECT * FROM ' + table)] for table in TABLES}
@@ -90,6 +91,11 @@ def inventory(data_dir):
         canonical = []
         aliases = {id: 'opportunity:' + id for id in jobs}
         for id, value in opportunities.items():
+            if value.get('format_version') == 2:
+                aliases[id] = id
+                if not value.get('legacy_job_id'):
+                    canonical.append(dict(legacy_job_id=None,canonical_id=id,materialized=True,differing_fields=[]))
+                continue
             legacy = value.get('legacy_job_id')
             aliases[id] = 'opportunity:' + legacy if legacy in jobs else id
             if legacy not in jobs or id != 'opportunity:' + legacy:
@@ -111,6 +117,8 @@ def inventory(data_dir):
             # Existing old jobs can be exposed through a read-only canonical view.
             if 'opportunity' in kinds and target in aliases.values():
                 valid = True
+            if 'job' in kinds and isinstance(target,str) and opportunities.get('opportunity:'+target,{}).get('format_version')==2:
+                valid=True
             refs.append(dict(owner=owner, field=field, target=target, valid=valid))
             if not valid:
                 issue('missing_or_wrong_kind_reference', owner=owner, field=field, target=target)
@@ -120,15 +128,17 @@ def inventory(data_dir):
         contexts = [x for x in current.values() if x['_kind'] == 'opportunity_context']
         companies = {id: x for id, x in current.items() if x['_kind'] == 'domain_company'}
         company_candidates, company_conflicts = [], []
+        identity_key=lambda name:unicodedata.normalize('NFKC',name.strip()).strip().casefold()
         for id, job in jobs.items():
             linked = [x for x in contexts if x.get('job_id') == id]
-            matches = [cid for cid, x in companies.items() if x.get('name', '').strip() == job.get('company', '').strip()]
-            company_candidates.append(dict(job_id=id, linked_ids=[x.get('company_id') for x in linked], exact_name_matches=matches))
+            exact = [cid for cid, x in companies.items() if x.get('name', '').strip() == job.get('company', '').strip()]
+            matches = [cid for cid, x in companies.items() if identity_key(x.get('name','')) == identity_key(job.get('company',''))]
+            company_candidates.append(dict(job_id=id, linked_ids=[x.get('company_id') for x in linked], exact_name_matches=exact, identity_matches=matches, identity_rule='NFKC+trim+casefold'))
             if not linked and len(matches) > 1:
                 company_conflicts.append(finding('ambiguous_company_match', [job], job_id=id, candidates=matches))
             for context in linked:
                 cid = context.get('company_id')
-                if cid in companies and companies[cid].get('name') != job.get('company'):
+                if cid in companies and identity_key(companies[cid].get('name','')) != identity_key(job.get('company','')):
                     company_conflicts.append(finding('company_name_conflict', [job, companies[cid]], job_id=id, company_id=cid))
 
         def groups(values):
@@ -165,10 +175,14 @@ def inventory(data_dir):
             if kind in ('resume', 'version', 'journey_plan', 'run'):
                 fields.update(job_id=['job'])
             if kind == 'version': fields.update(resume_id=['resume'])
-            if kind == 'opportunity': fields.update(legacy_job_id=['job'])
+            if kind == 'opportunity':
+                if obj.get('legacy_job_id'): fields.update(legacy_job_id=['job'])
+                if obj.get('format_version') == 2: fields.update(company_id=['domain_company'])
             if kind in ('application', 'resume_use', 'editor_version', 'version'):
                 fields.update(version_id=['version', 'editor_version'], artifact_id=['artifact'])
             if kind == 'application': fields.update(job_id=['job'], opportunity_id=['opportunity'])
+            if kind in ('resume_document','editor_version') and obj.get('document_id'): fields.update(document_id=['resume_document'])
+            if kind=='resume_document' or (kind=='editor_version' and obj.get('document_id')):fields.update(opportunity_id=['opportunity'])
             if kind == 'artifact': fields.update(version_id=['version', 'editor_version'])
             if kind in ('research_snapshot', 'communication', 'interview', 'offer'):
                 fields.update(raw_note_id=['journey_note'], opportunity_id=['opportunity'], submission_id=['application'])
@@ -181,7 +195,7 @@ def inventory(data_dir):
             for field, kinds in fields.items():
                 if field in obj:
                     reference(id, field, obj[field], kinds, optional=field in
-                              ('submission_id', 'entry_id', 'company_id', 'org_unit_id', 'target_role_id', 'search_cycle_id'))
+                              ('submission_id', 'entry_id', 'company_id', 'org_unit_id', 'target_role_id', 'search_cycle_id') or (kind=='application' and field in ('version_id','artifact_id') and obj.get('submission_format')==3))
             if kind in ('wiki_entry', 'knowledge_candidate'):
                 for sid in obj.get('source_ids', []):
                     reference(id, 'source_ids', sid, ['knowledge_source'])

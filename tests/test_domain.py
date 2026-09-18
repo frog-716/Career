@@ -28,16 +28,17 @@ def test_org_parent_cannot_cycle_or_cross_company(tmp_path):
     assert post(c,'/objects/'+x['id'],{**x,'name':'改名','expected_revision':0}).status_code==409
 
 
-def test_opportunity_assignment_validates_refs_and_is_revisioned(tmp_path):
+def test_opportunity_assignment_is_canonical_cas_and_rejects_mixed_context(tmp_path):
     c=client(tmp_path)
-    job=c.post('/api/jobs',json={'company':'虚构甲','title':'分析师','jd':'JD'},headers={'X-Career-Request':'1'}).json()
-    a=obj(c,'company','虚构甲'); b=obj(c,'company','虚构乙'); org=obj(c,'org_unit','团队',company_id=a['id']); role=obj(c,'target_role','数据分析'); cycle=obj(c,'search_cycle','秋季求职')
-    body={'company_id':a['id'],'org_unit_id':org['id'],'target_role_id':role['id'],'search_cycle_id':cycle['id'],'expected_revision':0}
+    job=c.post('/api/jobs',json={'company':'虚构甲','title':'分析师','jd':'JD','idempotency_key':'job'},headers={'X-Career-Request':'1'}).json()
+    a=obj(c,'company','虚构甲'); b=obj(c,'company','虚构乙')
+    body=dict(company_id=b['id'],expected_revision=job['revision'],idempotency_key='assign')
     r=post(c,'/opportunities/'+job['id'],body); assert r.status_code==200,r.text
-    assert post(c,'/opportunities/'+job['id'],body).status_code==409
-    assert post(c,'/opportunities/'+job['id'],{**body,'company_id':b['id'],'expected_revision':1}).status_code==422
-    binding=c.get('/api/domain').json()['opportunities'][0]
-    assert binding['job_id']==job['id'] and binding['org_unit_id']==org['id']
+    assert r.json()['company_id']==b['id']
+    assert post(c,'/opportunities/'+job['id'],body).json()==r.json()
+    assert post(c,'/opportunities/'+job['id'],dict(body,idempotency_key='stale')).status_code==409
+    assert post(c,'/opportunities/'+job['id'],dict(body,target_role_id='anything')).status_code==409
+    assert c.get('/api/domain').json()['opportunities']==[]
     assert c.get('/api/state').json()['applications']==[]
 
 

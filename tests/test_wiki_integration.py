@@ -9,7 +9,7 @@ def test_latest_confirmed_selection_in_actual_payload_and_staleness(tmp_path):
     store=Store(tmp_path/'data',TestProvider()); c=TestClient(create_app(store)); h={'X-Career-Request':'1'}
     def post(p,b):
         r=c.post('/api'+p,json=b,headers=h);assert r.status_code==200,r.text;return r.json()
-    job=post('/jobs',dict(company='虚构甲',title='分析',jd='虚构JD'))
+    job=post('/jobs',dict(company='虚构甲',title='分析',jd='虚构JD',idempotency_key='job'))
     def entry(title,content,kind='project',scope_type='personal',scope_id=''):
         source=post('/knowledge/sources',dict(title=title,content=content,source_type='text',locator='',scope_type=scope_type,scope_id=scope_id,idempotency_key=title+'raw'))
         candidate=post('/knowledge/candidates',dict(title=title,content=content,entry_type=kind,scope_type=scope_type,scope_id=scope_id,source_ids=[source['id']],idempotency_key=title+'candidate'))
@@ -17,9 +17,9 @@ def test_latest_confirmed_selection_in_actual_payload_and_staleness(tmp_path):
         return next(x for x in c.get('/api/knowledge').json()['entries'] if x['id']==result['entry_id'])
     goal=entry('目标','必须保留的约束','constraint')
     project=entry('项目甲','旧事实XYZ')
-    private=entry('别的机会','跨机会机密',scope_type='job',scope_id=post('/jobs',dict(company='虚构乙',title='经理',jd='B'))['id'])
+    private=entry('别的机会','跨机会机密',scope_type='job',scope_id=post('/jobs',dict(company='虚构乙',title='经理',jd='B',idempotency_key='job2'))['id'])
     packet=post('/context',dict(job_id=job['id'],kind='job',wiki_ids=[project['id']]))
-    assert {x['id'] for x in packet['sources']}=={goal['id'],project['id'],job['id']}
+    assert {x['id'] for x in packet['sources']}=={goal['id'],project['id'],job['opportunity_id'],c.get('/api/opportunities/'+job['id']).json()['company_id']}
     post('/knowledge/entries/'+project['id'],{**project,'content':'最新事实ABC','expected_revision':project['revision']})
     stale=c.post('/api/analysis',json=dict(job_id=job['id'],kind='job',wiki_ids=[project['id']],expected_epoch=packet['epoch'],idempotency_key='stale'),headers=h)
     assert stale.status_code==409

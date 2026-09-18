@@ -95,6 +95,9 @@ def backup(data_dir,output_dir,backup_name=None):
         # bytes read in that window rather than reread after the snapshot.
         with sqlite3.connect(str(source/'workspace.sqlite3'), timeout=15) as locker:
             locker.execute('BEGIN IMMEDIATE')
+            if locker.execute('PRAGMA user_version').fetchone()[0] in (3, 4, 5, 6):
+                from .resume_artifacts import recover
+                recover(locker,source)
             # The lock connection reserves the write window; a separate read
             # connection is required because sqlite's backup API waits when
             # its source connection itself owns a write transaction.

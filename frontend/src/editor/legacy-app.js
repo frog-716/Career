@@ -17,7 +17,12 @@ const materialsDialog = document.getElementById("materialsDialog");
 const materialsList = document.getElementById("materialsList");
 const sourcesDialog = document.getElementById("sourcesDialog");
 const sourcesList = document.getElementById("sourcesList");
-const editorJobId = new URLSearchParams(location.search).get("job_id") || "";
+let editorJobId = new URLSearchParams(location.search).get("job_id") || "";
+
+const documentId = new URLSearchParams(location.search).get("document_id") || "";
+const editorBase = "/api/resume-documents/" + encodeURIComponent(documentId);
+let opportunityId = "";
+let pendingSubmission = null;
 
 const SECTION_TYPES = ["skills", "experience", "projects", "education"];
 const SECTION_NAMES = {
@@ -338,7 +343,7 @@ async function saveDocument() {
   try {
     resume.meta.updatedAt = new Date().toISOString();
     const sent = snapshot();
-    const {data: payload} = await requestBackend("/api/editor", {
+    const {data: payload} = await requestBackend(editorBase, {
       method: "PUT", data: {document: JSON.parse(sent), expected_revision: revision},
     });
     revision = payload.revision; savedSnapshot = sent;
@@ -348,7 +353,7 @@ async function saveDocument() {
     localChangePending = true;
     if (error.status === 409) {
       try {
-        const latest = await requestBackend("/api/editor", {cache: "no-store"});
+        const latest = await requestBackend(editorBase, {cache: "no-store"});
         conflictState = {server: latest.data.document, revision: latest.data.revision};
         showConflict();
       } catch (readError) { showToast(`保存冲突，无法读取最新版本：${readError.message}`); }
@@ -848,7 +853,7 @@ async function commitPendingVersion() {
   const pending = pendingVersion;
   lockEditor(true);
   try {
-    const {data: result} = await requestBackend("/api/editor/versions", {method: "POST", data: pending.body});
+    const {data: result} = await requestBackend(editorBase + "/versions", {method: "POST", data: pending.body});
     if (pending.downloadLocal) downloadBlob(pending.artifact.fileName, pending.artifact.blob);
     pendingVersion = null;
     document.getElementById('versionRetry').hidden = true;
@@ -885,9 +890,6 @@ async function saveVersionToCloud(name, options = {}) {
   return commitPendingVersion();
 }
 
-async function exportPdfAndArchive(name) {
-  return saveVersionToCloud(name, {downloadLocal: true});
-}
 
 function documentText(doc) {
   const lines = [textOf(doc.profile.name), ...doc.profile.contacts.map(item => textOf(item.content))];
@@ -940,7 +942,7 @@ function markdownExport() {
 async function refreshVersions() {
   versionList.innerHTML = '<div class="empty-state">正在读取…</div>';
   try {
-    const {data: payload} = await requestBackend("/api/editor/versions", {cache: "no-store"});
+    const {data: payload} = await requestBackend(editorBase + "/versions", {cache: "no-store"});
     const versions = Array.isArray(payload?.versions) ? payload.versions : [];
     versionList.replaceChildren();
     if (!versions.length) {
@@ -952,7 +954,7 @@ async function refreshVersions() {
       row.className = "version-row";
       const info = document.createElement("div");
       const name = document.createElement("strong");
-      name.textContent = version.name;
+      name.textContent = (version.version_kind === "submission" ? "🔒 投递版本 · " : "普通版本 · ") + version.name;
       const time = document.createElement("time");
       time.textContent = new Date(version.createdAt).toLocaleString("zh-CN", {
         year: "numeric", month: "2-digit", day: "2-digit",
@@ -964,7 +966,7 @@ async function refreshVersions() {
       actions.append(
         button("下载 PDF", "下载这个历史版本的 PDF", () => downloadHistoricalPdf(version.id)),
         button("恢复", "恢复这个版本", () => restoreHistoricalVersion(version)),
-        button("删除", "删除这个历史版本", () => deleteHistoricalVersion(version), "danger"),
+        ...(version.version_kind === "submission" ? [] : [button("删除", "删除这个历史版本", () => deleteHistoricalVersion(version), "danger")]),
       );
       row.append(info, actions);
       versionList.append(row);
@@ -975,7 +977,7 @@ async function refreshVersions() {
 }
 
 async function getHistoricalVersion(id) {
-  const {data: version} = await requestBackend(`/api/editor/versions/${id}`, {cache: "no-store"});
+  const {data: version} = await requestBackend(`${editorBase}/versions/${id}`, {cache: "no-store"});
   if (!version?.document) throw new Error("历史版本数据不完整");
   return version;
 }
@@ -996,7 +998,7 @@ async function deleteHistoricalVersion(version) {
   const confirmed = await askInPage(`确认删除版本“${version.name}”？删除后不能恢复。`, false);
   if (!confirmed) return;
   try {
-    await requestBackend(`/api/editor/versions/${encodeURIComponent(version.id)}`, {method: "DELETE"});
+    await requestBackend(`${editorBase}/versions/${encodeURIComponent(version.id)}`, {method: "DELETE"});
     await refreshVersions();
     showToast(`已删除版本：${version.name}`);
   } catch (error) {
@@ -1028,8 +1030,8 @@ async function applyHistoricalVersion(version) {
   try {
     // Persist the pre-restore draft so its recovery point includes the latest edit.
     await flushSave();
-    const {data: payload} = await requestBackend("/api/editor/restore", {
-      method: "POST", data: {version_id: version.id, expected_revision: revision},
+    const {data: payload} = await requestBackend(editorBase + "/restore", {
+      method: "POST", data: {version_id: version.id, expected_revision: revision, idempotency_key: crypto.randomUUID()},
     });
     checkpoint(); resume = normalizeDocument(payload.document);
     activeEditable = null; localChangePending = false;
@@ -1085,7 +1087,7 @@ function sourceStatusLabel(status) {
 async function refreshSources() {
   sourcesList.innerHTML = '<div class="empty-state">正在读取…</div>';
   try {
-    const {data} = await requestBackend("/api/editor/sources", {cache: "no-store"});
+    const {data} = await requestBackend(editorBase + "/sources", {cache: "no-store"});
     const sources = Array.isArray(data?.sources) ? data.sources : [];
     sourcesList.replaceChildren();
     if (!sources.length) {
@@ -1187,8 +1189,7 @@ async function openMaterials() {
   materialsList.innerHTML = '<div class="empty-state">正在读取…</div>';
   if (!materialsDialog.open) materialsDialog.showModal();
   try {
-    const query = editorJobId ? `?job_id=${encodeURIComponent(editorJobId)}` : "";
-    const {data} = await requestBackend(`/api/editor/materials${query}`, {cache: "no-store"});
+    const {data} = await requestBackend(editorBase + "/materials", {cache: "no-store"});
     renderMaterials(data);
     const previousById = new Map(previous.map((item) => [item.profile ? "profile" : item.id, item]));
     materialsList.querySelectorAll(".material-choice").forEach((row) => {
@@ -1216,7 +1217,7 @@ async function importMaterials() {
   }));
   const profileInput = materialsList.querySelector("input[data-profile]:checked");
   if (!selections.length && !profileInput) { showToast("请至少选择一条 Wiki 条目或基础资料"); return; }
-  const selectionFingerprint = JSON.stringify({job_id: editorJobId, selections, include_profile: Boolean(profileInput), profile_revision: profileInput?.dataset.profileRevision || null});
+  const selectionFingerprint = JSON.stringify({document_id: documentId, selections, include_profile: Boolean(profileInput), profile_revision: profileInput?.dataset.profileRevision || null});
   setMaterialsBusy(true);
   try {
     const canRetry = materialsRequest?.selectionFingerprint === selectionFingerprint
@@ -1230,7 +1231,7 @@ async function importMaterials() {
     } else {
       await flushSave();
       body = {expected_revision: revision, selections, include_profile: Boolean(profileInput)};
-      if (editorJobId) body.job_id = editorJobId;
+
       if (profileInput) body.profile_revision = Number(profileInput.dataset.profileRevision || 0);
       materialsRequest = {
         selectionFingerprint,
@@ -1240,7 +1241,7 @@ async function importMaterials() {
     }
     lockEditor(true);
     checkpoint();
-    const {data} = await requestBackend("/api/editor/select-facts", {method: "POST", data: body});
+    const {data} = await requestBackend(editorBase + "/select-facts", {method: "POST", data: body});
     resume = normalizeDocument(data.document);
     revision = Number(data.revision);
     lastCloudSavedAt = data.savedAt || null;
@@ -1254,7 +1255,7 @@ async function importMaterials() {
     if (error.status === 409 && conflictState) showToast("草稿保存冲突，请先处理冲突对话框；当前材料勾选已保留");
     else if (error.status === 409) {
       try {
-        const latest = await requestBackend("/api/editor", {cache: "no-store"});
+        const latest = await requestBackend(editorBase, {cache: "no-store"});
         if (latest.data.revision > revision) {
           conflictState = {server: latest.data.document, revision: latest.data.revision};
           materialsRequest = null;
@@ -1265,6 +1266,35 @@ async function importMaterials() {
     }
     else setStatus(`导入失败：${error.message}`, "error");
   } finally { lockEditor(false); setMaterialsBusy(false); }
+}
+
+async function aiOptimize() {
+  if (editorLocked || !resume) return;
+  try {
+    await flushSave();
+    const instruction = "围绕当前岗位优化表达，保持事实不变。";
+    lockEditor(true);
+    const {data: proposal} = await requestBackend(editorBase + "/ai-suggest", {method: "POST", data: {instruction: instruction || "围绕当前岗位优化表达，保持事实不变。", idempotency_key: crypto.randomUUID()}});
+    lockEditor(false);
+    const dialog = document.createElement("dialog"); dialog.className = "restore-dialog";
+    dialog.innerHTML = '<div class="dialog-head"><div><h2>AI 简历建议</h2><p>建议只针对当前 Opportunity 的工作稿；确认前不会修改当前稿，历史版本和投递快照不受影响。</p></div><button data-close>关闭</button></div><div class="diff"><section><h3>当前稿</h3><pre data-before></pre></section><section><h3>建议稿</h3><pre data-after></pre></section></div><p data-suggestions></p><p role="alert"></p><div class="restore-actions"><button data-reject type="button">拒绝</button><button data-accept class="primary" type="button">接受并保存当前稿</button></div>';
+    dialog.querySelector('[data-before]').textContent = documentText(proposal.before_document);
+    dialog.querySelector('[data-after]').textContent = documentText(proposal.proposed_document);
+    dialog.querySelector('[data-suggestions]').textContent = (proposal.suggestions || []).join("；");
+    document.body.append(dialog); dialog.showModal();
+    dialog.querySelector('[data-close]').onclick = () => dialog.close();
+    dialog.addEventListener('close', () => dialog.remove());
+    const resolve = async decision => {
+      const button = dialog.querySelector(`[data-${decision}]`); button.disabled = true;
+      try {
+        const {data} = await requestBackend(editorBase + "/ai-proposals/" + encodeURIComponent(proposal.id) + "/resolve", {method: "POST", data: {decision}});
+        if (decision === "accept") { resume = normalizeDocument(data.document.document || data.document); revision = data.document.revision; savedSnapshot = snapshot(); localChangePending = false; render(); setStatus("已接受 AI 建议并保存当前稿"); }
+        dialog.close();
+      } catch (error) { dialog.querySelector('[role="alert"]').textContent = error.message; button.disabled = false; }
+    };
+    dialog.querySelector('[data-accept]').onclick = () => resolve('accept');
+    dialog.querySelector('[data-reject]').onclick = () => resolve('reject');
+  } catch (error) { lockEditor(false); showToast(`AI 优化失败：${error.message}`); }
 }
 
 function wireToolbar() {
@@ -1279,6 +1309,7 @@ function wireToolbar() {
   document.getElementById("importMaterials").onclick = () => { importMaterials().catch((error) => showToast(error.message)); };
   materialsDialog.addEventListener("cancel", (event) => { if (materialsBusy) event.preventDefault(); });
   document.getElementById("openSources").onclick = async () => { sourcesDialog.showModal(); await refreshSources(); };
+  document.getElementById("aiOptimize").onclick = () => { aiOptimize().catch(error => showToast(error.message)); };
   document.getElementById("retryVersion").onclick = () => { commitPendingVersion().catch(() => {}); };
   document.getElementById("cancelVersion").onclick = () => { pendingVersion = null; document.getElementById("versionRetry").hidden = true; lockEditor(false); };
   document.getElementById("captureFeedback").addEventListener("click", () => {
@@ -1291,7 +1322,7 @@ function wireToolbar() {
       event.preventDefault(); const text = dialog.querySelector('textarea').value;
       if (!text.trim()) return;
       const submit = dialog.querySelector('[type="submit"]'); submit.disabled = true;
-      try { await requestBackend('/api/feedback', {method: 'POST', data: {text, current_page: 'editor', entity_id: 'editor-main'}}); dialog.close(); showToast('反馈已保存'); }
+      try { await requestBackend('/api/feedback', {method: 'POST', data: {text, current_page: 'editor', entity_id: documentId}}); dialog.close(); showToast('反馈已保存'); }
       catch (error) { dialog.querySelector('[role="status"]').textContent = error.message; submit.disabled = false; }
     };
   });
@@ -1307,9 +1338,10 @@ function wireToolbar() {
   document.getElementById("exportPdf").addEventListener("click", async () => {
     updatePageStatus();
     if (lastOverflowPixels > 2) { showToast("内容超出 A4，请调整后再导出"); return; }
-    const name = await askInPage("给这个 PDF 版本起一个名称", true);
-    if (!name) return;
-    exportPdfAndArchive(name).catch((error) => showToast(error.message));
+    if (editorLocked || pendingVersion || pendingSubmission) { showToast("请先处理当前保存"); return; }
+    lockEditor(true);
+    try {await flushSave();await document.fonts.ready;const artifact=await createPdfArtifact();downloadBlob(artifact.fileName,artifact.blob);}
+    catch(error){showToast(error.message);}finally{lockEditor(false);}
   });
   document.addEventListener("selectionchange", () => {
     const selection = window.getSelection();
@@ -1359,36 +1391,71 @@ function registerWebMCP() {
     description: "读取编辑器中的当前结构化简历内容（可能有尚未保存的修改），用于检查或提出建议。",
     inputSchema: {type: "object", properties: {}, additionalProperties: false},
     annotations: {readOnlyHint: true, untrustedContentHint: true},
-    execute() { return clone(resume); },
+    execute() { return {document_id: documentId, opportunity_id: opportunityId, document: clone(resume)}; },
   });
 
 }
 
+async function confirmSubmission() {
+  if (pendingVersion || localChangePending && conflictState) {showToast("请先处理保存冲突/版本请求");return;}
+  const {data:o}=await requestBackend('/api/opportunities/'+encodeURIComponent(opportunityId));
+  const dialog=document.createElement('dialog');dialog.className='restore-dialog';
+  dialog.innerHTML='<div class="dialog-head"><h2>记录已投递 · 当前工作稿</h2><button data-close>关闭</button></div><p data-owner></p><p data-greeting></p><p>确认现实中已发送这份简历。系统冻结当前纸面内容和PDF，日期自动记录。</p><p role="alert"></p><button class="primary" data-submit>确认记录已投递</button>';
+  dialog.querySelector('[data-owner]').textContent=o.company+' · '+o.title;
+  dialog.querySelector('[data-greeting]').textContent='本次打招呼语：'+(o.greeting??'本次未使用');
+  document.body.append(dialog);dialog.showModal();
+  dialog.querySelector('[data-close]').onclick=()=>dialog.close();
+  dialog.addEventListener('close',()=>dialog.remove());
+  dialog.querySelector('[data-submit]').onclick=async()=>{
+    const button=dialog.querySelector('[data-submit]');button.disabled=true;lockEditor(true);
+    try {
+      if(!pendingSubmission){
+        await flushSave();await document.fonts.ready;updatePageStatus();
+        if(lastOverflowPixels>2)throw new Error('内容超出A4，请调整后投递');
+        const frozen=clone(resume),frozenRevision=revision;const artifact=await createPdfArtifact();
+        const pdf=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error('PDF读取失败'));reader.readAsDataURL(artifact.blob);});
+        pendingSubmission={expected_revision:o.revision,idempotency_key:crypto.randomUUID(),resume:{mode:'draft',document_id:documentId,expected_document_revision:frozenRevision,document:frozen,pdf_base64:pdf}};
+      }
+      await requestBackend('/api/opportunities/'+encodeURIComponent(opportunityId)+'/submitted',{method:'POST',data:pendingSubmission});
+      pendingSubmission=null;localChangePending=false;lockEditor(false);dialog.close();location.href='/#opportunities/'+encodeURIComponent(opportunityId);
+    }catch(error){dialog.querySelector('[role="alert"]').textContent=error.message+'；本次请求已保留，可重试。';
+      if(error.status===409){const reset=document.createElement('button');reset.textContent='已核对冲突，重新读取机会并准备投递';reset.onclick=()=>{pendingSubmission=null;dialog.close();confirmSubmission().catch(e=>showToast(e.message));};dialog.append(reset);}
+    }finally{button.disabled=false;lockEditor(false);}
+  };
+}
+
 async function start() {
-  wireToolbar();
-  const backLink = document.querySelector(".back-link");
-  if (backLink) backLink.href = editorJobId ? `/#jobs/${encodeURIComponent(editorJobId)}?tab=resume` : "/#resume";
+  const backLink=document.querySelector('.back-link');
   try {
-    const {data: payload} = await requestBackend("/api/editor", {cache: "no-store"});
-    const initial = payload?.document;
-    if (payload?.revision === 0 && !initial.profile.contacts.length) delete initial.profile.contacts;
-    resume = normalizeDocument(initial);
-    revision = Number(payload?.revision || 0);
-    savedSnapshot = snapshot();
-    lastCloudSavedAt = payload?.savedAt || null;
-    render();
-    setStatus(revision === 0 ? "空白工作稿 · 尚未保存" : "已保存");
-    updateHistoryButtons();
-    refreshSources().catch(() => {});
-    registerWebMCP();
-  } catch (error) {
-    setStatus(`载入失败：${error.message}`, "error");
-    paper.innerHTML = '<div class="empty-state">简历数据载入失败，请确认本地服务正常后刷新。</div>';
-  }
+    if(!documentId){
+      if(editorJobId){location.replace('/#opportunities/'+encodeURIComponent(editorJobId));return;}
+      if(new URLSearchParams(location.search).get('legacy')==='1'){
+        const {data:legacy}=await requestBackend('/api/editor');resume=normalizeDocument(legacy.document);revision=legacy.revision;
+        editorLocked=true;render();paper.querySelectorAll('[contenteditable]').forEach(el=>el.contentEditable='false');
+        document.querySelectorAll('button').forEach(el=>el.disabled=true);setStatus('历史 editor-main · 只读复制来源');return;
+      }
+      const {data:catalogue}=await requestBackend('/api/resume-documents');
+      paper.replaceChildren();const title=document.createElement('h2');title.textContent='选择当前文档，继续编辑';paper.append(title);
+      for(const d of catalogue.documents){const link=document.createElement('a');link.href='/editor.html?document_id='+encodeURIComponent(d.document_id);link.textContent=d.company+' · '+d.title+' · '+d.saved_at;const row=document.createElement('p');row.append(link);paper.append(row);}
+      const begin=document.createElement('a');begin.href='/#opportunities';begin.textContent='从机会开始新简历';paper.append(begin);
+      const legacy=document.createElement('a');legacy.href='/editor.html?legacy=1';legacy.textContent='查看历史 editor-main（只读）';paper.append(legacy);
+      document.querySelectorAll('button').forEach(el=>el.disabled=true);setStatus('请先选择机会');return;
+    }
+    const {data:payload}=await requestBackend(editorBase,{cache:'no-store'});
+    opportunityId=payload.opportunity_id;editorJobId=opportunityId.replace(/^opportunity:/,'');
+    if(backLink)backLink.href='/#opportunities/'+encodeURIComponent(opportunityId);
+    resume=normalizeDocument(payload.document);revision=payload.revision;savedSnapshot=snapshot();lastCloudSavedAt=payload.savedAt;
+    wireToolbar();render();setStatus('已保存 · 本机会独立稿');updateHistoryButtons();refreshSources().catch(()=>{});registerWebMCP();
+    document.getElementById('recordSubmitted').onclick=()=>confirmSubmission().catch(e=>showToast(e.message));
+    const {data:o}=await requestBackend('/api/opportunities/'+encodeURIComponent(opportunityId));
+    document.querySelector('.brand strong').textContent=o.company+' · '+o.title+' · 简历';
+    document.getElementById('recordSubmitted').hidden=o.phase!=='resume'||o.result!=='active';
+    if(new URLSearchParams(location.search).get('submit')==='1')await confirmSubmission();
+  }catch(error){setStatus('载入失败：'+error.message,'error');paper.textContent='此工作稿无法载入；不会切换到其他稿。';}
 }
 
 if (location.protocol !== "file:") start();
 
 window.addEventListener("beforeunload", (event) => {
-  if (localChangePending || conflictState || editorLocked || pendingVersion) { event.preventDefault(); event.returnValue = "当前内容尚未保存"; }
+  if (localChangePending || conflictState || editorLocked || pendingVersion || pendingSubmission) { event.preventDefault(); event.returnValue = "当前内容尚未保存"; }
 });

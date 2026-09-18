@@ -16,7 +16,7 @@ type ProfileContext = {
 
 export function hasUnsavedProfile(): boolean {
   return !!document.querySelector(
-    'form[data-profile-form][data-dirty="true"], dialog[data-dirty="true"]',
+    'form[data-profile-form][data-dirty="true"], dialog[open][data-dirty="true"]',
   );
 }
 

@@ -6,9 +6,10 @@ import {
   knowledgeUI,
 } from "./knowledge-ui";
 import { profilePanel } from "./profile-ui";
+import { aiSettingsView } from "./ai-config-ui";
 type Row = Record<string, any>;
 export const ui = {
-  sidebar: true,
+  sidebar: !window.matchMedia("(max-width: 760px)").matches,
   jobTab: "jd",
   workTab: "action",
   materialTab: "versions",
@@ -76,6 +77,158 @@ const title = (name: string, actions = "") =>
   `<div class="pane-heading"><h2>${e(name)}</h2><div class="actions">${actions}</div></div>`;
 const addNote = (scope: string, id: string, kind: string) =>
   `<button class="primary" data-add-note="${scope}:${e(id)}:${kind}">${icon("plus")}记录${noteNames[kind]}</button>`;
+export const SIDEBAR_MODULES: [string, string][] = [
+  ["home", "今天"], ["wiki", "职业 Wiki"], ["jobs", "机会"],
+  ["resume", "简历工作台"], ["work", "任职"],
+];
+const sidebarStorageKey = "career.sidebar.module-order.v1";
+function sidebarOrder(): [string, string][] {
+  const ids = SIDEBAR_MODULES.map(([id]) => id);
+  let saved: unknown = [];
+  try { saved = JSON.parse(localStorage.getItem(sidebarStorageKey) || "[]"); } catch { saved = []; }
+  const ordered = Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string" && ids.includes(id)) : [];
+  ids.forEach((id) => { if (!ordered.includes(id)) ordered.push(id); });
+  return ordered.map((id) => SIDEBAR_MODULES.find(([candidate]) => candidate === id)!);
+}
+function saveSidebarOrder(nav: HTMLElement) {
+  const order = [...nav.querySelectorAll<HTMLElement>("[data-sidebar-module]")].map((el) => el.dataset.sidebarModule!);
+  try { localStorage.setItem(sidebarStorageKey, JSON.stringify(order)); } catch { /* local preference is best effort */ }
+}
+export function bindSidebarOrder() {
+  const nav = document.querySelector<HTMLElement>("#sidebar-nav");
+  if (!nav) return;
+  let dragging: HTMLElement | null = null;
+  let placeholder: HTMLElement | null = null;
+  let pointerId: number | null = null;
+  let pointerStartX = 0;
+  let pointerStartY = 0;
+  let pointerMoved = false;
+  let touchTimer: number | undefined;
+  let dragActive = false;
+  let moveFrame: number | undefined;
+  let pendingMove: {x: number; y: number} | null = null;
+  let suppressClick = false;
+  const resetDraggedItem = () => {
+    if (!dragging) return;
+    dragging.classList.remove("is-dragging");
+    dragging.removeAttribute("aria-grabbed");
+    dragging.style.removeProperty("width");
+    dragging.style.removeProperty("position");
+    dragging.style.removeProperty("left");
+    dragging.style.removeProperty("top");
+    dragging.style.removeProperty("z-index");
+    dragging.style.removeProperty("pointer-events");
+    dragging.style.removeProperty("transform");
+  };
+  const resetDrag = () => {
+    if (touchTimer) window.clearTimeout(touchTimer);
+    touchTimer = undefined;
+    if (moveFrame) window.cancelAnimationFrame(moveFrame);
+    moveFrame = undefined;
+    pendingMove = null;
+    if (placeholder) placeholder.remove();
+    placeholder = null;
+    nav.classList.remove("is-sorting");
+    resetDraggedItem();
+    dragging = null;
+    pointerId = null;
+    dragActive = false;
+  };
+  const beginDrag = () => {
+    if (!dragging || dragActive) return;
+    const rect = dragging.getBoundingClientRect();
+    placeholder = document.createElement("div");
+    placeholder.className = "sidebar-drop-placeholder";
+    placeholder.style.height = `${rect.height}px`;
+    placeholder.setAttribute("aria-hidden", "true");
+    nav.insertBefore(placeholder, dragging);
+    nav.classList.add("is-sorting");
+    dragging.classList.add("is-dragging");
+    dragging.setAttribute("aria-grabbed", "true");
+    dragging.style.width = `${rect.width}px`;
+    dragging.style.position = "fixed";
+    dragging.style.left = `${rect.left}px`;
+    dragging.style.top = `${rect.top}px`;
+    dragging.style.zIndex = "20";
+    dragging.style.pointerEvents = "none";
+    dragging.style.transform = "scale(1.02)";
+    dragActive = true;
+  };
+  const placePlaceholder = (clientY: number) => {
+    if (!dragActive || !dragging || !placeholder) return;
+    const items = [...nav.querySelectorAll<HTMLElement>("[data-sidebar-module]")].filter((item) => item !== dragging);
+    const before = items.find((item) => {
+      const rect = item.getBoundingClientRect();
+      return clientY < rect.top + rect.height / 2;
+    });
+    if (before) {
+      if (placeholder.nextElementSibling !== before) nav.insertBefore(placeholder, before);
+    } else if (placeholder !== nav.lastElementChild) {
+      nav.appendChild(placeholder);
+    }
+  };
+  const queueMove = (clientX: number, clientY: number) => {
+    if (!dragActive || !dragging) return;
+    pendingMove = {x: clientX, y: clientY};
+    if (moveFrame) return;
+    moveFrame = window.requestAnimationFrame(() => {
+      moveFrame = undefined;
+      if (!pendingMove || !dragging) return;
+      dragging.style.transform = `translate(${pendingMove.x - pointerStartX}px, ${pendingMove.y - pointerStartY}px) scale(1.02)`;
+      placePlaceholder(pendingMove.y);
+      pendingMove = null;
+    });
+  };
+  // Use pointer events for both desktop drag and mobile long-press. Prevent
+  // the browser's native HTML5 drag from stealing the pointer stream.
+  nav.addEventListener("dragstart", (event) => event.preventDefault());
+  nav.addEventListener("pointerdown", (event) => {
+    const item = (event.target as HTMLElement).closest<HTMLElement>("[data-sidebar-module]");
+    if (!item) return;
+    dragging = item;
+    pointerId = event.pointerId;
+    pointerStartX = event.clientX;
+    pointerStartY = event.clientY;
+    pointerMoved = false;
+    try { item.setPointerCapture(event.pointerId); } catch { /* best effort */ }
+    if (event.pointerType === "touch") touchTimer = window.setTimeout(beginDrag, 350);
+  });
+  nav.addEventListener("pointermove", (event) => {
+    if (!dragging || pointerId !== event.pointerId) return;
+    if (Math.abs(event.clientX - pointerStartX) + Math.abs(event.clientY - pointerStartY) > 4) pointerMoved = true;
+    if (!dragActive) {
+      if (event.pointerType === "touch" && pointerMoved) {
+        if (touchTimer) window.clearTimeout(touchTimer);
+        touchTimer = undefined;
+        dragging = null;
+        pointerId = null;
+      } else if (event.pointerType !== "touch" && pointerMoved) beginDrag();
+      return;
+    }
+    event.preventDefault();
+    queueMove(event.clientX, event.clientY);
+  });
+  nav.addEventListener("pointerup", (event) => {
+    if (pointerId !== event.pointerId) return;
+    if (touchTimer) window.clearTimeout(touchTimer); touchTimer = undefined;
+    if (dragActive && placeholder && dragging) {
+      nav.insertBefore(dragging, placeholder);
+      placeholder.remove();
+      placeholder = null;
+      resetDraggedItem();
+      saveSidebarOrder(nav);
+      suppressClick = true;
+    }
+    try { dragging?.releasePointerCapture(event.pointerId); } catch { /* best effort */ }
+    resetDrag();
+  });
+  nav.addEventListener("pointercancel", (event) => {
+    if (pointerId !== event.pointerId) return;
+    try { dragging?.releasePointerCapture(event.pointerId); } catch { /* best effort */ }
+    resetDrag();
+  });
+  nav.addEventListener("click", (event) => { if (!suppressClick) return; event.preventDefault(); event.stopPropagation(); suppressClick = false; });
+}
 export function shell(
   page: string,
   content: string,
@@ -88,15 +241,7 @@ export function shell(
       : page === "profile"
         ? "wiki"
         : page;
-  const items = [
-    ["home", "今天"],
-    ["wiki", "职业 Wiki"],
-    ["jobs", "机会"],
-    ["resume", "简历工作台"],
-    ["work", "任职"],
-    ["practice", "面试与复盘"],
-    ["footprint", "足迹"],
-  ];
+  const items = sidebarOrder();
   const label =
     items.find(([id]) => id === active)?.[1] ||
     (page === "feedback"
@@ -132,7 +277,7 @@ export function shell(
         <g class="flow-embers" fill="#8bb3ca" style="animation-delay:-1.8s"><circle cx="14" cy="13" r=".7"/><circle cx="7" cy="42" r=".6"/><circle cx="39" cy="8" r=".8"/></g>
       </g>
     </svg></span>`;
-  return `<div class="workspace ${ui.sidebar ? "" : "sidebar-hidden"}"><aside class="sidebar" ${ui.sidebar ? "" : "inert"}><div class="brand">Career OS</div><nav aria-label="主导航">${items.map(([id, text]) => `<button class="nav ${active === id ? "active" : ""}" data-page="${id}">${icon(id)}<span>${text}</span></button>`).join("")}</nav><div class="sidebar-bottom"><details class="account-menu"><summary aria-label="蒸🐮🐸，账户菜单">${accountAvatar}<span class="account-name"><span>蒸</span><span class="account-emoji">🐮</span><span class="account-emoji">🐸</span></span><span class="more">···</span></summary><div class="account-popover"><button data-page="profile">${icon("resume")}个人资料</button><button data-page="directory">${icon("jobs")}公司与方向</button><button data-page="diagnostics">${icon("settings")}设置</button><button data-page="feedback">${icon("feedback")}反馈记录</button></div></details></div></aside><main><header class="topbar"><div class="actions"><button class="icon-button" id="toggle-sidebar" aria-label="${ui.sidebar ? "收起" : "展开"}侧栏" aria-expanded="${ui.sidebar}">${icon("panel")}</button><h1>${label}</h1>${test ? '<span class="test-badge">测试空间</span>' : ""}</div><button class="quiet" id="capture-feedback">${icon("feedback")}反馈</button></header><div id="notice" class="notice toast" role="status" ${notice ? "" : "hidden"}>${e(notice)}</div><div class="workspace-content">${content}</div></main></div>`;
+  return `<div class="workspace ${ui.sidebar ? "" : "sidebar-hidden"}"><aside class="sidebar" ${ui.sidebar ? "" : "inert"}><div class="brand">Career OS</div><nav id="sidebar-nav" aria-label="主导航">${items.map(([id, text]) => `<button class="nav ${active === id ? "active" : ""}" data-page="${id}" data-sidebar-module="${id}" draggable="true" aria-grabbed="false">${icon(id)}<span>${text}</span></button>`).join("")}</nav><div class="sidebar-bottom"><details class="account-menu"><summary aria-label="蒸🐮🐸，账户菜单">${accountAvatar}<span class="account-name"><span>蒸</span><span class="account-emoji">🐮</span><span class="account-emoji">🐸</span></span><span class="more">···</span></summary><div class="account-popover"><button data-page="profile">${icon("resume")}个人资料</button><button data-page="directory">${icon("jobs")}公司与方向</button><button data-page="diagnostics">${icon("settings")}设置</button><button data-page="feedback">${icon("feedback")}反馈记录</button></div></details></div></aside><main><header class="topbar"><div class="actions"><button class="icon-button" id="toggle-sidebar" aria-label="${ui.sidebar ? "收起" : "展开"}侧栏" aria-expanded="${ui.sidebar}">${icon("panel")}</button><h1>${label}</h1>${test ? '<span class="test-badge">测试空间</span>' : ""}</div><button class="quiet" id="capture-feedback">${icon("feedback")}反馈</button></header><div id="notice" class="notice toast" role="status" ${notice ? "" : "hidden"}>${e(notice)}</div><div class="workspace-content">${content}</div></main></div>`;
 }
 export function view(page: string, d: Row, h: Row): string {
   const {
@@ -149,6 +294,7 @@ export function view(page: string, d: Row, h: Row): string {
     notes = j.notes as Row[],
     episodes = j.episodes as Row[];
   const profileHtml = () => profilePanel(s.profile);
+  if (page === "diagnostics") return aiSettingsView(s, h.modeText());
   if (page === "wiki" || page === "profile") {
     if (page === "profile") knowledgeUI.tab = "profile";
     return knowledgeView(d, profileHtml);
@@ -182,42 +328,19 @@ export function view(page: string, d: Row, h: Row): string {
   const versions = () =>
     `${editorVersions.length ? editorVersions.map((v: Row) => `<article class="version"><div><b>${e(v.name || "未命名版本")}</b><small>${dt(v.createdAt)}</small></div><div class="actions"><a class="secondary" href="/api/artifacts/${e(v.artifact_id)}" target="_blank" rel="noopener">查看 PDF</a><a class="text-btn" href="/api/artifacts/${e(v.artifact_id)}?download=true">下载</a></div></article>`).join("") : empty("在简历工作台保存版本后，会显示在这里。")}`;
   if (page === "home") {
-    const active = jobs.filter((x) => x.status === "active");
-    const plans = j.plans
-      .filter(
-        (p: Row) =>
-          active.some((x) => x.id === p.job_id) && p.stage !== "closed",
-      )
-      .sort((a: Row, b: Row) =>
-        String(a.due_date || "9999").localeCompare(
-          String(b.due_date || "9999"),
-        ),
-      )
-      .slice(0, 4);
-    const urgent = plans[0];
-    const urgentJob = urgent
-      ? jobs.find((x) => x.id === urgent.job_id)
-      : active[0];
+    const phaseLabels: Row = {resume:"写简历",submitted:"已投递",interview:"面试",offer:"Offer"};
+    const nextLabels: Row = {resume:"准备投递",submitted:"记录招聘沟通",interview:"准备当前面试",offer:"核对 Offer"};
+    const active = (s.opportunities || [])
+      .filter((x: Row) => !x.read_only && x.result === "active")
+      .sort((a: Row,b: Row)=>String(b.phase_changed_on||b.created_on||"").localeCompare(String(a.phase_changed_on||a.created_on||"")));
+    const urgentJob = active[0];
     const urgentAction = urgentJob
-      ? `<button class="primary" data-job="${e(urgentJob.id)}">继续：${e(urgent?.next_action || urgentJob.title)}</button>`
+      ? `<button class="primary" data-job="${e(urgentJob.id)}">继续：${e(nextLabels[urgentJob.phase] || urgentJob.title)}</button>`
       : `<button class="primary" id="home-add-job">${icon("plus")}添加机会</button>`;
-    return `<div class="home scroll"><div class="home-inner"><p class="muted today-date">${new Date().toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" })}</p><h2>今天，先完成一件事</h2><div class="quick-start">${urgentAction}<a class="secondary" href="/editor.html">${icon("resume")}编辑简历</a><button class="secondary" id="add-episode">${icon("work")}记录工作</button></div><section class="continue-list">${title("继续推进", `<button class="text-btn" data-page="jobs">全部 ${icon("arrow")}</button>`)}${
-      plans.length
-        ? plans
-            .map((p: Row) => {
-              const x = jobs.find((x) => x.id === p.job_id)!;
-              return `<button class="continue-row" data-job="${e(x.id)}"><div><b>${e(p.next_action)}</b><small>${e(x.company)} · ${e(x.title)}</small></div><span>${e(p.due_date || stageNames[p.stage])}</span>${icon("arrow")}</button>`;
-            })
-            .join("")
-        : active.length
-          ? active
-              .slice(0, 3)
-              .map(
-                (x) =>
-                  `<button class="continue-row" data-job="${e(x.id)}"><div><b>${e(x.title)}</b><small>${e(x.company)}</small></div><span>安排下一步</span>${icon("arrow")}</button>`,
-              )
-              .join("")
-          : empty("添加一个机会，或先整理个人资料。")
+    return `<div class="home scroll"><div class="home-inner"><p class="muted today-date">${new Date().toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" })}</p><h2>今天，先完成一件事</h2><div class="quick-start">${urgentAction}<button class="secondary" data-page="resume">${icon("resume")}简历工作台</button><button class="secondary" id="add-episode">${icon("work")}记录工作</button></div><section class="continue-list">${title("继续推进", `<button class="text-btn" data-page="jobs">全部 ${icon("arrow")}</button>`)}${
+      active.length
+        ? active.slice(0,4).map((x:Row)=>`<button class="continue-row" data-job="${e(x.id)}"><div><b>${e(nextLabels[x.phase]||x.title)}</b><small>${e(x.company)} · ${e(x.title)}</small></div><span>${e(phaseLabels[x.phase]||"待核对")}</span>${icon("arrow")}</button>`).join("")
+        : empty("添加一个机会，或先整理个人资料。")
     }</section><button class="text-btn" data-page="wiki">${icon("resume")}整理职业 Wiki</button></div></div>`;
   }
   if (page === "jobs" || page === "progress") {
@@ -294,7 +417,7 @@ export function view(page: string, d: Row, h: Row): string {
         ["uses", "方向与机会用途"],
       ],
       tab,
-    )}${tab === "profile" ? profilePanel(s.profile) : tab === "uses" ? `<section class="module-content"><div class="scroll panel-body">${resumeUses(d)}</div></section>` : `<section class="module-content">${title("简历版本", '<a class="primary" href="/editor.html">编辑当前工作稿</a>')}<div class="scroll panel-body"><p class="muted">结构化简历工作台是唯一编辑入口；正式版本可分别关联目标方向或机会。</p>${versions()}<button class="text-btn" data-page="directory">管理目标方向 →</button></div></section>`}</div>`;
+    )}${tab === "profile" ? profilePanel(s.profile) : tab === "uses" ? `<section class="module-content"><div class="scroll panel-body">${resumeUses(d)}</div></section>` : `<section class="module-content">${title("选择当前文档", '<button class="secondary" data-page="jobs">从机会开始新简历</button>')}<div class="scroll panel-body"><p class="muted">选择最近编辑的文档，在同一简历工作台继续。不会自动选中任何工作稿。</p>${(s.resume_documents || []).map((doc: Row) => `<article class="version"><div><b>${e(doc.company)} · ${e(doc.title)}</b><small>最近编辑 ${dt(doc.saved_at)}</small></div><a class="primary" href="/editor.html?document_id=${encodeURIComponent(doc.document_id)}">编辑简历</a></article>`).join("") || empty("还没有工作稿。请从具体机会明确选择创建来源。") }<details><summary>历史材料（只读）</summary>${versions()}</details><a class="text-btn" href="/editor.html?legacy=1">查看历史全局稿（只读）</a></div></section>`}</div>`;
   }
   if (page === "practice" || page === "footprint") {
     const ns =
@@ -308,5 +431,5 @@ export function view(page: string, d: Row, h: Row): string {
       f = fs.find((x) => x.id === ui.selectedFeedback) || fs[0];
     return `<section class="full-panel">${title("反馈记录", '<a class="text-btn" href="/api/feedback/export?format=md">导出 Markdown</a><a class="text-btn" href="/api/feedback/export?format=json">JSON</a>')}${f ? `<div class="records"><div class="record-list scroll">${fs.map((x) => `<button class="record-row ${x.id === f.id ? "selected" : ""}" data-select-feedback="${e(x.id)}"><span>${e(x.text.slice(0, 50))}</span><small>${dt(x.created_at)}</small></button>`).join("")}</div><article class="reading scroll"><div class="pane-heading"><small>${dt(f.created_at)} · ${e(f.current_page)}</small><button class="secondary" data-note="${e(f.id)}">补充</button></div><div class="prose">${e(f.text)}</div>${f.screenshot_id ? `<a href="/api/artifacts/${e(f.screenshot_id)}" target="_blank">查看截图</a>` : ""}${f.notes.map((n: Row) => `<blockquote><small>${dt(n.created_at)}</small><div class="prose">${e(n.text)}</div></blockquote>`).join("")}</article></div>` : empty("使用中遇到问题，随时点右上角反馈。")}</section>`;
   }
-  return `<section class="settings scroll">${title("本地设置")}<div class="setting-row"><span>AI</span><b>${e(h.modeText())}</b></div><div class="setting-row"><span>数据位置</span><code>${e(s.diagnostics.data_dir)}</code></div><div class="setting-row"><span>应用版本</span><span>${e(s.diagnostics.app_version)}</span></div><div class="setting-row"><span>全链路案例</span><div><p class="muted">装载一套带“案例”标识的虚构记录，用于熟悉机会、简历、投递、任职、项目、成果、证据和 Wiki；不会覆盖你的基础资料。</p><div class="actions"><button class="secondary" id="load-demo">装载 / 补齐案例</button><button class="quiet" id="remove-demo">删除案例</button></div></div></div><details class="setup"><summary>配置 AI</summary><p>在本地终端配置 CAREER_AI_PROVIDER=real、CAREER_AI_MODEL、CAREER_AI_API_KEY（或 OPENAI_API_KEY），然后重启服务。兼容服务可另设 CAREER_AI_BASE_URL。</p><p>具体命令见 src/workbench/README.md。密钥只在本机终端设置。</p><p>${e(s.diagnostics.provider?.base_url)} · ${e(s.diagnostics.provider?.model || "未配置模型")}</p></details><button class="text-btn" data-page="feedback">查看反馈记录 ${icon("arrow")}</button></section>`;
+  return `<section class="settings scroll">${title("本地设置")}<div class="setting-row"><span>AI</span><b>${e(h.modeText())}</b></div><div class="setting-row"><span>数据位置</span><code>${e(s.diagnostics.data_dir)}</code></div><div class="setting-row"><span>应用版本</span><span>${e(s.diagnostics.app_version)}</span></div><div class="setting-row"><span>全链路案例</span><div><p class="muted">当前隔离 v2 保留既有案例读取。完整案例的装载和删除暂停，避免改变旧资料及附件引用。</p><div class="actions"><button class="secondary" id="load-demo" disabled>装载 / 补齐案例</button><button class="quiet" id="remove-demo" disabled>删除案例</button></div></div></div><details class="setup"><summary>配置 AI</summary><p>在本地终端配置 CAREER_AI_PROVIDER=real、CAREER_AI_MODEL、CAREER_AI_API_KEY（或 OPENAI_API_KEY），然后重启服务。兼容服务可另设 CAREER_AI_BASE_URL。</p><p>具体命令见 src/workbench/README.md。密钥只在本机终端设置。</p><p>${e(s.diagnostics.provider?.base_url)} · ${e(s.diagnostics.provider?.model || "未配置模型")}</p></details><button class="text-btn" data-page="feedback">查看反馈记录 ${icon("arrow")}</button></section>`;
 }

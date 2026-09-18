@@ -1,3 +1,4 @@
+from batch_b_helpers import save_job
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
@@ -19,7 +20,7 @@ def make_client(tmp_path):
 
 
 def add_job(store, company="Acme"):
-    return store.save_job({"company": company, "title": "工程师", "jd": "JD"})
+    return save_job(store,{"company": company, "title": "工程师", "jd": "JD"})
 
 
 def test_plan_is_scoped_to_active_job_and_uses_revision_cas(tmp_path):
@@ -28,7 +29,7 @@ def test_plan_is_scoped_to_active_job_and_uses_revision_cas(tmp_path):
     second = add_job(store, "Beta")
     response = client.post(
         f"/api/journey/plans/{first['id']}",
-        json={"stage": "research", "next_action": "查资料", "due_date": "2026-09-20", "expected_revision": 0},
+        json={"next_action": "查资料", "due_date": "2026-09-20", "expected_revision": 0},
     )
     assert response.status_code == 200
     plan = response.json()
@@ -40,15 +41,16 @@ def test_plan_is_scoped_to_active_job_and_uses_revision_cas(tmp_path):
     ).status_code == 409
     assert client.post(
         f"/api/journey/plans/{second['id']}",
-        json={"stage": "applied", "next_action": "跟进", "due_date": "2026-09-21", "expected_revision": 0},
+        json={"next_action": "跟进", "due_date": "2026-09-21", "expected_revision": 0},
     ).status_code == 200
     missing = client.post(
         "/api/journey/plans/missing",
         json={"stage": "research", "next_action": "x", "due_date": None, "expected_revision": 0},
     )
     assert missing.status_code == 404
-    store.save_job({"company": "Acme", "title": "工程师", "jd": "JD", "status": "excluded", "expected_revision": first["revision"]}, first["id"])
-    assert client.post(f"/api/journey/plans/{first['id']}", json={"stage": "closed", "next_action": "x", "due_date": None, "expected_revision": plan["revision"]}).status_code == 404
+    from workbench.opportunity import end_opportunity
+    end_opportunity(store,first["id"],dict(result="withdrawn",expected_revision=first["revision"],idempotency_key="end"))
+    assert client.post(f"/api/journey/plans/{first['id']}", json={"stage": "closed", "next_action": "x", "due_date": None, "expected_revision": plan["revision"]}).status_code == 409
 
 
 def test_invalid_collection_values_are_422(tmp_path):

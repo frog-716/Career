@@ -25,7 +25,10 @@ class ContextCompiler:
             raise Invalid("指令过长")
 
         profile = self.store._get(connection, "profile", "profile")
-        job = self.store._get(connection, job_id, "job")
+        from .opportunity import active, job_view
+        opportunity=active(self.store,connection,job_id)
+        job=job_view(self.store,connection,job_id)
+        job_id=job["id"]
         if job["status"] != "active":
             raise Invalid("岗位已删除或排除，请先恢复再分析")
         wiki = selected_wiki_sources(self.store, connection, wiki_ids, job_id)
@@ -51,35 +54,12 @@ class ContextCompiler:
 
         target_content = {key: job[key] for key in ("company", "title", "jd", "url")}
         sources.append(self._source(
-            job["id"], job["revision"], target_content, "target_jd",
+            opportunity["id"], opportunity["revision"], target_content, "target_jd",
             digest(target_content)))
 
-        context_row = connection.execute(
-            "SELECT body FROM current WHERE id=? AND kind='opportunity_context'",
-            ("opportunity-context:" + job_id,),
-        ).fetchone()
-        opportunity_context = None
-        if context_row:
-            import json
-            opportunity_context = json.loads(context_row[0])
-            selected_context = {}
-            for field, kind in {
-                "company_id": "company",
-                "org_unit_id": "org_unit",
-                "target_role_id": "target_role",
-                "search_cycle_id": "search_cycle",
-            }.items():
-                ident = opportunity_context.get(field)
-                if ident:
-                    value = self.store._get(connection, ident, "domain_" + kind)
-                    selected_context[field.removesuffix("_id")] = {
-                        "id": value["id"], "revision": value["revision"],
-                        "name": value["name"], "description": value.get("description", ""),
-                    }
-            if selected_context:
-                sources.append(self._source(
-                    opportunity_context["id"], opportunity_context["revision"],
-                    selected_context, "task_context", digest(selected_context)))
+        sources.append(self._source(opportunity['company_id'],opportunity['company_revision'],
+            {'id':opportunity['company_id'],'name':opportunity['company']},'company_identity',
+            digest([opportunity['company_id'],opportunity['company']])))
 
         for item in wiki:
             selected = item.get("content")
@@ -89,17 +69,10 @@ class ContextCompiler:
 
         content_size = sum(len(str(source["selected_content"])) for source in sources)
         unknowns = []
-        for field, label in {
-            "company_id": "company", "org_unit_id": "org_unit",
-            "target_role_id": "target_role", "search_cycle_id": "search_cycle",
-        }.items():
-            if not opportunity_context or not opportunity_context.get(field):
-                unknowns.append(label)
-        from .opportunity import canonical_id
         packet = {
             "schemaVersion": self.schema_version,
             "task_type": task_type,
-            "target": {"type": "opportunity", "id": canonical_id(job_id),
+            "target": {"type": "opportunity", "id": opportunity["id"],
                        "job_posting_id": job_id},
             "policy_version": self.policy_version,
             "sources": sources,

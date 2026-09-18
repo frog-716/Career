@@ -6,13 +6,13 @@
 
 ### 技术与数据
 
-以下是2026-09-17 [AS-IS](audit/AS-IS-system-map.md)的代码/schema/运行证据摘要，本次没有重建、重启或业务测试。
+以下先记录 2026-09-18 Production Cutover 后的现役实现；2026-09-17 的旧 v1 事实仍可在 [AS-IS](audit/AS-IS-system-map.md)追溯，但不再代表当前 runtime。
 
 - Python/FastAPI + Uvicorn单进程本地服务；前端为**Vanilla TypeScript/JavaScript + Vite**，模板字符串/DOM和hash路由，没有React。
 - 主入口`frontend/index.html → src/main.ts → workspace.ts`；独立纸面编辑器`editor.html → editor/legacy-entry.ts → legacy-app.js`。复用结构化分区、格式、撤销及html2canvas/jsPDF单页图片式PDF；不能承诺可选文字或ATS解析质量。
 - Python sqlite3直接访问一个SQLite数据库；`meta/current/revisions/records/applications`存JSON与少量索引/约束。没有独立ORM、Repository层、向量库或图数据库。大多数业务引用由服务验证，不都有FK。
 - `current`保存可变当前对象；通用保存追加`revisions`。`records`包括版本、原件、run等，但通用_record是upsert，不能将整表视为数据库级不可变。
-- schema使用`PRAGMA user_version=1`，启动建缺失表并拒绝更高版本；尚无独立版本migration文件。Store初始化会写入，不能用于生产只读审计。
+- 正式 runtime 为 `0.7.0-batch-f`，SQLite schema v6。已有库必须精确为 v6，旧 v1–v5 在任何业务写入前拒绝；版本升级使用独立、显式、hash-bound 的 v1→v6 migration chain，不在启动时隐式迁移。
 - 默认数据正本`~/Library/Application Support/Career Data/workspace.sqlite3`及`artifacts/`；默认备份为同级`Career Data-backups`，不在静态根目录或Git中。`CAREER_DATA_DIR`可覆盖代码外路径。运行入口见[服务README](../src/workbench/README.md)，前端命令见[frontend README](../frontend/README.md)。
 
 ### 实际模块
@@ -20,19 +20,19 @@
 | 模块 | 当前职责与限制 |
 | --- | --- |
 | app / core | HTTP及静态服务、共享Store、事务/CAS/epoch、兼容编排、分析/投递/反馈；尚非严格Controller–Service–Repository分层 |
-| opportunity / domain | 公开Opportunity身份、Job同步/兼容投影；公司/组织/周期/方向及机会关联、ResumeUse。Job仍真实参与写入，不能称已是纯只读adapter |
-| journey / engagement | 计划、工作卡、note原件/更正；研究/沟通/面试/Offer typed创建与读取。前端仍主要读notes，无统一phase/result状态机 |
-| editor / profile | 唯一editor-main结构化稿、选材/来源、版本/PDF/恢复/引用保护；profile保存同步此稿；没有多文档或结构化AI patch |
+| opportunity / domain | canonical Opportunity/Company、phase/result、CAS/幂等与旧 ID resolver；旧 Job/JourneyPlan 保留兼容读取，不能继续写求职状态正本 |
+| journey / engagement | 任职工作卡及 legacy note/typed 活动兼容读取；求职 Communication/Interview/Offer 新写由 scoped Domain Action 接管 |
+| editor / profile / resume_documents | 一个 Resume Workspace UI 管理 Opportunity-owned ResumeDocument；autosave current、显式普通版本、冻结投递版本/PDF及引用保护；profile只有显式选材才进入当前稿 |
 | knowledge | 来源登记、人工候选确认、Wiki修订/撤回、scope/来源校验；登记locator不读取外部内容 |
-| context / providers | Compiler编译当前profile/JD/Wiki及关联目录；Provider只接收payload。内部job/旧resume策略，现役HTTP仅开放job分析 |
+| context / providers | Compiler按明确任务读取允许的当前资料与冻结 Submission snapshot；ModelGateway只接收受控packet，OpenAI-compatible adapter与SecretStore封装远端调用。没有默认模型时基础业务继续可用 |
 | employment / work | Employment与episode兼容身份；Stage、Project、Person、Participant、WorkEvent、Achievement、Evidence等受控接口；不等于Stage→Project→Wiki全链自动连接 |
-| artifacts / backup / demo | 文件hash/原子写、路径保护、隔离恢复能力与虚构案例管理；不能由脚本存在推出生产备份已经可恢复 |
+| artifacts / backup / demo | 文件hash/原子写、路径保护、隔离恢复与虚构案例管理；Production Cutover 已真实验证备份、恢复、引用和附件 hash，同盘副本仍不能抵御整盘故障 |
 
-当前Opportunity由Job、复制Opportunity、OpportunityContext和JourneyPlan共同承载，Application独立保存状态且允许同机会多次登记；Company引用与公司文字并存。所有机会共用可变editor-main，ResumeUse只表达冻结版本用途，不赋予工作稿所有权。Research/Communication/Interview/Offer有typed记录，但缺目标real/simulation、当前Research档案及Offer结果流程。
+新写入以 canonical Opportunity 为唯一求职状态正本，Company→Opportunity 为 1:N；phase 固定为写简历/已投递/面试/Offer，`result != active` 进入已结束 View。旧 Job/JourneyPlan、legacy typed activity 与旧 Submission 保持只读/待核对，不根据历史名称、状态或日期自动推导。每个 Opportunity 可拥有独立 ResumeDocument，唯一 Submission 冻结当时 Greeting、ResumeVersion、PDF 与机会快照；Communication、Real/Simulation Interview、Preparation/Raw/Final Review、real-only Research Patch、唯一 current Offer 与谈薪均由各自 Domain Action 管理，Timeline 仅为读取投影。
 
-当前AnalysisRun保存packet/payload/result，无独立Session/Conversation/turn系统，也没有多Agent执行循环。新Provider请求不继承远端会话；分析同步调用，状态为running/succeeded/failed/stale，启动时把中断running标failed，而非已有后台队列自动续跑。目录name/description自动进入Context的现状偏差见[Context合同](02-context-contract.md)。
+当前AnalysisRun保存packet/payload/result，无独立Session/Conversation/turn系统，也没有多Agent执行循环。新Provider请求不继承远端会话；分析同步调用，状态为running/succeeded/failed/stale，启动时把中断running标failed，而非已有后台队列自动续跑。Context 的允许来源、冻结快照与 Unknown 规则见[Context合同](02-context-contract.md)。
 
-运行版本与源码版本不等价：AS-IS观察服务自报0.1.0、源码0.2.0，精确加载组合未核实；测试69通过、2失败，typecheck通过。最新处理状态只在[STATUS](execution/STATUS.md)记录，不以历史“已交付”覆盖这些限制。
+当前正式进程已核对为 `0.7.0-batch-f` / schema v6，加载 `/Users/frog/Projects/Career` 的已验收源码与 dist，数据目录仍为 `/Users/frog/Library/Application Support/Career Data`。部署、完整性、浏览器 smoke 与 rollback point 见 [STATUS](execution/STATUS.md) 和 [Batch F §23](execution/OPPORTUNITY-BATCH-F.md#23-opportunity-mvp-production-cutover2026-09-18)。
 
 ## Stable Contracts
 
@@ -40,7 +40,7 @@
 
 Local-first、代码与用户数据分离、单进程模块化单体仍为稳定方向。模块通过小Interface封装完整行为，Interface包含输入、前提、错误、并发和副作用；不机械按表建Controller/Service/Repository，不为命名漂亮重写编辑器或更换框架。
 
-前端调用HTTP/领域动作，领域模块拥有业务验证，Store提供短事务；ContextCompiler提供受控任务输入，Provider只处理payload，不能反向取得Store/SQL或任意文件能力。这是当前调用边界，不是独立进程安全沙箱。Opportunity唯一业务正本属于**待实现的稳定目标**，不能因本节命名而当成现状。
+前端调用HTTP/领域动作，领域模块拥有业务验证，Store提供短事务；ContextCompiler提供受控任务输入，Provider只处理payload，不能反向取得Store/SQL或任意文件能力。这是当前调用边界，不是独立进程安全沙箱。canonical Opportunity 已是新写入的唯一业务正本；仍未人工核对的旧 Job/JourneyPlan 只通过 legacy adapter 读取，不冒充 canonical 状态。
 
 可变当前值使用revision/CAS；幂等动作回放原结果；提案接受与正式对象更新在同一事务。来源变更使旧分析/提案stale，冲突保留输入，不最后写入静默覆盖。应用内AI只提出修改，事实写入由用户确认后的受控Domain Action完成，详见Context合同。
 

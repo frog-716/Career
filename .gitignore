@@ -13,3 +13,4 @@ frontend/dist/
 artifacts/
 playwright-report/
 test-results/
+.workbuddy-ai/

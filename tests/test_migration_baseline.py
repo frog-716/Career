@@ -1,3 +1,4 @@
+from batch_b_helpers import save_job
 """Migration safety contracts, exclusively synthetic stores and temporary files."""
 import json
 import sqlite3
@@ -5,6 +6,7 @@ import sqlite3
 import pytest
 from fastapi.testclient import TestClient
 
+from batch_b_helpers import historical_application
 from workbench.app import create_app
 from workbench.backup import backup, restore
 from workbench.core import Store, Invalid
@@ -15,12 +17,14 @@ from workbench.migration_baseline import inventory, verify_restore, write_report
 @pytest.fixture
 def source(tmp_path):
     store = Store(tmp_path / 'source', TestProvider())
-    job = store.save_job(dict(company='Synthetic Company', title='Role', jd='Synthetic JD'))
+    from batch_c_helpers import legacy_storage
+    legacy_storage(store)
+    job = save_job(store,dict(company='Synthetic Company', title='Role', jd='Synthetic JD'))
     resume = store.open_resume(job['id'])
     resume = store.save_resume(resume['id'], 'Synthetic resume sentinel', 0)
     version = store.save_version(resume['id'], resume['revision'])
     artifact = store.export_pdf(version['id'])
-    store.record_application(dict(job_id=job['id'], version_id=version['id'],
+    historical_application(store,dict(job_id=job['id'], version_id=version['id'],
         artifact_id=artifact['id'], applied_at='2026-09-17T10:00:00+00:00',
         status='applied', idempotency_key='first'))
     return store, job, version, artifact
@@ -49,10 +53,11 @@ def test_read_only_repeatable_inventory_and_real_restore(source, tmp_path):
 
 def test_inventory_reports_ambiguity_without_deciding(source):
     store, job, version, artifact = source
-    store.record_application(dict(job_id=job['id'], version_id=version['id'],
+    historical_application(store,dict(job_id=job['id'], version_id=version['id'],
         artifact_id=artifact['id'], applied_at='2026-09-18T10:00:00+00:00',
         status='applied', idempotency_key='second'))
     with store.connect() as c:
+        store._save(c, 'job', dict(id=job['id'], company='Synthetic Company', title='Legacy role', jd='JD', status='active'), 0)
         store._save(c, 'domain_company', dict(id='company', name='Different Company'), 0)
         store._save(c, 'opportunity_context', dict(id='context', job_id=job['id'], company_id='company'), 0)
         for n in range(2):
@@ -138,33 +143,10 @@ def test_artifact_escape_and_corruption_are_not_followed(source, tmp_path):
     assert report['artifacts'][0]['actual_sha256'] is None
 
 
-def test_profile_revision_contract_explains_old_failures(tmp_path):
-    client = TestClient(create_app(Store(tmp_path / 'profile', TestProvider())))
-    headers = {'X-Career-Request': '1'}
-    def post(path, body):
-        return client.post('/api' + path, json=body, headers=headers)
-    basics = dict(name='Synthetic', phone='123', email='a@example.invalid',
-        wechat='fake', github='https://github.com/example',
-        links=[dict(label='Work', url='https://example.invalid')])
-    original = client.get('/api/editor').json()
-    profile = post('/profile/basics', dict(basics=basics, expected_revision=0)).json()
-    draft = client.get('/api/editor').json()
-    assert draft['revision'] > original['revision']
-    body = dict(include_profile=True, profile_revision=profile['revision'], selections=[],
-        expected_revision=original['revision'], idempotency_key='stale')
-    assert post('/editor/select-facts', body).status_code == 409
-    result = post('/editor/select-facts', dict(body, expected_revision=draft['revision'], idempotency_key='fresh'))
-    assert result.status_code == 200, result.text
-    saved = result.json()
-    assert saved['document']['profile']['name'] == 'Synthetic'
-    profile = post('/profile/basics', dict(basics=dict(name='Updated', phone='123', email='a@example.invalid'),
-        expected_revision=profile['revision'])).json()
-    assert profile['basics']['wechat'] == 'fake' and profile['basics']['links'] == basics['links']
-    assert post('/editor/select-facts', dict(body, profile_revision=profile['revision'],
-        expected_revision=saved['revision'], idempotency_key='stale-again')).status_code == 409
-    latest = client.get('/api/editor').json()
-    result = post('/editor/select-facts', dict(body, profile_revision=profile['revision'],
-        expected_revision=latest['revision'], idempotency_key='refresh'))
-    assert result.status_code == 200, result.text
-    assert result.json()['document']['profile']['name'] == 'Updated'
-    assert any(x.get('href') == basics['github'] for x in result.json()['document']['profile']['contacts'])
+def test_profile_no_longer_implicitly_changes_legacy_draft(tmp_path):
+    client=TestClient(create_app(Store(tmp_path/'profile',TestProvider())))
+    original=client.get('/api/editor').json()
+    r=client.post('/api/profile/basics',json=dict(basics=dict(name='Synthetic',phone='',email=''),expected_revision=0),headers={'X-Career-Request':'1'})
+    assert r.status_code==200
+    assert client.get('/api/editor').json()==original
+    assert client.post('/api/editor/select-facts',json=dict(expected_revision=0),headers={'X-Career-Request':'1'}).status_code==409

@@ -19,6 +19,13 @@ from .work import work_router
 from .demo import demo_router
 from .engagement import engagement_router
 from .employment import employment_router
+from .communication import router as communication_router
+from .timeline import router as timeline_router
+from .interview import router as interview_router
+from .offer import router as offer_router
+from .ai_config import create as create_ai_config, update as update_ai_config, delete as delete_ai_config, set_default as set_ai_default, clear_default as clear_ai_default, settings as ai_settings, test_ephemeral as test_ai_ephemeral
+from .model_gateway import ModelGateway
+from .research import router as research_router
 
 
 def create_app(store=None, frontend_dir=None):
@@ -55,6 +62,23 @@ def create_app(store=None, frontend_dir=None):
 
     @app.get('/api/state')
     def state():return s.state()
+    @app.get('/api/ai/models')
+    def ai_models():
+        with s.connect(False) as c:return ai_settings(s, c)
+    @app.post('/api/ai/models')
+    def ai_model_create(b:dict):return create_ai_config(s, b)
+    @app.post('/api/ai/test-connection')
+    def ai_test_ephemeral(b:dict):return test_ai_ephemeral(s, b)
+    @app.put('/api/ai/models/{config_id}')
+    def ai_model_update(config_id:str,b:dict):return update_ai_config(s, config_id, b)
+    @app.delete('/api/ai/models/{config_id}')
+    def ai_model_delete(config_id:str,b:dict):return delete_ai_config(s, config_id, b.get('confirm') is True)
+    @app.post('/api/ai/models/{config_id}/default')
+    def ai_model_default(config_id:str,b:dict):return set_ai_default(s, config_id, b)
+    @app.post('/api/ai/models/default/clear')
+    def ai_model_clear_default():return clear_default(s)
+    @app.post('/api/ai/models/{config_id}/test')
+    def ai_model_test(config_id:str):return ModelGateway(s).test_connection(config_id)
     @app.post('/api/profile')
     def profile(b:dict):return s.save_profile(b.get('content'),b.get('expected_revision'))
     @app.post('/api/jobs')
@@ -110,6 +134,10 @@ def create_app(store=None, frontend_dir=None):
     def note(id:str,b:dict):return s.feedback_note(id,b.get('text'))
 
     app.include_router(editor_router(s))
+    from .resume_documents import router as resume_router
+    from .submission import router as submission_router
+    app.include_router(resume_router(s))
+    app.include_router(submission_router(s))
     app.include_router(profile_router(s))
     app.include_router(journey_router(s))
     app.include_router(domain_router(s))
@@ -119,6 +147,11 @@ def create_app(store=None, frontend_dir=None):
     app.include_router(demo_router(s))
     app.include_router(engagement_router(s))
     app.include_router(employment_router(s))
+    app.include_router(communication_router(s))
+    app.include_router(timeline_router(s))
+    app.include_router(interview_router(s))
+    app.include_router(offer_router(s))
+    app.include_router(research_router(s))
 
     dist=Path(frontend_dir) if frontend_dir else ROOT/'frontend/dist'
     if dist.exists():app.mount('/',StaticFiles(directory=dist,html=True),name='frontend')
