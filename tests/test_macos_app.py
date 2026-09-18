@@ -9,7 +9,7 @@ macos_app = importlib.util.module_from_spec(MODULE_SPEC)
 MODULE_SPEC.loader.exec_module(macos_app)
 
 
-def test_running_career_app_opens_home_in_chrome(monkeypatch, tmp_path: Path) -> None:
+def test_running_career_app_opens_default_page_in_chrome(monkeypatch, tmp_path: Path) -> None:
     calls: list[tuple[list[str], dict[str, object]]] = []
 
     monkeypatch.setattr(macos_app, "healthy", lambda host, port: True)
@@ -27,7 +27,7 @@ def test_running_career_app_opens_home_in_chrome(monkeypatch, tmp_path: Path) ->
                 "/usr/bin/open",
                 "-b",
                 "com.google.Chrome",
-                "http://127.0.0.1:8765/#home",
+                "http://127.0.0.1:8765/",
             ],
             {"start_new_session": True},
         )
@@ -77,7 +77,7 @@ def test_cold_start_opens_chrome_only_after_service_is_healthy(
             "/usr/bin/open",
             "-b",
             "com.google.Chrome",
-            "http://127.0.0.1:8765/#home",
+            "http://127.0.0.1:8765/",
         ],
         {"start_new_session": True},
     )

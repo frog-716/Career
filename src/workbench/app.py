@@ -29,7 +29,7 @@ from .research import router as research_router
 
 
 def create_app(store=None, frontend_dir=None):
-    app=FastAPI(title='Career OS',docs_url=None,redoc_url=None,openapi_url=None)
+    app=FastAPI(title='Career',docs_url=None,redoc_url=None,openapi_url=None)
     s=store or Store();app.state.store=s
 
     @app.middleware('http')
@@ -120,7 +120,7 @@ def create_app(store=None, frontend_dir=None):
         feedback=s.state()['feedback']
         if format=='json':text=json.dumps({'schemaVersion':1,'feedback':feedback},ensure_ascii=False,indent=2);media='application/json';ext='json'
         elif format=='md':
-            text='# Career OS 反馈原始记录\n\n'
+            text='# Career 反馈原始记录\n\n'
             for f in feedback:
                 text+='## '+f['created_at']+'\n\n'+f['text']+'\n\n'
                 text+='页面：'+f['current_page']+' · 版本：'+f['app_version']+'\n\n'

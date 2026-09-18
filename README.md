@@ -1,4 +1,4 @@
-# Career OS
+# Career
 
 当前 MVP 实施与验收见 [STATUS](docs/execution/STATUS.md)。本地启动：
 
@@ -6,7 +6,7 @@
 .venv/bin/python scripts/run.py
 ```
 
-macOS 用户可以双击项目内的 `macos/Career.app` 启动。它会复用已运行的服务；服务未运行时会在后台启动，并用 Google Chrome 打开 Career 主页（`/#home`）。该行为只影响 `Career.app`，不会修改 macOS 的系统默认浏览器。
+macOS 用户可以双击项目内的 `macos/Career.app` 启动。它会复用已运行的服务；服务未运行时会在后台启动，并用 Google Chrome 打开用户在导航栏右键设置的默认首页。该行为只影响 `Career.app`，不会修改 macOS 的系统默认浏览器。
 
 App 图标源文件为 `macos/career-icon.png`，生成器会自动制作标准 macOS `Career.icns` 并写入 App；重新生成 App 时会保留该图标。
 
@@ -50,7 +50,7 @@ App 图标源文件为 `macos/career-icon.png`，生成器会自动制作标准 
 | [docs/execution/STATUS.md](docs/execution/STATUS.md) | 当前交付、已知问题和本批状态 | 核对现状与下一步；不是产品规格 |
 | [AS-IS System Map](docs/audit/AS-IS-system-map.md) | 现状证据快照 | 核对代码/运行/测试边界，不作目标规范 |
 | [Opportunity Gap Analysis](docs/audit/OPPORTUNITY-GAP-ANALYSIS.md) | 差异、迁移与增量批次建议快照 | 规划迁移和重构；不代表实施授权或完成 |
-| `.agents/skills/` | `mattpocock/skills` 通用技能与 Career OS 专用技能 | 按description触发 |
+| `.agents/skills/` | `mattpocock/skills` 通用技能与 Career 专用技能 | 按description触发 |
 | `fixtures/` | 明确虚构的求职与任职验收案例 | 开发和测试 |
 | `src/workbench/` | 本地服务、领域模块、备份和 Provider | 运行及后端开发 |
 | `frontend/` | 任务工作区与结构化简历编辑器 | 前端开发与构建 |

@@ -84,7 +84,7 @@ def main() -> int:
     args = parser.parse_args()
     app = build(args.destination, args.project_root)
     print(f"已生成：{app}")
-    print("双击该 App 会启动或复用本地服务，并打开 /#home。")
+    print("双击该 App 会启动或复用本地服务，并打开用户设置的默认首页。")
     return 0
 
 

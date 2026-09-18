@@ -154,6 +154,26 @@ a svg {
 .sidebar nav.is-sorting .nav:hover:not(.active):not(.is-dragging) {
   background: transparent;
 }
+.sidebar-context-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 150px;
+  padding: 4px;
+  border: 1px solid #dedede;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(36, 47, 52, .16);
+}
+.sidebar-context-menu button {
+  width: 100%;
+  padding: 9px 11px;
+  border-radius: 6px;
+  text-align: left;
+  font-size: 13px;
+}
+.sidebar-context-menu button:hover {
+  background: #f1f2f2;
+}
 .nav:hover,
 .nav.active {
   background: #eaeaea;
@@ -161,6 +181,15 @@ a svg {
 .nav svg {
   width: 20px;
   height: 20px;
+}
+.nav .sidebar-home-mark {
+  display: inline-flex;
+  margin-left: auto;
+  color: #68777b;
+}
+.nav .sidebar-home-mark svg {
+  width: 15px;
+  height: 15px;
 }
 .sidebar-bottom {
   margin-top: auto;
@@ -432,85 +461,6 @@ main {
   padding: 40px 24px;
   text-align: center;
   line-height: 1.8;
-}
-.home {
-  height: 100%;
-  display: flex;
-  justify-content: center;
-  padding: clamp(40px, 12vh, 150px) 30px 40px;
-}
-.home-inner {
-  width: 640px;
-  max-width: 100%;
-}
-.today-date {
-  margin-bottom: 12px;
-}
-.home h2 {
-  font-size: 28px;
-  font-weight: 550;
-  letter-spacing: -0.5px;
-}
-.quick-start {
-  display: flex;
-  gap: 10px;
-  margin: 28px 0 48px;
-}
-.quick-start button,
-.quick-start a {
-  border: 1px solid #e6e6e6;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 18px;
-  border-radius: 12px;
-}
-.quick-start button:hover,
-.quick-start a:hover {
-  background: var(--soft);
-}
-.continue-list {
-  margin-bottom: 22px;
-}
-.continue-list .pane-heading {
-  padding: 0 0 14px;
-  border: 0;
-}
-.continue-list h2 {
-  font-size: 14px;
-  color: #777;
-}
-.continue-row {
-  display: flex;
-  gap: 16px;
-  align-items: center;
-  border-top: 1px solid var(--line);
-  width: 100%;
-  padding: 18px 0;
-  text-align: left;
-}
-.continue-row > div {
-  min-width: 0;
-  flex: 1;
-}
-.continue-row b {
-  font-weight: 500;
-  display: block;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.continue-row small {
-  display: block;
-  margin-top: 6px;
-}
-.continue-row > span {
-  font-size: 12px;
-  color: #8b8b8b;
-}
-.continue-row > svg {
-  width: 16px;
-  color: #999;
 }
 .split {
   height: 100%;
@@ -1170,19 +1120,6 @@ blockquote {
     padding: 7px 9px;
     font-size: 12px;
   }
-  .quick-start {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .home {
-    padding: 50px 24px;
-  }
-  .home h2 {
-    font-size: 24px;
-  }
-  .home .pane-heading {
-    padding: 0 0 12px;
-  }
   .reading {
     padding: 16px;
   }
@@ -1227,15 +1164,6 @@ blockquote {
   }
 }
 @media (max-height: 700px) {
-  .home {
-    padding-top: 38px;
-  }
-  .quick-start {
-    margin-bottom: 28px;
-  }
-  .continue-row {
-    padding: 13px 0;
-  }
   .entity-heading {
     padding-top: 16px;
   }

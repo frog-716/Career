@@ -1,4 +1,4 @@
-"""AI provider boundary for Career OS.
+"""AI provider boundary for Career.
 
 The test provider is deliberately deterministic and only receives the current packet.
 """

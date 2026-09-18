@@ -1,1 +1,1 @@
-"""Career OS local modular monolith."""
+"""Career local modular monolith."""

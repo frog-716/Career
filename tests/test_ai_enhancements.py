@@ -36,6 +36,21 @@ def test_model_config_uses_secret_reference_and_explicit_default_delete(tmp_path
     assert secrets.values == {}
 
 
+def test_deepseek_legacy_model_alias_is_normalized_and_first_config_is_default(tmp_path):
+    secrets = MemorySecretStore()
+    store = Store(tmp_path / "data", TestProvider(), secrets)
+    client = TestClient(create_app(store), headers={**HEADERS, "Content-Type": "application/json"})
+    created = client.post("/api/ai/models", json={
+        "display_name": "DeepSeek", "provider": "DeepSeek",
+        "base_url": "https://api.deepseek.com", "model": "deepseek-v4.1-flash",
+        "api_key": "synthetic-key", "enabled": True,
+    })
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["model"] == "deepseek-flash"
+    assert store.state()["ai"]["default_model_config_id"] == body["id"]
+
+
 def test_structured_resume_ai_is_proposal_until_confirmed(tmp_path):
     store = Store(tmp_path / "data", TestProvider())
     client = editor_client(store)

@@ -4,7 +4,13 @@
 
 ## Opportunity Enhancement Sprint — 已实现并部署，2026-09-18
 
-Sidebar 拖拽排序、AI-Config/Keychain/ModelGateway、Interview/Resume/Research AI 增强已完成；完整范围和证据见 [Enhancement Sprint](OPPORTUNITY-ENHANCEMENT-SPRINT.md)。Production 已备份并以当前源码重启，真实 AI 仍因没有用户配置而未做语义验收。
+Sidebar 拖拽排序、AI-Config/Keychain/ModelGateway、Interview/Resume/Research AI 增强已完成；完整范围和证据见 [Enhancement Sprint](OPPORTUNITY-ENHANCEMENT-SPRINT.md)。Production 已备份并以当前源码重启；此前已验证 DeepSeek 真实调用，本次检查发现当前 ModelConfig 与 Keychain 项已被删除，重新使用需在客户端填写新 Key。
+
+## 导航默认首页收敛 — 已实现，2026-09-18
+
+- 已移除“今天”一级入口及其专属首页内容；默认启动地址改为 `/`，由浏览器本地偏好决定实际进入的一级模块，旧 `#home` 深链接会回落到该默认模块。
+- 一级导航支持桌面鼠标右键“置顶/取消置顶”，置顶模块自动移动到第一位并显示 home 标识；仅保存模块 ID 到 `localStorage`，不新增业务数据或服务端状态；拖拽排序继续使用原有本地顺序。
+- Production Chrome 已核对一级导航不再显示“今天”，右键菜单可置顶/取消置顶并显示 home 标识；macOS `Career.app` 已重新生成，启动器测试 `2 passed`，前端 typecheck/build 与 `git diff --check` 通过。
 
 ## Opportunity MVP Production Cutover — 成功，2026-09-18
 
@@ -22,7 +28,7 @@ Sidebar 拖拽排序、AI-Config/Keychain/ModelGateway、Interview/Resume/Resear
 
 完整记录见 [Batch F §22](OPPORTUNITY-BATCH-F.md#22-opportunity-mvp-finalization2026-09-18)。
 
-- 产品表面已收敛为唯一 Opportunity 管线、Opportunity Workspace 与一个多文档简历工作台；独立面试/足迹入口从主导航隐藏，旧深链接与历史资料继续兼容读取。“今天”使用 canonical Opportunity 当前状态，不再把 JourneyPlan 作为求职状态入口。
+- 产品表面已收敛为唯一 Opportunity 管线、Opportunity Workspace 与一个多文档简历工作台；独立面试/足迹入口从主导航隐藏，旧深链接与历史资料继续兼容读取。“今天”一级入口已移除，默认首页由导航右键设置并仅保存在浏览器本地，不新增第二套任务状态。
 - Workspace 先显示当前动作，再显示岗位情报、冻结投递材料和纯投影 Timeline；面试区聚焦当前/下一轮，用户不需要理解 Raw、Patch、ContextSnapshot、schema 或 revision。没有真实模型也可手工完成准备、模拟资料包外带、记录和复盘。
 - 实际浏览器完整走通 Resume/Greeting→Submission→Communication→多轮 Real/Simulation/Raw/Review→Offer/谈薪→accepted，并覆盖无简历、rejected、withdrawn、两 Opportunity 隔离、旧核心数据读取、390×844 和零 console error/warning；唯一 tab 已关闭，临时服务已停止。
 - 最终完整 Python 回归 `152 passed`；frontend build/typecheck 和 `git diff --check` 通过。风险 review 未发现双写正本、Timeline 事实、Simulation Patch、Employment 副作用或 schema v6 fence 回归。
@@ -108,7 +114,7 @@ Sidebar 拖拽排序、AI-Config/Keychain/ModelGateway、Interview/Resume/Resear
 
 ## 当前交付
 
-[Career OS 结构优化与产品化重构](STRUCTURE-REFACTOR.md) B1—B5 已交付。当前应用以 Opportunity 与 Employment 为两条任务主干：
+[Career 结构优化与产品化重构](STRUCTURE-REFACTOR.md) B1—B5 已交付。当前应用以 Opportunity 与 Employment 为两条任务主干：
 
 - Opportunity → Wiki 选材 / Context → 正式简历与 PDF → Submission → 研究、沟通、面试、Offer。
 - Employment → Stage → Project → 参与者 / 事件 → Achievement → Evidence → 可确认的 Wiki 候选。

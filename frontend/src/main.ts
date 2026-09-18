@@ -1,6 +1,6 @@
 import { opportunityHTML, bindOpportunity } from "./opportunity-ui";
 import "./style.css";
-import { ui, view, shell, stageNames, noteNames, bindSidebarOrder } from "./workspace";
+import { ui, view, shell, stageNames, noteNames, bindSidebarOrder, sidebarHome } from "./workspace";
 import { bindKnowledge, knowledgeUI, entryNames } from "./knowledge-ui";
 
 import { bindProfile, hasUnsavedProfile } from "./profile-ui";
@@ -11,7 +11,6 @@ type Obj = Record<string, any>;
 type Page =
   | "wiki"
   | "directory"
-  | "home"
   | "jobs"
   | "resume"
   | "profile"
@@ -21,6 +20,11 @@ type Page =
   | "work"
   | "practice"
   | "footprint";
+const PAGE_IDS: Page[] = [
+  "wiki", "directory", "jobs", "progress", "work", "practice", "footprint",
+  "resume", "profile", "feedback", "diagnostics",
+];
+const isPage = (value: string): value is Page => PAGE_IDS.includes(value as Page);
 const root = document.querySelector<HTMLDivElement>("#app")!;
 let state: Obj = {
   profile: { content: "", revision: 0 },
@@ -45,7 +49,7 @@ let opportunityOffer: Obj | null = null;
 let opportunityResearch: Obj = {company: {items: []}, opportunity: {items: [], revision: 0}};
 let opportunityLoadToken = 0;
 const planBuffers = new Map<string, Obj>();
-let page: Page = "home";
+let page: Page = sidebarHome() as Page;
 let jobId = "";
 let notice = "";
 let opportunityView = "all";
@@ -1306,10 +1310,8 @@ function bind() {
       }),
   );
   $("#capture-feedback")!.onclick = captureFeedback;
-  $("#home-feedback")?.addEventListener("click", captureFeedback);
   $("#add-job")?.addEventListener("click", addJob);
   $("#add-episode")?.addEventListener("click", addEpisode);
-  $("#home-add-job")?.addEventListener("click",()=>{void navigate("jobs","").then(()=>document.querySelector<HTMLButtonElement>("#op-create")?.click());});
   $("#load-demo")?.addEventListener("click", () => {
     void (async () => {
       await api("/demo/load", {});
@@ -1434,23 +1436,9 @@ async function start() {
   try {
     const {p,id,params} = readRoute();
     routeSelection(p,id,params);
-    if (
-      [
-        "wiki",
-        "directory",
-        "home",
-        "jobs",
-        "progress",
-        "work",
-        "practice",
-        "footprint",
-        "resume",
-        "profile",
-        "feedback",
-        "diagnostics",
-      ].includes(p)
-    )
-      page = p as Page;
+    const initialPage = p === "home" || !p ? sidebarHome() : p;
+    if (isPage(initialPage)) page = initialPage;
+    if ((p === "home" || !p) && isPage(initialPage)) history.replaceState(null, "", `#${initialPage}`);
     if (page === "jobs" || page === "progress") jobId = id;
     await load();
     if (page !== "jobs" && page !== "progress")
@@ -1470,24 +1458,9 @@ async function start() {
 }
 window.addEventListener("hashchange", () => {
   void (async () => {
-    const {p: requested,id,params} = readRoute();
-    if (
-      ![
-        "wiki",
-        "directory",
-        "home",
-        "jobs",
-        "progress",
-        "work",
-        "practice",
-        "footprint",
-        "resume",
-        "profile",
-        "feedback",
-        "diagnostics",
-      ].includes(requested)
-    )
-      return;
+    const {p: rawRequested,id,params} = readRoute();
+    const requested = rawRequested === "home" || !rawRequested ? sidebarHome() : rawRequested;
+    if (!isPage(requested)) return;
     // Modal inputs stay in their owning task until the user closes the dialog.
     if (document.querySelector("dialog[open]") || !(await flushResume())) {
       history.replaceState(

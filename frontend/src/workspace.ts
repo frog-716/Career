@@ -78,17 +78,38 @@ const title = (name: string, actions = "") =>
 const addNote = (scope: string, id: string, kind: string) =>
   `<button class="primary" data-add-note="${scope}:${e(id)}:${kind}">${icon("plus")}记录${noteNames[kind]}</button>`;
 export const SIDEBAR_MODULES: [string, string][] = [
-  ["home", "今天"], ["wiki", "职业 Wiki"], ["jobs", "机会"],
+  ["wiki", "职业 Wiki"], ["jobs", "机会"],
   ["resume", "简历工作台"], ["work", "任职"],
 ];
 const sidebarStorageKey = "career.sidebar.module-order.v1";
+const sidebarHomeStorageKey = "career.sidebar.home.v1";
+function savedSidebarHome(): string | null {
+  const ids = new Set(SIDEBAR_MODULES.map(([id]) => id));
+  try {
+    const saved = localStorage.getItem(sidebarHomeStorageKey);
+    return saved && ids.has(saved) ? saved : null;
+  } catch { return null; }
+}
 function sidebarOrder(): [string, string][] {
   const ids = SIDEBAR_MODULES.map(([id]) => id);
   let saved: unknown = [];
   try { saved = JSON.parse(localStorage.getItem(sidebarStorageKey) || "[]"); } catch { saved = []; }
   const ordered = Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string" && ids.includes(id)) : [];
   ids.forEach((id) => { if (!ordered.includes(id)) ordered.push(id); });
-  return ordered.map((id) => SIDEBAR_MODULES.find(([candidate]) => candidate === id)!);
+  const pinned = savedSidebarHome();
+  const result = pinned
+    ? [pinned, ...ordered.filter((id) => id !== pinned)]
+    : ordered;
+  return result.map((id) => SIDEBAR_MODULES.find(([candidate]) => candidate === id)!);
+}
+export function sidebarHome(): string {
+  return savedSidebarHome() || sidebarOrder()[0]?.[0] || SIDEBAR_MODULES[0][0];
+}
+function saveSidebarHome(id: string | null) {
+  try {
+    if (id) localStorage.setItem(sidebarHomeStorageKey, id);
+    else localStorage.removeItem(sidebarHomeStorageKey);
+  } catch { /* local preference is best effort */ }
 }
 function saveSidebarOrder(nav: HTMLElement) {
   const order = [...nav.querySelectorAll<HTMLElement>("[data-sidebar-module]")].map((el) => el.dataset.sidebarModule!);
@@ -97,6 +118,7 @@ function saveSidebarOrder(nav: HTMLElement) {
 export function bindSidebarOrder() {
   const nav = document.querySelector<HTMLElement>("#sidebar-nav");
   if (!nav) return;
+  const contextMenu = document.querySelector<HTMLElement>("#sidebar-context-menu");
   let dragging: HTMLElement | null = null;
   let placeholder: HTMLElement | null = null;
   let pointerId: number | null = null;
@@ -108,6 +130,33 @@ export function bindSidebarOrder() {
   let moveFrame: number | undefined;
   let pendingMove: {x: number; y: number} | null = null;
   let suppressClick = false;
+  const updateHomeMarkers = () => {
+    const pinned = savedSidebarHome();
+    nav.querySelectorAll<HTMLElement>("[data-sidebar-module]").forEach((item) => {
+      const isPinned = item.dataset.sidebarModule === pinned;
+      item.title = isPinned ? "置顶首页" : "";
+      const marker = item.querySelector<HTMLElement>(".sidebar-home-mark");
+      if (isPinned && !marker) item.insertAdjacentHTML("beforeend", `<span class="sidebar-home-mark" aria-label="首页" title="首页">${icon("home")}</span>`);
+      if (!isPinned) marker?.remove();
+    });
+  };
+  const closeContextMenu = () => {
+    if (!contextMenu) return;
+    contextMenu.hidden = true;
+    contextMenu.replaceChildren();
+  };
+  const openContextMenu = (item: HTMLElement, event: MouseEvent) => {
+    if (!contextMenu) return;
+    const id = item.dataset.sidebarModule;
+    if (!id) return;
+    const isPinned = savedSidebarHome() === id;
+    contextMenu.innerHTML = `<button type="button" role="menuitem" data-sidebar-home="${e(id)}">${isPinned ? "取消置顶" : "置顶"}</button>`;
+    contextMenu.hidden = false;
+    const menuWidth = 150;
+    const menuHeight = 44;
+    contextMenu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8))}px`;
+    contextMenu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8))}px`;
+  };
   const resetDraggedItem = () => {
     if (!dragging) return;
     dragging.classList.remove("is-dragging");
@@ -182,9 +231,35 @@ export function bindSidebarOrder() {
   // Use pointer events for both desktop drag and mobile long-press. Prevent
   // the browser's native HTML5 drag from stealing the pointer stream.
   nav.addEventListener("dragstart", (event) => event.preventDefault());
-  nav.addEventListener("pointerdown", (event) => {
+  nav.addEventListener("contextmenu", (event) => {
     const item = (event.target as HTMLElement).closest<HTMLElement>("[data-sidebar-module]");
     if (!item) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openContextMenu(item, event);
+  });
+  contextMenu?.addEventListener("click", (event) => {
+    const action = (event.target as HTMLElement).closest<HTMLElement>("[data-sidebar-home]");
+    if (!action) return;
+    const id = action.dataset.sidebarHome;
+    if (!id) return;
+    const item = nav.querySelector<HTMLElement>(`[data-sidebar-module="${CSS.escape(id)}"]`);
+    if (savedSidebarHome() === id) {
+      saveSidebarHome(null);
+    } else {
+      saveSidebarHome(id);
+      if (item && nav.firstElementChild !== item) nav.insertBefore(item, nav.firstElementChild);
+    }
+    saveSidebarOrder(nav);
+    updateHomeMarkers();
+    closeContextMenu();
+  });
+  nav.addEventListener("pointerdown", () => closeContextMenu(), true);
+  nav.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    const item = (event.target as HTMLElement).closest<HTMLElement>("[data-sidebar-module]");
+    if (!item) return;
+    if (item.dataset.sidebarModule === savedSidebarHome()) return;
     dragging = item;
     pointerId = event.pointerId;
     pointerStartX = event.clientX;
@@ -217,6 +292,8 @@ export function bindSidebarOrder() {
       placeholder = null;
       resetDraggedItem();
       saveSidebarOrder(nav);
+      if (nav.firstElementChild === dragging) saveSidebarHome(dragging.dataset.sidebarModule || null);
+      updateHomeMarkers();
       suppressClick = true;
     }
     try { dragging?.releasePointerCapture(event.pointerId); } catch { /* best effort */ }
@@ -277,7 +354,8 @@ export function shell(
         <g class="flow-embers" fill="#8bb3ca" style="animation-delay:-1.8s"><circle cx="14" cy="13" r=".7"/><circle cx="7" cy="42" r=".6"/><circle cx="39" cy="8" r=".8"/></g>
       </g>
     </svg></span>`;
-  return `<div class="workspace ${ui.sidebar ? "" : "sidebar-hidden"}"><aside class="sidebar" ${ui.sidebar ? "" : "inert"}><div class="brand">Career OS</div><nav id="sidebar-nav" aria-label="主导航">${items.map(([id, text]) => `<button class="nav ${active === id ? "active" : ""}" data-page="${id}" data-sidebar-module="${id}" draggable="true" aria-grabbed="false">${icon(id)}<span>${text}</span></button>`).join("")}</nav><div class="sidebar-bottom"><details class="account-menu"><summary aria-label="蒸🐮🐸，账户菜单">${accountAvatar}<span class="account-name"><span>蒸</span><span class="account-emoji">🐮</span><span class="account-emoji">🐸</span></span><span class="more">···</span></summary><div class="account-popover"><button data-page="profile">${icon("resume")}个人资料</button><button data-page="directory">${icon("jobs")}公司与方向</button><button data-page="diagnostics">${icon("settings")}设置</button><button data-page="feedback">${icon("feedback")}反馈记录</button></div></details></div></aside><main><header class="topbar"><div class="actions"><button class="icon-button" id="toggle-sidebar" aria-label="${ui.sidebar ? "收起" : "展开"}侧栏" aria-expanded="${ui.sidebar}">${icon("panel")}</button><h1>${label}</h1>${test ? '<span class="test-badge">测试空间</span>' : ""}</div><button class="quiet" id="capture-feedback">${icon("feedback")}反馈</button></header><div id="notice" class="notice toast" role="status" ${notice ? "" : "hidden"}>${e(notice)}</div><div class="workspace-content">${content}</div></main></div>`;
+  const pinnedHome = savedSidebarHome();
+  return `<div class="workspace ${ui.sidebar ? "" : "sidebar-hidden"}"><aside class="sidebar" ${ui.sidebar ? "" : "inert"}><div class="brand">Career</div><nav id="sidebar-nav" aria-label="主导航">${items.map(([id, text]) => `<button class="nav ${active === id ? "active" : ""}" data-page="${id}" data-sidebar-module="${id}" draggable="true" aria-grabbed="false" title="${pinnedHome === id ? "置顶首页" : ""}">${icon(id)}<span>${text}</span>${pinnedHome === id ? `<span class="sidebar-home-mark" aria-label="首页" title="首页">${icon("home")}</span>` : ""}</button>`).join("")}</nav><div class="sidebar-bottom"><details class="account-menu"><summary aria-label="蒸🐮🐸，账户菜单">${accountAvatar}<span class="account-name"><span>蒸</span><span class="account-emoji">🐮</span><span class="account-emoji">🐸</span></span><span class="more">···</span></summary><div class="account-popover"><button data-page="profile">${icon("resume")}个人资料</button><button data-page="directory">${icon("jobs")}公司与方向</button><button data-page="diagnostics">${icon("settings")}设置</button><button data-page="feedback">${icon("feedback")}反馈记录</button></div></details></div></aside><main><header class="topbar"><div class="actions"><button class="icon-button" id="toggle-sidebar" aria-label="${ui.sidebar ? "收起" : "展开"}侧栏" aria-expanded="${ui.sidebar}">${icon("panel")}</button><h1>${label}</h1>${test ? '<span class="test-badge">测试空间</span>' : ""}</div><button class="quiet" id="capture-feedback">${icon("feedback")}反馈</button></header><div id="notice" class="notice toast" role="status" ${notice ? "" : "hidden"}>${e(notice)}</div><div class="workspace-content">${content}</div></main><div id="sidebar-context-menu" class="sidebar-context-menu" role="menu" hidden></div></div>`;
 }
 export function view(page: string, d: Row, h: Row): string {
   const {
@@ -327,22 +405,6 @@ export function view(page: string, d: Row, h: Row): string {
   };
   const versions = () =>
     `${editorVersions.length ? editorVersions.map((v: Row) => `<article class="version"><div><b>${e(v.name || "未命名版本")}</b><small>${dt(v.createdAt)}</small></div><div class="actions"><a class="secondary" href="/api/artifacts/${e(v.artifact_id)}" target="_blank" rel="noopener">查看 PDF</a><a class="text-btn" href="/api/artifacts/${e(v.artifact_id)}?download=true">下载</a></div></article>`).join("") : empty("在简历工作台保存版本后，会显示在这里。")}`;
-  if (page === "home") {
-    const phaseLabels: Row = {resume:"写简历",submitted:"已投递",interview:"面试",offer:"Offer"};
-    const nextLabels: Row = {resume:"准备投递",submitted:"记录招聘沟通",interview:"准备当前面试",offer:"核对 Offer"};
-    const active = (s.opportunities || [])
-      .filter((x: Row) => !x.read_only && x.result === "active")
-      .sort((a: Row,b: Row)=>String(b.phase_changed_on||b.created_on||"").localeCompare(String(a.phase_changed_on||a.created_on||"")));
-    const urgentJob = active[0];
-    const urgentAction = urgentJob
-      ? `<button class="primary" data-job="${e(urgentJob.id)}">继续：${e(nextLabels[urgentJob.phase] || urgentJob.title)}</button>`
-      : `<button class="primary" id="home-add-job">${icon("plus")}添加机会</button>`;
-    return `<div class="home scroll"><div class="home-inner"><p class="muted today-date">${new Date().toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" })}</p><h2>今天，先完成一件事</h2><div class="quick-start">${urgentAction}<button class="secondary" data-page="resume">${icon("resume")}简历工作台</button><button class="secondary" id="add-episode">${icon("work")}记录工作</button></div><section class="continue-list">${title("继续推进", `<button class="text-btn" data-page="jobs">全部 ${icon("arrow")}</button>`)}${
-      active.length
-        ? active.slice(0,4).map((x:Row)=>`<button class="continue-row" data-job="${e(x.id)}"><div><b>${e(nextLabels[x.phase]||x.title)}</b><small>${e(x.company)} · ${e(x.title)}</small></div><span>${e(phaseLabels[x.phase]||"待核对")}</span>${icon("arrow")}</button>`).join("")
-        : empty("添加一个机会，或先整理个人资料。")
-    }</section><button class="text-btn" data-page="wiki">${icon("resume")}整理职业 Wiki</button></div></div>`;
-  }
   if (page === "jobs" || page === "progress") {
     const list = jobs.filter((x) =>
       ui.jobFilter === "active" ? x.status === "active" : x.status !== "active",
