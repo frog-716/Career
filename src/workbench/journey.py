@@ -156,6 +156,11 @@ def journey_router(store):
         content = _text(body.get("content"), "内容", 100000, strip=False)
         with store.connect() as c:
             note = store._get(c, note_id, "journey_note", True)
+            if note.get("scope_type") == "job" and c.execute(
+                "SELECT 1 FROM records WHERE kind IN ('communication','interview') AND json_extract(body,'$.raw_note_id')=?",
+                (note_id,),
+            ).fetchone():
+                raise Conflict("domain_action_required: 请在对应 Communication / Interview Detail 中更正")
             payload = dict(note_id=note_id, expected_revision=expected, title=title, content=content)
             previous, key, fingerprint = _request(store, c, body.get("idempotency_key"), "correct_note", payload)
             if previous is not None:
@@ -195,6 +200,11 @@ def journey_router(store):
             raise Invalid("promote_to_personal 必须是布尔值")
         with store.connect() as c:
             note = store._get(c, note_id, "journey_note", True)
+            if note.get("scope_type") == "job" and c.execute(
+                "SELECT 1 FROM records WHERE kind='interview' AND json_extract(body,'$.raw_note_id')=?",
+                (note_id,),
+            ).fetchone():
+                raise Conflict("interview_action_required: Interview 来源不能从旧 Candidate 入口产生 Patch")
             fixed_submission = note.get("submission_id")
             requested_submission = body.get("submission_id")
             if requested_submission is not None and requested_submission != fixed_submission:
@@ -222,7 +232,7 @@ def journey_router(store):
             if scope_type not in {"personal", "job", "episode"}:
                 raise Invalid("候选范围不合法")
             if scope_type == "job":
-                store._get(c, scope_id, "job")
+                store.job_view(c,scope_id)
             elif scope_type == "episode":
                 store._get(c, scope_id, "journey_episode")
             elif scope_id != "":
@@ -246,19 +256,21 @@ def journey_router(store):
 
     @router.post("/api/journey/plans/{job_id}")
     def save_plan(job_id: str, body: dict):
-        stage, next_action, due = _plan_values(body)
-        expected = _expected(body.get("expected_revision"))
+        from .opportunity import active
+        expected = _expected(body.get('expected_revision'))
         with store.connect() as c:
-            job = store._get(c, job_id, "job")
-            if job.get("status") != "active":
-                raise Missing("岗位不存在或不可更新")
-            plan_id = "journey:" + job_id
-            row = c.execute("SELECT body FROM current WHERE id=? AND kind='journey_plan'", (plan_id,)).fetchone()
-            old = json.loads(row[0]) if row else {}
-            obj = dict(old, id=plan_id, job_id=job_id, stage=stage, next_action=next_action, due_date=due)
-            if not row:
-                obj.update(revision=0, created_at=now())
-            return store._save(c, "journey_plan", obj, expected)
+            opportunity = active(store,c,job_id)
+            alias = opportunity.get('legacy_job_id') or opportunity['id'].split(':',1)[1]
+            rows=c.execute("SELECT body FROM current WHERE kind='journey_plan' AND json_extract(body,'$.job_id')=?",(alias,)).fetchall()
+            if len(rows)>1: raise Conflict('存在多个历史计划，不能自动选择')
+            old=json.loads(rows[0][0]) if rows else {}
+            if 'stage' in body and not isinstance(body['stage'],str):raise Invalid('阶段值不合法')
+            if 'stage' in body and body['stage']!=old.get('stage'): raise Conflict('legacy_stage_retired: 计划不能改变机会阶段')
+            if set(body)-{'expected_revision','stage','next_action','due_date'}: raise Invalid('计划只接受下一步和提醒日期')
+            next_action=_text(body.get('next_action',''),'下一步',1000)
+            due=_date(body.get('due_date'),'提醒日期')
+            obj=dict(old,id=old.get('id','journey:'+alias),job_id=alias,next_action=next_action,due_date=due)
+            return store._save(c,'journey_plan',obj,expected)
 
     @router.post("/api/journey/episodes")
     def create_episode(body: dict):
@@ -290,6 +302,7 @@ def journey_router(store):
         if not isinstance(scope_type, str) or scope_type not in NOTE_SCOPES:
             raise Invalid("记录范围不合法")
         scope_id = required(body.get("scope_id"), "目标", 500)
+        if scope_type == "job":scope_id=scope_id.removeprefix("opportunity:")
         kind = body.get("kind")
         if not isinstance(kind, str) or kind not in NOTE_KINDS:
             raise Invalid("记录类型不合法")
@@ -309,7 +322,11 @@ def journey_router(store):
                     raise Conflict("请求标识已用于不同记录")
                 return _note_view(store, c, old)
             if scope_type == "job":
-                store._get(c, scope_id, "job")
+                from .opportunity import active
+                if kind == "communication":
+                    raise Conflict("communication_action_required: 请在Opportunity中记录沟通")
+                if kind in {'interview','offer'}:raise Conflict('lifecycle_action_pending: 隔离v2等待真实轮次/Offer动作接管')
+                active(store,c,scope_id)
             else:
                 store._get(c, scope_id, "journey_episode")
             _submission_for_note(store, c, dict(scope_type=scope_type, scope_id=scope_id), submission_id)

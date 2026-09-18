@@ -46,12 +46,20 @@ def domain_router(store):
                 if cached:return cached
             kind=body.get('kind')
             if not isinstance(kind,str) or kind not in KINDS:raise Invalid('对象类型不支持')
+            if kind=='company' and not id:
+                from .opportunity import company
+                result=company(store,c,{'company_name':body.get('name')})
+                store._bump(c)
+                return remember(c,body['idempotency_key'],body,result)
             old=store._get(c,id,'domain_'+kind) if id else {}
             name=required(body.get('name'),'名称',500)
             description=body.get('description','')
             if not isinstance(description,str) or len(description)>10000:raise Invalid('说明过长')
             oid=id or uid()
             obj=dict(old,id=oid,kind=kind,name=name,description=description,created_at=old.get('created_at',now()))
+            if kind=='company':
+                from .opportunity import company_key
+                obj['match_key']=company_key(name)
             if kind=='org_unit':
                 company=ref(c,body.get('company_id'),'company')
                 if not company:raise Invalid('组织必须归属公司')
@@ -75,19 +83,11 @@ def domain_router(store):
 
     @router.post('/opportunities/{job_id}')
     def assign(job_id:str,body:dict):
+        from .opportunity import update_in_transaction
+        if set(body)-{'company_id','expected_revision','idempotency_key'}:
+            raise Conflict('legacy_assignment_retired: 请在机会页修改公司，其他旧关联只读')
         with store.connect() as c:
-            if job_id.startswith('opportunity:'):
-                opportunity=store._get(c,job_id,'opportunity')
-                job_id=opportunity['legacy_job_id']
-            store._get(c,job_id,'job')
-            company=ref(c,body.get('company_id'),'company');org=ref(c,body.get('org_unit_id'),'org_unit')
-            if org and (not company or org['company_id']!=company['id']):raise Invalid('组织必须属于选中的公司')
-            role=ref(c,body.get('target_role_id'),'target_role');cycle=ref(c,body.get('search_cycle_id'),'search_cycle')
-            obj=dict(id='opportunity-context:'+job_id,job_id=job_id,company_id=company['id'] if company else None,
-                     org_unit_id=org['id'] if org else None,target_role_id=role['id'] if role else None,search_cycle_id=cycle['id'] if cycle else None)
-            result=store._save(c,'opportunity_context',obj,expected(body))
-            store._bump(c)
-            return result
+            return update_in_transaction(store,c,job_id,body)
 
     @router.post('/resume-uses')
     def use(body:dict):
@@ -98,8 +98,10 @@ def domain_router(store):
             if scope=='role':target=store._get(c,scope_id,'domain_target_role');name=target['name']
             elif scope in {'job','opportunity'}:
                 if scope=='job':
-                    target=store._get(c,scope_id,'job');scope_id='opportunity:'+scope_id
-                else:target=store._get(c,scope_id,'opportunity')
+                    target=store.job_view(c,scope_id);scope_id=target['opportunity_id']
+                else:
+                    from .opportunity import resolve
+                    target=resolve(store,c,scope_id)
                 scope='opportunity';name=target['company']+' · '+target['title']
             else:raise Invalid('简历用途只能是方向通用版或具体机会')
             v=store._get(c,required(body.get('version_id'),'版本',500),'editor_version',True)

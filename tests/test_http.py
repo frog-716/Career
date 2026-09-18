@@ -27,7 +27,7 @@ def test_unconfigured_real_mode_still_supports_manual_chain(tmp_path,monkeypatch
     headers={'X-Career-Request':'1'}
     assert client.get('/api/state').json()['diagnostics']['provider']['configured'] is False
     assert client.post('/api/profile',json={'content':F['candidate']['experience']['revision2'],'expected_revision':0},headers=headers).status_code==200
-    j=client.post('/api/jobs',json={k:F['job'][k] for k in ('company','title','jd')},headers=headers).json()
+    j=client.post('/api/jobs',json=dict({k:F['job'][k] for k in ('company','title','jd')},idempotency_key='create'),headers=headers).json()
     response=client.post('/api/analysis',json={'job_id':j['id'],'kind':'job','idempotency_key':'fixture-unconfigured'},headers=headers)
     assert response.status_code==503
     assert '未配置' in response.json()['detail']

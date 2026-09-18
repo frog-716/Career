@@ -1,7 +1,9 @@
+from batch_b_helpers import save_job
 import json
 from pathlib import Path
 import pytest
 from workbench.core import Store, Conflict, Invalid
+from batch_b_helpers import historical_application
 from workbench.providers import TestProvider
 
 F = json.loads((Path(__file__).parents[1] / 'fixtures/scenarios.json').read_text())
@@ -12,7 +14,7 @@ def store(tmp_path):
 
 def setup(s):
     s.save_profile(F['candidate']['experience']['revision1'], 0)
-    return s.save_job({k:F['job'][k] for k in ('company','title','jd')})
+    return save_job(s,{k:F['job'][k] for k in ('company','title','jd')})
 
 def test_current_payload_no_history_or_feedback(store):
     j=setup(store)
@@ -56,16 +58,17 @@ def test_immutable_application_pdf_restart_and_exclude(store):
     v=store.save_version(r['id'],r['revision'])
     a=store.export_pdf(v['id'])
     body=dict(job_id=j['id'],version_id=v['id'],artifact_id=a['id'],applied_at='2026-09-14T10:00:00+08:00',status='applied',idempotency_key='fixture-event')
-    event=store.record_application(body)
+    event=historical_application(store,body)
     assert store.record_application(body)==event
     store.save_resume(r['id'],F['candidate']['experience']['revision2'],r['revision'])
-    store.save_job(dict(j,status='deleted',expected_revision=j['revision']),j['id'])
+    from workbench.opportunity import end_opportunity
+    end_opportunity(store,j['id'],dict(result='withdrawn',expected_revision=j['revision'],idempotency_key='end'))
     new=Store(store.data_dir,TestProvider())
     state=new.state()
     assert state['applications'][0]==event
     assert state['versions'][0]['content']==F['historicalApplication']['usedResumeText']
     assert (store.data_dir/a['path']).read_bytes().startswith(b'%PDF')
-    with pytest.raises(Invalid):new.context(j['id'],'job','')
+    with pytest.raises(Conflict):new.context(j['id'],'job','')
 
 def test_feedback_append_export_excluded_from_context(store):
     j=setup(store)
@@ -80,10 +83,10 @@ def test_preview_epoch_and_wrong_version_rejected(store):
     packet=store.context(j['id'],'job','')
     store.save_profile(F['candidate']['experience']['revision2'],1)
     with pytest.raises(Conflict):store.analyze(j['id'],'job','',packet['epoch'])
-    j2=store.save_job(dict(company=F['job']['company'],title=F['job']['title'],jd=F['adversarialMaterial']['text']))
+    j2=save_job(store,dict(company=F['job']['company'],title=F['job']['title'],jd=F['adversarialMaterial']['text']))
     r=store.open_resume(j['id']); r=store.save_resume(r['id'],F['historicalApplication']['usedResumeText'],0)
     v=store.save_version(r['id'],1); a=store.export_pdf(v['id'])
-    with pytest.raises(Invalid):store.record_application(dict(job_id=j2['id'],version_id=v['id'],artifact_id=a['id'],applied_at='2026-09-14T10:00:00Z',status='applied',idempotency_key='wrong'))
+    with pytest.raises(Conflict):store.record_application(dict(job_id=j2['id'],version_id=v['id'],artifact_id=a['id'],applied_at='2026-09-14T10:00:00Z',status='applied',idempotency_key='wrong'))
 
 def test_analysis_idempotency_and_draft_stale(store):
     j=setup(store);calls=[];original=store.provider.complete

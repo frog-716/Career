@@ -1,9 +1,11 @@
+import { opportunityHTML, bindOpportunity } from "./opportunity-ui";
 import "./style.css";
-import { ui, view, shell, stageNames, noteNames } from "./workspace";
+import { ui, view, shell, stageNames, noteNames, bindSidebarOrder } from "./workspace";
 import { bindKnowledge, knowledgeUI, entryNames } from "./knowledge-ui";
 
 import { bindProfile, hasUnsavedProfile } from "./profile-ui";
 import { bindRecords } from "./record-ui";
+import { bindAiSettings } from "./ai-config-ui";
 
 type Obj = Record<string, any>;
 type Page =
@@ -36,10 +38,18 @@ let editorVersions: Obj[] = [];
 let knowledge: Obj = { sources: [], candidates: [], entries: [] };
 let domain: Obj = { objects: [], opportunities: [], resume_uses: [] };
 let workDomain: Obj = { employments: [], projects: [], sources: [], persons: [], participants: [], events: [], achievements: [], evidence: [], evidence_links: [] };
+let opportunityCommunications: Obj[] = [];
+let opportunityTimeline: Obj = { items: [], unknown_date_items: [] };
+let opportunityInterviews: Obj[] = [];
+let opportunityOffer: Obj | null = null;
+let opportunityResearch: Obj = {company: {items: []}, opportunity: {items: [], revision: 0}};
+let opportunityLoadToken = 0;
 const planBuffers = new Map<string, Obj>();
 let page: Page = "home";
 let jobId = "";
 let notice = "";
+let opportunityView = "all";
+let opportunityAnchor = "";
 let profileBuffer: Obj | null = null;
 const jobBuffers = new Map<string, Obj>();
 const resumeBuffers = new Map<string, Obj>();
@@ -87,12 +97,15 @@ const $ = <T extends HTMLElement = HTMLElement>(selector: string) =>
 const activeJobs = () => state.jobs.filter((j: Obj) => j.status === "active");
 const currentJob = () => state.jobs.find((j: Obj) => j.id === jobId);
 const currentResume = () => state.resumes.find((r: Obj) => r.job_id === jobId);
-const modeText = () =>
-  state.diagnostics?.provider?.mode === "test"
-    ? "测试模式 · 非真实 AI"
-    : state.diagnostics?.provider?.configured
-      ? "真实 AI · 已配置，调用结果待核验"
-      : "真实 AI · 未配置";
+const modeText = () => {
+  if (state.diagnostics?.provider?.mode === "test") return "测试模式 · 非真实 AI";
+  const ai = state.ai;
+  const current = ai?.configs?.find(
+    (config: Obj) => config.id === ai.default_model_config_id,
+  );
+  if (current) return `真实 AI · ${current.provider} / ${current.model}`;
+  return "真实 AI · 未配置";
+};
 
 class ApiError extends Error {
   constructor(
@@ -102,13 +115,13 @@ class ApiError extends Error {
     super(message);
   }
 }
-async function api(path: string, body?: Obj): Promise<any> {
+async function api(path: string, body?: Obj, method = "POST"): Promise<any> {
   const response = await fetch(
     "/api" + path,
     body === undefined
       ? {}
       : {
-          method: "POST",
+          method,
           headers: {
             "Content-Type": "application/json",
             "X-Career-Request": "1",
@@ -135,12 +148,34 @@ async function load() {
     api("/work-domain").catch(() => ({ employments: [], projects: [], sources: [], persons: [], participants: [], events: [], achievements: [], evidence: [], evidence_links: [] })),
   ]);
   [state, journey, knowledge, domain, workDomain] = data;
-  const editorResult = await api("/editor/versions");
+  const [editorResult, catalogue] = await Promise.all([api("/editor/versions"), api("/resume-documents")]);
+  state.resume_documents = catalogue.documents;
   editorVersions = Array.isArray(editorResult)
     ? editorResult
     : editorResult.versions;
   if (!Array.isArray(editorVersions))
     throw new Error("编辑器版本返回格式不正确");
+  await loadOpportunityScope(jobId);
+}
+async function loadOpportunityScope(id: string) {
+  const token = ++opportunityLoadToken;
+  if (!(page === "jobs" || page === "progress") || !id) {
+    opportunityCommunications = [];
+    opportunityTimeline = { items: [], unknown_date_items: [] };
+    opportunityInterviews = [];
+    opportunityOffer = null;
+    opportunityResearch = {company: {items: []}, opportunity: {items: [], revision: 0}};
+    return;
+  }
+  const result = await Promise.all([
+    api("/opportunities/" + encodeURIComponent(id) + "/communications"),
+    api("/opportunities/" + encodeURIComponent(id) + "/timeline"),
+    api("/opportunities/" + encodeURIComponent(id) + "/interviews"),
+    api("/opportunities/" + encodeURIComponent(id) + "/offer"),
+    api("/opportunities/" + encodeURIComponent(id) + "/research-overview"),
+  ]);
+  if (token !== opportunityLoadToken || id !== jobId || !(page === "jobs" || page === "progress")) return;
+  [opportunityCommunications, opportunityTimeline, opportunityInterviews, opportunityOffer, opportunityResearch] = result;
 }
 function inform(text: string) {
   notice = text;
@@ -155,7 +190,7 @@ function failure(error: unknown) {
 }
 function isDirty() {
   return (
-    !!document.querySelector("dialog[data-dirty=true]") ||
+    !!document.querySelector("dialog[open][data-dirty=true]") ||
     !!profileBuffer || hasUnsavedProfile() ||
     jobBuffers.size > 0 ||
     planBuffers.size > 0 ||
@@ -277,7 +312,7 @@ function applicationsHtml(id: string) {
   return state.applications.filter((a: Obj) => a.job_id === id).map((a: Obj) => {
     const v = a.resume_snapshot;
     const name = v.document ? v.name : `早期文字稿 · 工作稿版本 ${v.draft_revision}`;
-    return `<article class="application-row"><b>${esc(a.job_snapshot.company)} · ${esc(a.job_snapshot.title)}</b><p>${date(a.applied_at)} · ${esc(a.channel || "渠道未记录")}</p><p>投递版本：${esc(name)}</p><a href="/api/artifacts/${a.artifact_id}" target="_blank" rel="noopener">预览实际投递 PDF</a> <a href="/api/artifacts/${a.artifact_id}?download=true">下载实际投递 PDF</a><label>当前状态<select data-application-status="${a.id}">${["applied", "interviewing", "rejected", "offer", "closed"].map((s) => `<option value="${s}" ${a.status === s ? "selected" : ""}>${statusNames[s]}</option>`).join("")}</select></label><details><summary>当时的简历正文</summary><pre>${esc(frozenResumeText(v))}</pre></details><details><summary>当时的岗位条件</summary><pre>${esc(a.job_snapshot.jd)}</pre></details></article>`;
+    return `<article class="application-row"><b>${esc(a.job_snapshot.company)} · ${esc(a.job_snapshot.title)}</b><p>${date(a.applied_at)} · ${esc(a.channel || "渠道未记录")}</p><p>投递版本：${esc(name)}</p><a href="/api/artifacts/${a.artifact_id}" target="_blank" rel="noopener">预览实际投递 PDF</a> <a href="/api/artifacts/${a.artifact_id}?download=true">下载实际投递 PDF</a><p>历史投递状态只读；当前阶段请查看机会。</p><details><summary>当时的简历正文</summary><pre>${esc(frozenResumeText(v))}</pre></details><details><summary>当时的岗位条件</summary><pre>${esc(a.job_snapshot.jd)}</pre></details></article>`;
   }).join("") || '<p class="muted">暂无实际投递。从已关联的版本登记已经发生的投递；关联版本不会自动创建投递。</p>';
 }
 
@@ -313,6 +348,14 @@ function runsHtml(kind: string, id: string) {
     : "";
 }
 function render() {
+  if (page === 'jobs' || page === 'progress') {
+    const ctx = {state,domain,journey,id:jobId,filter:opportunityView,anchor:opportunityAnchor,communications:opportunityCommunications,timeline:opportunityTimeline,interviews:opportunityInterviews,offer:opportunityOffer,research:opportunityResearch};
+    root.innerHTML=shell('jobs',opportunityHTML(ctx),notice,state.diagnostics?.provider?.mode==='test');
+    history.replaceState(null,'','#opportunities'+(jobId?'/'+encodeURIComponent(jobId):'')+'?view='+opportunityView+(opportunityAnchor?'&tab='+encodeURIComponent(opportunityAnchor):''));
+    bind();
+    bindOpportunity(ctx,{api,refresh:load,go:(id,filter)=>{const changed=id!==jobId;jobId=id;if(filter)opportunityView=filter;opportunityAnchor='';if(changed)void load().then(render).catch(failure);else render();}});
+    return;
+  }
   const ep =
     journey.episodes.find((x: Obj) => x.id === ui.episodeId) ||
     journey.episodes[0];
@@ -355,7 +398,6 @@ function render() {
     notice,
     state.diagnostics?.provider?.mode === "test",
   );
-  if ((page === "jobs" || page === "progress") && jobId) history.replaceState(null, "", `#${page}/${encodeURIComponent(jobId)}?tab=${encodeURIComponent(ui.jobTab)}`);
   bind();
 }
 async function navigate(next: Page, id = jobId) {
@@ -363,6 +405,7 @@ async function navigate(next: Page, id = jobId) {
   page = next;
   jobId = id;
   notice = "";
+  if (page === "jobs" || page === "progress") await loadOpportunityScope(jobId);
   if (page === "profile") knowledgeUI.tab = "profile";
   if (page === "profile" || (page === "wiki" && knowledgeUI.tab === "profile")) state.profile = (await api("/state")).profile;
   if (page === "resume") {
@@ -1017,53 +1060,9 @@ async function applyProposal(id: string) {
 }
 function recordApplication(versionId: string, opportunityId?: string) {
   const v = editorVersions.find((v: Obj) => v.id === versionId) || state.versions.find((v: Obj) => v.id === versionId);
-  if (!v) { inform("版本不存在，请重新载入。"); return; }
-  const a = state.artifacts.find((a: Obj) => a.version_id === v.id);
-  const j = state.jobs.find((j: Obj) => j.id === (opportunityId || v.job_id));
-  if (!j) { inform("请从具体机会登记投递。"); return; }
-  if (!a) {
-    inform("请先生成并检查此版本的 PDF。");
-    return;
-  }
-  const time = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 16);
-  const key = crypto.randomUUID();
-  modal(
-    "记录实际投递",
-    `<form id="application-form"><p>${esc(j.company)} · ${esc(j.title)}</p><p>${v.name ? `投递版本：${esc(v.name)} · ${date(v.createdAt)}` : `早期文字稿 · 工作稿版本 ${v.draft_revision} · ${date(v.created_at)}`}</p><a href="/api/artifacts/${a.id}" target="_blank" rel="noopener">检查实际使用的 PDF</a><label>投递渠道<input id="application-channel" required maxlength="500" placeholder="如招聘平台、邮箱、内推"></label><label>实际投递时间<input id="applied-at" type="datetime-local" required value="${time}"></label><label>当前状态<select id="application-status">${["applied", "interviewing", "rejected", "offer", "closed"].map((s) => `<option value="${s}">${statusNames[s]}</option>`).join("")}</select></label><p class="muted">确认已实际投递后保存。此操作仅记录事件，不会替你投递。</p><button class="primary full" type="submit">保存投递记录</button></form>`,
-    (dialog) => {
-      let request: Obj | null = null;
-      $("#application-form")!.onsubmit = async (event) => {
-        event.preventDefault();
-        const button = dialog.querySelector<HTMLButtonElement>(
-          "button[type=submit]",
-        )!;
-        button.disabled = true;
-        request ||= {
-          job_id: j.id,
-          version_id: v.id,
-          artifact_id: a.id,
-          channel: ($("#application-channel") as HTMLInputElement).value.trim(),
-          applied_at: new Date(
-            ($("#applied-at") as HTMLInputElement).value,
-          ).toISOString(),
-          status: ($("#application-status") as HTMLSelectElement).value,
-          idempotency_key: key,
-        };
-        try {
-          await api("/applications", request);
-          await load();
-          dialog.close();
-          render();
-          inform("投递已记录，历史材料已固定。");
-        } catch (e) {
-          modalError(e);
-          button.disabled = false;
-        }
-      };
-    },
-  );
+  const owner = opportunityId || v?.opportunity_id || v?.job_id;
+  if (!owner) { inform("请先选择机会，再记录已投递。"); return; }
+  location.hash = '#opportunities/' + encodeURIComponent(owner);
 }
 async function screenshotData(input: HTMLInputElement) {
   const file = input.files?.[0];
@@ -1156,6 +1155,8 @@ function addNote(id: string) {
   );
 }
 function bind() {
+  bindSidebarOrder();
+  if (page === "diagnostics") bindAiSettings({state, api, modal, modalError, load, render, inform});
   bindProfile({state, api, modal, modalError, load, render, navigate: async () => {
     knowledgeUI.tab = "candidates"; knowledgeUI.scope = "all"; knowledgeUI.category = "all"; await navigate("wiki");
   }});
@@ -1279,7 +1280,7 @@ function bind() {
   document.querySelectorAll<HTMLElement>("[data-page]").forEach(
     (el) =>
       (el.onclick = () => {
-        void navigate(el.dataset.page as Page, el.dataset.job || jobId).catch(
+        void navigate(el.dataset.page as Page, (el.dataset.job || (el.dataset.page === "jobs" ? "" : jobId))).catch(
           failure,
         );
       }),
@@ -1308,7 +1309,7 @@ function bind() {
   $("#home-feedback")?.addEventListener("click", captureFeedback);
   $("#add-job")?.addEventListener("click", addJob);
   $("#add-episode")?.addEventListener("click", addEpisode);
-  $("#home-add-job")?.addEventListener("click", addJob);
+  $("#home-add-job")?.addEventListener("click",()=>{void navigate("jobs","").then(()=>document.querySelector<HTMLButtonElement>("#op-create")?.click());});
   $("#load-demo")?.addEventListener("click", () => {
     void (async () => {
       await api("/demo/load", {});
@@ -1414,23 +1415,6 @@ function bind() {
       (el) => (el.onclick = () => recordApplication(el.dataset.application!, el.dataset.applicationJob)),
     );
   document
-    .querySelectorAll<HTMLSelectElement>("[data-application-status]")
-    .forEach(
-      (el) =>
-        (el.onchange = async () => {
-          try {
-            await api(
-              "/applications/" + el.dataset.applicationStatus + "/status",
-              { status: el.value },
-            );
-            await load();
-            render();
-          } catch (e) {
-            failure(e);
-          }
-        }),
-    );
-  document
     .querySelectorAll<HTMLElement>("[data-note]")
     .forEach((el) => (el.onclick = () => addNote(el.dataset.note!)));
 }
@@ -1438,15 +1422,16 @@ function readRoute() {
   const [path, query = ""] = location.hash.slice(1).split("?");
   const [p, raw = ""] = path.split("/");
   const id = decodeURIComponent(raw), params = new URLSearchParams(query);
-  return {p,id,params};
+  return {p:p === "opportunities" ? "jobs" : p,id,params};
 }
 function routeSelection(p: string, id: string, params: URLSearchParams) {
+  if (p === "footprint" && params.get("record")) ui.selectedNote = params.get("record")!;
+  if(p==='jobs'||p==='progress') {opportunityView=params.get('view')||opportunityView;opportunityAnchor=params.get('tab')||'';}
   if (p === "jobs" && ["jd","analysis","resume",...Object.keys(noteNames)].includes(params.get("tab") || "")) ui.jobTab = params.get("tab")!;
   if (p === "wiki" && id) {knowledgeUI.tab = "entries";knowledgeUI.scope = "all";knowledgeUI.category = "all";knowledgeUI.selected = id;}
 }
 async function start() {
   try {
-    await load();
     const {p,id,params} = readRoute();
     routeSelection(p,id,params);
     if (
@@ -1466,9 +1451,10 @@ async function start() {
       ].includes(p)
     )
       page = p as Page;
-    jobId = state.jobs.some((j: Obj) => j.id === id)
-      ? id
-      : activeJobs()[0]?.id || "";
+    if (page === "jobs" || page === "progress") jobId = id;
+    await load();
+    if (page !== "jobs" && page !== "progress")
+      jobId = state.jobs.some((j: Obj) => j.id === id) ? id : activeJobs()[0]?.id || "";
     if (page === "jobs" || page === "progress")
       ui.jobFilter =
         state.jobs.find((j: Obj) => j.id === jobId)?.status === "active"
@@ -1520,11 +1506,7 @@ window.addEventListener("hashchange", () => {
     }
     routeSelection(requested,id,params);
     if (requested === "work") ui.episodeId = id || "";
-    const targetJob =
-      (requested === "jobs" || requested === "progress") &&
-      state.jobs.some((j: Obj) => j.id === id)
-        ? id
-        : jobId;
+    const targetJob = (requested === 'jobs' || requested === 'progress') ? id : jobId;
     if (requested === "jobs" || requested === "progress")
       ui.jobFilter =
         state.jobs.find((j: Obj) => j.id === targetJob)?.status === "active"

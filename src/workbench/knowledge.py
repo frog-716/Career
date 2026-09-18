@@ -39,7 +39,7 @@ def _scope(store, c, scope_type, scope_id):
             raise Invalid("个人范围的 scope_id 必须为空")
     else:
         scope_id = required(scope_id, "范围目标", 500)
-        store._get(c, scope_id, "job" if scope_type == "job" else "journey_episode")
+        store.job_view(c, scope_id) if scope_type == "job" else store._get(c, scope_id, "journey_episode")
     return scope_type, scope_id
 
 
@@ -104,7 +104,7 @@ def selected_wiki_sources(store, c, ids, job_id):
     if job_id is not None:
         if not isinstance(job_id, str) or not job_id:
             raise Invalid("岗位 ID 不合法")
-        store._get(c, job_id, "job")
+        store.job_view(c, job_id)
 
     selected = []
     seen = set()

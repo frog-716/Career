@@ -3,7 +3,6 @@ from fastapi import APIRouter
 from urllib.parse import urlsplit
 from .core import Conflict, Invalid, digest, now, uid
 from .knowledge import _entry_values, _expected, _request, _remember
-from .editor import sync_profile_to_draft
 
 
 def _web_url(value):
@@ -46,7 +45,6 @@ def _save(store, c, old, basics, expected):
     result = store._save(c, 'profile', dict(old, mode='structured', basics=basics, content=content,
                                            verified=False, source='user-edit'), expected)
     store._bump(c)
-    sync_profile_to_draft(c, store, result)
     return result
 
 

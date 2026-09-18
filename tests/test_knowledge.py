@@ -1,3 +1,4 @@
+from batch_b_helpers import save_job
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI
@@ -71,7 +72,7 @@ def test_source_is_immutable_preserves_original_and_idempotency(tmp_path):
 def test_candidate_scope_cas_edit_and_confirmation_are_transactional(tmp_path):
     client, store = make_client(tmp_path)
     personal = client.post("/api/knowledge/sources", json=source_body()).json()
-    job = store.save_job({"company": "虚构公司", "title": "工程师", "jd": "JD"})
+    job = save_job(store,{"company": "虚构公司", "title": "工程师", "jd": "JD"})
     job_source = client.post("/api/knowledge/sources", json=source_body(
         "source-job", scope_type="job", scope_id=job["id"])).json()
 
@@ -134,7 +135,7 @@ def test_rejected_and_episode_material_never_enters_packet(tmp_path):
 
 def test_packet_uses_current_revision_mandatory_and_explicit_entries_only(tmp_path):
     client, store = make_client(tmp_path)
-    job = store.save_job({"company": "虚构公司", "title": "工程师", "jd": "JD"})
+    job = save_job(store,{"company": "虚构公司", "title": "工程师", "jd": "JD"})
     sources = {}
     for name, scope_type, scope_id in (
         ("goal", "personal", ""), ("project", "personal", ""),

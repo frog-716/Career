@@ -1,3 +1,4 @@
+from batch_b_helpers import save_job
 import json
 from pathlib import Path
 from workbench.core import Store
@@ -10,7 +11,7 @@ F=json.loads((Path(__file__).parents[1]/'fixtures/scenarios.json').read_text())
 def test_snapshot_and_restore_pdf(tmp_path):
     s=Store(tmp_path/'source',TestProvider())
     s.save_profile(F['candidate']['experience']['revision2'],0)
-    j=s.save_job({k:F['job'][k] for k in ('company','title','jd')})
+    j=save_job(s,{k:F['job'][k] for k in ('company','title','jd')})
     r=s.open_resume(j['id']);r=s.save_resume(r['id'],F['historicalApplication']['usedResumeText'],0)
     v=s.save_version(r['id'],1);a=s.export_pdf(v['id'])
     bundle=backup(s.data_dir,tmp_path/'backups')
@@ -23,7 +24,7 @@ def test_snapshot_and_restore_pdf(tmp_path):
 def test_backup_rejects_missing_hash_mismatch_and_orphan(tmp_path):
     s=Store(tmp_path/'source',TestProvider())
     s.save_profile(F['candidate']['experience']['revision2'],0)
-    j=s.save_job({k:F['job'][k] for k in ('company','title','jd')})
+    j=save_job(s,{k:F['job'][k] for k in ('company','title','jd')})
     r=s.open_resume(j['id']);r=s.save_resume(r['id'],F['historicalApplication']['usedResumeText'],0)
     v=s.save_version(r['id'],1);a=s.export_pdf(v['id'])
     bundle=backup(s.data_dir,tmp_path/'backups')

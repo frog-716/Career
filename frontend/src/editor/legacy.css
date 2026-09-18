@@ -511,3 +511,6 @@ body.pdf-rendering .editable[data-empty="true"]::after, body.pdf-rendering .edit
 .add-wechat { display: inline-flex; align-items: center; padding: 0; border: 0; background: transparent; color: #777; font: inherit; cursor: pointer; }
 body.pdf-rendering .add-wechat { display: none !important; }
 @media print { .add-wechat { display: none !important; } }
+
+/* The toolbar flex rule must not expose a lifecycle action marked hidden. */
+#recordSubmitted[hidden] { display: none; }

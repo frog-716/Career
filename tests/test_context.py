@@ -1,3 +1,4 @@
+from batch_b_helpers import save_job
 import json
 
 from fastapi import FastAPI
@@ -13,7 +14,7 @@ from workbench.app import create_app
 def test_context_v2_is_stable_and_keeps_legacy_fields(tmp_path):
     store = Store(tmp_path, TestProvider())
     store.save_profile("当前经历", 0)
-    job = store.save_job({"company": "虚构公司", "title": "工程师", "jd": "岗位要求"})
+    job = save_job(store,{"company": "虚构公司", "title": "工程师", "jd": "岗位要求"})
 
     preview = store.context(job["id"], "job", "请分析")
     with store.connect(False) as connection:
@@ -43,7 +44,7 @@ def test_context_v2_is_stable_and_keeps_legacy_fields(tmp_path):
 def test_context_v2_excludes_feedback_and_unrelated_journey(tmp_path):
     store = Store(tmp_path, TestProvider())
     store.save_profile("当前经历", 0)
-    job = store.save_job({"company": "虚构公司", "title": "工程师", "jd": "岗位要求"})
+    job = save_job(store,{"company": "虚构公司", "title": "工程师", "jd": "岗位要求"})
     store.feedback({"text": "反馈哨兵", "current_page": "job"})
     app = FastAPI()
     app.include_router(journey_router(store))
@@ -62,19 +63,19 @@ def test_opportunity_relation_change_invalidates_preview_and_run(tmp_path):
     client = TestClient(create_app(store))
     headers = {"X-Career-Request": "1"}
     job = client.post("/api/jobs", json={
-        "company": "虚构公司", "title": "工程师", "jd": "岗位要求",
+        "company": "虚构公司", "title": "工程师", "jd": "岗位要求", "idempotency_key": "job",
     }, headers=headers).json()
     company = client.post("/api/domain/objects", json={
         "kind": "company", "name": "虚构公司", "idempotency_key": "company",
     }, headers=headers).json()
     relation = client.post("/api/domain/opportunities/" + job["id"], json={
-        "company_id": company["id"], "expected_revision": 0,
+        "company_id": company["id"], "expected_revision": job["revision"], "idempotency_key": "assign",
     }, headers=headers).json()
     preview = store.context(job["id"], "job")
-    assert any(source["purpose"] == "task_context" for source in preview["sources"])
+    assert any(source["purpose"] == "company_identity" for source in preview["sources"])
     run = store.analyze(job["id"], "job", expected_epoch=preview["epoch"], idempotency_key="run")
     client.post("/api/domain/opportunities/" + job["id"], json={
-        "company_id": company["id"], "expected_revision": relation["revision"],
+        "company_id": company["id"], "expected_revision": relation["revision"], "idempotency_key": "assign-again",
     }, headers=headers)
     assert store.state()["runs"][0]["status"] == "stale"
     from workbench.core import Conflict

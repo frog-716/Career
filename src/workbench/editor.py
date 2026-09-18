@@ -125,17 +125,6 @@ def _pdf(data):
     return raw
 
 
-def _save_document(c, store, document, expected):
-    _, revision, _ = _draft(c, store)
-    if expected != revision:
-        raise Conflict("编辑稿已在其它窗口更新，请重新载入比较后保存")
-    saved_at = now()
-    obj = {"id": "editor-main", "document": document, "savedAt": saved_at}
-    c.execute("INSERT INTO current VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,revision=excluded.revision,body=excluded.body", ("editor-main", "editor_draft", revision + 1, dump(obj)))
-    c.execute("INSERT INTO revisions VALUES(?,?,?,?)", ("editor-main", revision + 1, dump(obj), saved_at))
-    return _result(document, revision + 1, saved_at)
-
-
 def _fact_allowed(entry, job_id):
     return entry.get('status') == 'active' and (entry.get('scope_type') == 'personal' or
         (job_id and entry.get('scope_type') == 'job' and entry.get('scope_id') == job_id))
@@ -182,225 +171,27 @@ def _apply_profile(document, profile):
     return document
 
 
-def sync_profile_to_draft(c, store, profile):
-    """Keep the current draft in sync when the user saves basic profile data."""
-    document, revision, _ = _draft(c, store)
-    document = _apply_profile(document, profile)
-    return _save_document(c, store, _document(document), revision)
-
-
 def editor_router(store):
-    router = APIRouter(prefix="/api/editor")
-
-    @router.get("")
-    def get_editor():
+    """Legacy read adapter. No unscoped writes survive schema v3."""
+    router = APIRouter(prefix='/api/editor')
+    @router.get('')
+    def legacy():
         with store.connect(False) as c:
-            document, revision, saved_at = _draft(c, store)
-            return _result(document, revision, saved_at)
-
-    @router.put("")
-    def put_editor(body: dict):
-        document = _document(body.get("document"))
-        expected = body.get("expected_revision")
-        if not isinstance(expected, int) or isinstance(expected, bool) or expected < 0:
-            raise Invalid("expected_revision 不合法")
-        with store.connect() as c:
-            old, _, _ = _draft(c, store)
-            if document['meta'].get('source_refs', []) != old['meta'].get('source_refs', []):
-                raise Conflict("材料来源不可改写，请保留当前来源信息；恢复历史请使用恢复版本")
-            return _save_document(c, store, document, expected)
-
-    @router.get('/materials')
-    def materials(job_id: str = ''):
+            doc, revision, saved = _draft(c,store)
+            return dict(_result(doc,revision,saved), legacy=True, read_only=True, document_hash=digest(doc))
+    @router.get('/versions')
+    def versions():
+        from .resume_documents import version_summary
         with store.connect(False) as c:
-            if job_id: store._get(c, job_id, 'job')
-            return dict(entries=[e for e in store._current(c, 'wiki_entry') if _fact_allowed(e, job_id)],
-                        profile=store._get(c, 'profile', 'profile'))
-
-    @router.get('/sources')
-    def sources():
+            return dict(versions=[version_summary(v) for v in store._records(c,'editor_version')])
+    @router.get('/versions/{vid}')
+    def version(vid: str):
         with store.connect(False) as c:
-            document, _, _ = _draft(c, store)
-            ids = _item_ids(document)
-            results = []
-            for ref in document['meta'].get('source_refs', []):
-                row = c.execute('SELECT body FROM current WHERE id=? AND kind=?', (ref['source_id'], ref['source_kind'])).fetchone()
-                current = json.loads(row[0]) if row else None
-                status = 'current'
-                if ref['item_id'] not in ids: status = 'removed'
-                elif not current or current.get('status') == 'withdrawn': status = 'withdrawn'
-                elif current['revision'] != ref['revision']: status = 'updated'
-                results.append(dict(ref, status=status))
-            return dict(sources=results)
-
-    @router.post('/select-facts')
-    def select_facts(body: dict):
-        from .knowledge import _request, _remember, _expected
-        expected = _expected(body.get('expected_revision'))
-        selections = body.get('selections', [])
-        include_profile = body.get('include_profile', False)
-        if type(include_profile) is not bool: raise Invalid('基础信息选择不合法')
-        if not isinstance(selections, list) or len(selections) > 30 or (not selections and not include_profile):
-            raise Invalid('请明确选择不超过30条已确认资料')
-        job_id = body.get('job_id') or ''
-        if not isinstance(job_id, str): raise Invalid('岗位不合法')
-        with store.connect() as c:
-            previous, key, fingerprint = _request(store, c, body.get('idempotency_key'), 'resume_select_facts', body)
-            if previous is not None: return previous
-            if job_id: store._get(c, job_id, 'job')
-            document, revision, _ = _draft(c, store)
-            if revision != expected: raise Conflict('工作稿已更新，请保存并重新选择材料')
-            document = deepcopy(document)
-            refs = document['meta'].setdefault('source_refs', [])
-            present = _item_ids(document)
-            imported = {ref['source_id'] for ref in refs if ref['item_id'] in present}
-            for selection in selections:
-                if not isinstance(selection, dict) or not isinstance(selection.get('id'), str): raise Invalid('选材不合法')
-                e = store._get(c, selection['id'], 'wiki_entry')
-                if not _fact_allowed(e, job_id): raise Invalid('只能选择个人或当前机会的有效Wiki；任职资料须先确认允许复用的个人事实')
-                if type(selection.get('revision')) is not int or selection['revision'] != e['revision']: raise Conflict('所选事实已更新，请重新检查材料')
-                if e['id'] in imported: raise Conflict('此事实已选入当前稿，请编辑已有表达或移除条目后重选')
-                kind = selection.get('section_type')
-                if kind not in {'skills','experience','projects','education'}: raise Invalid('简历分区不合法')
-                section = next((x for x in document['sections'] if x['type'] == kind), None)
-                if section is None:
-                    section = dict(id='section-'+kind, type=kind, title={'skills':'专业技能','experience':'工作经历','projects':'项目经历','education':'教育背景'}[kind], items=[])
-                    document['sections'].append(section)
-                item_id = uid()
-                title = html.escape(e['title']); content = html.escape(e['content']).replace('\n','<br>')
-                if kind == 'skills': item = dict(id=item_id, content=title+'：'+content)
-                else:
-                    fields = {'experience':dict(organization='', role=title, date=''), 'projects':dict(title=title, responsibility='', date=''), 'education':dict(school=title, major='', date='')}[kind]
-                    item = dict(id=item_id, bullets=[dict(id=uid(), content=content)], **fields)
-                section['items'].append(item)
-                refs.append(dict(item_id=item_id, source_kind='wiki_entry', source_id=e['id'], revision=e['revision'], hash=digest(e), title=e['title'], scope_type=e['scope_type'], scope_id=e['scope_id']))
-                imported.add(e['id'])
-            if include_profile:
-                p = store._get(c, 'profile', 'profile')
-                if p.get('mode') != 'structured': raise Invalid('请先在基础资料中明确整理姓名和联系方式')
-                if type(body.get('profile_revision')) is not int or body['profile_revision'] != p['revision']: raise Conflict('基础资料已更新，请重新检查')
-                # Explicit reselection refreshes the identity expression; old draft revisions and versions retain old refs.
-                document = _apply_profile(document, p)
-            result = _save_document(c, store, _document(document), expected)
-            _remember(store, c, key, fingerprint, result)
-            return result
-
-    @router.get("/versions")
-    def list_versions():
-        with store.connect(False) as c:
-            versions = []
-            for row in c.execute("SELECT body FROM records WHERE kind='editor_version' ORDER BY rowid DESC"):
-                v = json.loads(row[0])
-                versions.append({"id": v["id"], "name": v["name"], "createdAt": v["createdAt"], "artifact_id": v["artifact_id"]})
-            return {"versions": versions}
-
-    @router.post("/versions")
-    def create_version(body: dict):
-        name = body.get("name")
-        if not isinstance(name, str) or not name.strip() or len(name.strip()) > 200:
-            raise Invalid("版本名称不能为空或超出长度限制")
-        document = _document(body.get("document"))
-        expected = body.get("expected_revision")
-        if not isinstance(expected, int) or isinstance(expected, bool) or expected < 0:
-            raise Invalid("expected_revision 不合法")
-        key = body.get("idempotency_key")
-        if not isinstance(key, str) or not key.strip() or len(key) > 100:
-            raise Invalid("请求标识不能为空或超出长度限制")
-        raw = _pdf(body.get("pdf_base64"))
-        fingerprint = digest([name.strip(), document, expected, hashlib.sha256(raw).hexdigest()])
-        written = None
-        try:
-            with store.connect() as c:
-                existing = c.execute("SELECT body FROM records WHERE kind='editor_version' AND json_extract(body,'$.idempotency_key')=?", (key.strip(),)).fetchone()
-                if existing:
-                    version = json.loads(existing[0])
-                    if version.get("request_fingerprint") != fingerprint:
-                        raise Conflict("请求标识已用于不同版本")
-                    return {"id": version["id"], "name": version["name"], "createdAt": version["createdAt"], "document": version["document"], "artifact_id": version["artifact_id"]}
-                current = c.execute("SELECT revision,body FROM current WHERE id=? AND kind='editor_draft'", ("editor-main",)).fetchone()
-                if not current or current[0] != expected:
-                    raise Conflict("编辑稿版本不匹配，请先保存并重新载入")
-                persisted = json.loads(current[1])["document"]
-                if persisted != document:
-                    raise Conflict("版本文档必须与已保存编辑稿一致")
-                aid, vid = uid(), uid()
-                target = _target(store.data_dir, aid, ".pdf")
-                _atomic_write(target, raw)
-                written = target
-                meta = {"path": str(target.relative_to(Path(store.data_dir).resolve())), "sha256": hashlib.sha256(raw).hexdigest(), "media_type": "application/pdf", "size": len(raw)}
-                created = now()
-                artifact = dict(meta, id=aid, version_id=vid, created_at=created)
-                version = {"id": vid, "name": name.strip(), "createdAt": created, "document": document, "artifact_id": aid, "idempotency_key": key.strip(), "request_fingerprint": fingerprint}
-                store._record(c, "artifact", artifact)
-                store._record(c, "editor_version", version)
-                return {"id": vid, "name": version["name"], "createdAt": created, "document": document, "artifact_id": aid}
-        except Exception:
-            if written is not None:
-                try: written.unlink()
-                except OSError: pass
-            raise
-
-    @router.get("/versions/{version_id}")
-    def get_version(version_id: str):
-        with store.connect(False) as c:
-            row = c.execute("SELECT body FROM records WHERE id=? AND kind='editor_version'", (version_id,)).fetchone()
-            if not row:
-                raise Missing("版本不存在")
-            v = json.loads(row[0])
-            return {"id": v["id"], "name": v["name"], "createdAt": v["createdAt"], "document": v["document"], "artifact_id": v["artifact_id"]}
-
-    @router.delete("/versions/{version_id}")
-    def delete_version(version_id: str):
-        if not isinstance(version_id, str) or not _ID.fullmatch(version_id):
-            raise Invalid("version_id 不合法")
-        artifact_path = None
-        with store.connect() as c:
-            row = c.execute("SELECT body FROM records WHERE id=? AND kind='editor_version'", (version_id,)).fetchone()
-            if not row:
-                raise Missing("版本不存在")
-            version = json.loads(row[0])
-            application = c.execute("SELECT 1 FROM applications WHERE version_id=? LIMIT 1", (version_id,)).fetchone()
-            if application:
-                raise Conflict("该版本已经用于投递，不能删除")
-            use = c.execute(
-                "SELECT 1 FROM records WHERE kind='resume_use' AND json_extract(body,'$.version_id')=? LIMIT 1",
-                (version_id,),
-            ).fetchone()
-            if use:
-                raise Conflict("该版本已经关联岗位或方向，不能删除")
-            artifact_id = version.get("artifact_id")
-            artifact_row = c.execute("SELECT body FROM records WHERE id=? AND kind='artifact'", (artifact_id,)).fetchone()
-            if artifact_row:
-                artifact = json.loads(artifact_row[0])
-                if isinstance(artifact.get("path"), str):
-                    artifact_path = read_artifact(store.data_dir, artifact["path"])
-                c.execute("DELETE FROM records WHERE id=? AND kind='artifact'", (artifact_id,))
-            c.execute("DELETE FROM records WHERE id=? AND kind='editor_version'", (version_id,))
-        if artifact_path is not None:
-            artifact_path.unlink(missing_ok=True)
-        return {"deleted": version_id}
-
-    @router.post("/restore")
-    def restore(body: dict):
-        version_id, expected = body.get("version_id"), body.get("expected_revision")
-        if not isinstance(version_id, str) or not _ID.fullmatch(version_id):
-            raise Invalid("version_id 不合法")
-        if not isinstance(expected, int) or isinstance(expected, bool) or expected < 0:
-            raise Invalid("expected_revision 不合法")
-        with store.connect() as c:
-            row = c.execute("SELECT body FROM records WHERE id=? AND kind='editor_version'", (version_id,)).fetchone()
-            if not row: raise Missing("版本不存在")
-            version = json.loads(row[0])
-            current = c.execute("SELECT revision,body FROM current WHERE id=?", ("editor-main",)).fetchone()
-            revision = current[0] if current else 0
-            if expected != revision: raise Conflict("编辑稿已更新，请重新载入后恢复")
-            saved_at = now(); new_revision = revision + 1
-            obj = {"id":"editor-main", "document":version["document"], "savedAt":saved_at}
-            c.execute("INSERT INTO current VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,revision=excluded.revision,body=excluded.body", ("editor-main", "editor_draft", new_revision, dump(obj)))
-            c.execute("INSERT INTO revisions VALUES(?,?,?,?)", ("editor-main", new_revision, dump(obj), saved_at))
-            before = json.loads(current[1])["document"] if current else _blank()
-            recovery = {"id":uid(), "version_id":version_id, "revision":new_revision, "previous_revision":revision, "createdAt":saved_at, "before":before, "document":version["document"]}
-            store._record(c, "editor_recovery", recovery)
-            return _result(version["document"], new_revision, saved_at)
-
+            v=store._get(c,vid,'editor_version',True)
+            a=store._get(c,v['artifact_id'],'artifact',True)
+            return dict(v,document_hash=digest(v['document']),artifact_hash=a['sha256'])
+    @router.api_route('', methods=['PUT','POST','DELETE'])
+    @router.api_route('/{path:path}', methods=['PUT','POST','DELETE'])
+    def retired(path: str = ''):
+        raise Conflict('legacy_editor_read_only: 请选择机会自己的简历工作稿')
     return router
