@@ -1,4 +1,4 @@
-# Career OS 本地服务
+# Career 本地服务
 
 当前 Production 已部署通过最终 review 的 **Batch F Opportunity MVP**，运行版本 `0.7.0-batch-f`、schema v6。正式代码位于 `/Users/frog/Projects/Career`，数据仍位于外部 `/Users/frog/Library/Application Support/Career Data`；v1→v6 migration、备份、恢复、完整性与浏览器 smoke 证据见 [Batch F §23](../../docs/execution/OPPORTUNITY-BATCH-F.md#23-opportunity-mvp-production-cutover2026-09-18)。
 

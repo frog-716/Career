@@ -19,7 +19,7 @@ from pathlib import Path
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
-HOME_PATH = "/#home"
+HOME_PATH = "/"
 CHROME_BUNDLE_ID = "com.google.Chrome"
 
 

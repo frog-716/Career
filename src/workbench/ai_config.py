@@ -17,6 +17,13 @@ def _text(value, label, limit=1000, optional=False):
     return required(value, label, limit)
 
 
+def canonical_model(provider, model):
+    """Normalize provider aliases before they reach the remote API."""
+    if provider.strip().casefold() == "deepseek" and model.strip().casefold() == "deepseek-v4.1-flash":
+        return "deepseek-flash"
+    return model
+
+
 def _config(store, c, config_id):
     return store._get(c, config_id, "ai_model_config")
 
@@ -65,7 +72,7 @@ def create(store, body):
     display = _text(body.get("display_name"), "显示名称", 200)
     provider = _text(body.get("provider"), "供应商", 100)
     base_url = _text(body.get("base_url"), "Base URL", 2000).rstrip("/")
-    model = _text(body.get("model"), "模型名称", 500)
+    model = canonical_model(provider, _text(body.get("model"), "模型名称", 500))
     enabled = body.get("enabled", True)
     if type(enabled) is not bool:
         raise Invalid("enabled 必须是布尔值")
@@ -78,6 +85,10 @@ def create(store, body):
             "created_at": now(), "updated_at": now(),
         }
         c.execute("INSERT INTO current VALUES(?,?,?,?)", (config["id"], "ai_model_config", 0, store_dump(config)))
+        settings_row = c.execute("SELECT body FROM current WHERE id='ai-settings' AND kind='ai_settings'").fetchone()
+        settings = __import__("json").loads(settings_row[0]) if settings_row else {"default_model_config_id": None}
+        if config["enabled"] and not settings.get("default_model_config_id"):
+            _save_settings(store, c, config["id"])
         return _public(config, store.secret_store)
 
 
@@ -97,6 +108,7 @@ def update(store, config_id, body):
         if "enabled" in body:
             if type(body["enabled"]) is not bool: raise Invalid("enabled 必须是布尔值")
             updated["enabled"] = body["enabled"]
+        updated["model"] = canonical_model(updated["provider"], updated["model"])
         old_ref = current.get("api_key_ref")
         new_key = body.get("api_key")
         if new_key not in (None, ""):
@@ -142,10 +154,11 @@ def clear_default(store):
 def test_ephemeral(store, body):
     """Test an unsaved form without creating a ModelConfig or audit record."""
     _strict(body, {"provider", "base_url", "model", "api_key"})
+    provider = _text(body.get("provider"), "供应商", 100)
     config = {
-        "provider": _text(body.get("provider"), "供应商", 100),
+        "provider": provider,
         "base_url": _text(body.get("base_url"), "Base URL", 2000).rstrip("/"),
-        "model": _text(body.get("model"), "模型名称", 500),
+        "model": canonical_model(provider, _text(body.get("model"), "模型名称", 500)),
     }
     key = _text(body.get("api_key"), "API Key", 10000)
     from .model_gateway import OpenAICompatibleAdapter, GatewayError

@@ -17,14 +17,14 @@ def main():
     try:
         with urllib.request.urlopen(url+'/api/state',timeout=1) as r:data=json.load(r)
         if data.get('diagnostics',{}).get('app_version'):
-            print('Career OS 已运行：'+url)
+            print('Career 已运行：'+url)
             if not args.no_browser:webbrowser.open(url)
             return
     except Exception:pass
     import uvicorn
     from workbench.app import create_app
     app=create_app()
-    print('Career OS：'+url+'\n数据目录：'+str(app.state.store.data_dir))
+    print('Career：'+url+'\n数据目录：'+str(app.state.store.data_dir))
     if not args.no_browser:
         import threading
         threading.Timer(1,lambda:webbrowser.open(url)).start()
