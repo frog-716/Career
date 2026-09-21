@@ -1,5 +1,4 @@
 """Submission uses the original structured version; legacy events stay readable."""
-import base64
 from batch_b_helpers import historical_application
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
@@ -26,7 +25,7 @@ def setup(tmp_path):
     document = c.get(c.editor_path).json()['document']
     document['profile']['name'] = '冻结稿哨兵'
     saved = c.put(c.editor_path, json=dict(document=document, expected_revision=0), headers=HEADERS).json()
-    v = post(c, '/editor/versions', dict(document=document, expected_revision=saved['revision'], name='正式版本一', pdf_base64=base64.b64encode(b'%PDF-1.7\nsynthetic\n%%EOF').decode(), idempotency_key='v1')).json()
+    v = post(c, '/editor/versions', dict(expected_revision=saved['revision'], name='正式版本一', idempotency_key='v1')).json()
     body = dict(job_id=j['id'], version_id=v['id'], artifact_id=v['artifact_id'], applied_at='2026-09-15T10:00:00+08:00', channel='招聘平台', status='applied', idempotency_key='submission-one')
     return c, s, j, v, body
 
@@ -55,10 +54,11 @@ def test_structured_submission_freezes_version_job_pdf_restart_and_context(tmp_p
     assert post(c, '/jobs/' + j['id'], dict(j, jd='新招聘条件', expected_revision=j['revision'], idempotency_key='edit')).status_code == 200
     s.save_profile('可信资料哨兵', 0)
     post(c, '/journey/notes', dict(scope_type='job', scope_id=j['id'], kind='interview', title='复盘', content='未确认面试哨兵', idempotency_key='note'))
-    run = s.analyze(j['id'], 'job', idempotency_key='analysis')
-    assert '未确认面试哨兵' not in str(run['payload'])
-    assert '工作稿变更哨兵' not in str(run['payload'])
-    assert '冻结稿哨兵' not in str(run['payload'])
+    prepared = s.analyze(j['id'], 'job', idempotency_key='analysis')
+    run = s.analyze(j['id'], 'job', idempotency_key='analysis', prepared_id=prepared['prepared_id'],
+                    payload_hash=prepared['payload_hash'], confirm_outbound=True)
+    assert 'payload' not in run
+    assert run['payload_meta']['payload_hash']
     reopened = Store(s.data_dir, TestProvider())
     assert reopened.state()['applications'] == [event]
     assert reopened.artifact(v['artifact_id'])[0].read_bytes() == original_bytes

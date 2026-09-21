@@ -514,3 +514,8 @@ body.pdf-rendering .add-wechat { display: none !important; }
 
 /* The toolbar flex rule must not expose a lifecycle action marked hidden. */
 #recordSubmitted[hidden] { display: none; }
+
+.ai-change { margin: 12px 0; padding: 12px; border: 1px solid #d7dbe2; border-radius: 8px; background: #fff; }
+.ai-change h3 { margin: 0 0 8px; font-size: 14px; }
+.ai-change pre { margin: 8px 0; white-space: pre-wrap; max-height: 180px; overflow: auto; }
+.ai-change textarea { width: 100%; min-height: 72px; box-sizing: border-box; }

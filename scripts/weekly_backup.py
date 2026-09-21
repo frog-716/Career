@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import sys
+import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from workbench.backup import backup
+from workbench.backup import backup, update_backup_status, verify_backup
 
 
 DEFAULT_DATA_DIR = Path.home() / "Library" / "Application Support" / "Career Data"
@@ -39,10 +40,54 @@ def create_weekly_backup(
     target = weekly_target(backup_dir, day)
     if dry_run:
         return target
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     if target.exists():
-        return target
-    created = backup(source, target.parent, backup_name=target.name)
+        checked = verify_backup(target)
+        if checked["healthy"]:
+            _record_success(target.parent, checked)
+            return target
+        repair_name = f"{target.name}.repair-{uuid.uuid4().hex}"
+        try:
+            created = backup(source, target.parent, backup_name=repair_name)
+        except Exception as exc:
+            update_backup_status(target.parent, last_error=str(exc))
+            raise
+        _record_result(target.parent, verify_backup(created))
+        return Path(created)
+    try:
+        created = backup(source, target.parent, backup_name=target.name)
+    except Exception as exc:
+        update_backup_status(target.parent, last_error=str(exc))
+        raise
+    checked = verify_backup(created)
+    _record_result(target.parent, checked)
     return Path(created)
+
+
+def _record_success(backup_dir, checked):
+    created_at = checked.get("created_at")
+    age = None
+    if created_at:
+        try:
+            age = max(0.0, (datetime.now(timezone.utc) - datetime.fromisoformat(created_at)).total_seconds())
+        except ValueError:
+            age = None
+    update_backup_status(
+        backup_dir,
+        last_success_at=datetime.now(timezone.utc).isoformat(),
+        recovery_point_age=age,
+        last_error=None,
+    )
+
+
+def _record_result(backup_dir, checked):
+    if checked.get("healthy"):
+        _record_success(backup_dir, checked)
+    else:
+        update_backup_status(
+            backup_dir,
+            last_error="备份已发布但不完整：" + "; ".join(checked.get("differences", [])),
+        )
 
 
 def main() -> int:
@@ -54,8 +99,9 @@ def main() -> int:
     target = create_weekly_backup(args.data_dir, args.backup_dir, dry_run=args.dry_run)
     if args.dry_run:
         print(f"本次目标：{target}")
-    elif target.exists() and target.name == monday_label():
-        print(f"每周备份：{target}")
+    else:
+        checked = verify_backup(target)
+        print(f"每周备份：{target}（status={checked['status']}，恢复点时间={checked['created_at']}）")
     return 0
 
 

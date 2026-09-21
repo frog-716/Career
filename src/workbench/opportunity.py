@@ -5,6 +5,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter
 from .core import Invalid, Conflict, Missing, required, uid, now, digest
+from .pagination import page
 
 PHASES = {'resume', 'submitted', 'interview', 'offer'}
 RESULTS = {'active', 'accepted', 'rejected', 'withdrawn'}
@@ -221,8 +222,9 @@ def legacy_save(store,body,identifier=None):
 def router(store):
     api=APIRouter(prefix='/api/opportunities')
     @api.get('')
-    def listing(view:str='all'):
-        with store.connect(False) as c:return current_opportunities(store,c,view)
+    def listing(view:str='all', limit: int | None = None, cursor: str | None = None):
+        with store.connect(False) as c:
+            return page(current_opportunities(store, c, view), scope=f"opportunities:{view}", limit=limit, cursor=cursor)
     @api.get('/{identifier}')
     def detail(identifier:str):
         with store.connect(False) as c:return resolve(store,c,identifier)

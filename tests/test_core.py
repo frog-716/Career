@@ -19,24 +19,38 @@ def setup(s):
 def test_current_payload_no_history_or_feedback(store):
     j=setup(store)
     store.feedback({'text':F['workEpisode']['chat'],'current_page':'feedback'})
-    store.analyze(j['id'],'job','')
+    calls=[]; original=store.provider.complete
+    def capture(payload):
+        calls.append(payload)
+        return original(payload)
+    store.provider.complete=capture
+    first=store.analyze(j['id'],'job','',idempotency_key='current-first')
+    store.analyze(j['id'],'job','',idempotency_key='current-first',prepared_id=first['prepared_id'],
+                  payload_hash=first['payload_hash'],confirm_outbound=True)
     store.save_profile(F['candidate']['experience']['revision2'],1)
-    run=store.analyze(j['id'],'job','')
-    payload=json.dumps(run['payload'],ensure_ascii=False)
+    prepared=store.analyze(j['id'],'job','',idempotency_key='current-second')
+    run=store.analyze(j['id'],'job','',idempotency_key='current-second',prepared_id=prepared['prepared_id'],
+                      payload_hash=prepared['payload_hash'],confirm_outbound=True)
+    payload=json.dumps(calls[-1],ensure_ascii=False)
     assert F['candidate']['experience']['revision1'] not in payload
     assert F['candidate']['experience']['revision2'] in payload
     assert F['workEpisode']['chat'] not in payload
-    assert len(run['payload']['messages'])==2
+    assert len(calls[-1]['messages'])==2
+    assert 'payload' not in run and run['payload_meta']['payload_hash']
     assert store.state()['runs'][-1]['status']=='stale'
 
 def test_revision_race_and_patch_idempotence(store):
     j=setup(store)
-    run=store.analyze(j['id'],'resume','')
+    prepared=store.analyze(j['id'],'resume','',idempotency_key='resume-first')
+    run=store.analyze(j['id'],'resume','',idempotency_key='resume-first',prepared_id=prepared['prepared_id'],
+                       payload_hash=prepared['payload_hash'],confirm_outbound=True)
     p=run['proposal']
     first=store.apply_proposal(p['id'])
     assert store.apply_proposal(p['id'])==first
     with pytest.raises(Conflict): store.save_profile('x',0)
-    run2=store.analyze(j['id'],'resume','')
+    prepared2=store.analyze(j['id'],'resume','',idempotency_key='resume-second')
+    run2=store.analyze(j['id'],'resume','',idempotency_key='resume-second',prepared_id=prepared2['prepared_id'],
+                       payload_hash=prepared2['payload_hash'],confirm_outbound=True)
     store.save_resume(first['id'],F['candidate']['experience']['revision2'],first['revision'])
     with pytest.raises(Conflict):store.apply_proposal(run2['proposal']['id'])
 
@@ -47,7 +61,9 @@ def test_during_provider_update_stale(store):
         store.save_profile(F['candidate']['experience']['revision2'],1)
         return original(payload)
     store.provider.complete=change
-    result=store.analyze(j['id'],'resume','')
+    prepared=store.analyze(j['id'],'resume','',idempotency_key='during-update')
+    result=store.analyze(j['id'],'resume','',idempotency_key='during-update',prepared_id=prepared['prepared_id'],
+                         payload_hash=prepared['payload_hash'],confirm_outbound=True)
     assert result['status']=='stale'
     assert result.get('proposal') is None
 
@@ -92,8 +108,11 @@ def test_analysis_idempotency_and_draft_stale(store):
     j=setup(store);calls=[];original=store.provider.complete
     def spy(payload):calls.append(payload);return original(payload)
     store.provider.complete=spy
-    run=store.analyze(j['id'],'resume','',idempotency_key='fixture-run')
-    replay=store.analyze(j['id'],'resume','',idempotency_key='fixture-run')
+    prepared=store.analyze(j['id'],'resume','',idempotency_key='fixture-run')
+    run=store.analyze(j['id'],'resume','',idempotency_key='fixture-run', prepared_id=prepared['prepared_id'],
+                       payload_hash=prepared['payload_hash'], confirm_outbound=True)
+    replay=store.analyze(j['id'],'resume','',idempotency_key='fixture-run', prepared_id=prepared['prepared_id'],
+                         payload_hash=prepared['payload_hash'], confirm_outbound=True)
     assert run==replay and len(calls)==1
     r=store.open_resume(j['id']);store.save_resume(r['id'],F['candidate']['experience']['revision2'],0)
     assert store.state()['runs'][0]['status']=='stale'
@@ -117,8 +136,11 @@ def test_feedback_original_whitespace_preserved(store):
 def test_output_outside_sources_fails_without_writing_current(store):
     j=setup(store)
     before=store.state()['profile']
+    prepared=store.analyze(j['id'],'resume','',idempotency_key='invalid-output')
     store.provider.complete=lambda _: {'draft':F['historicalApplication']['usedResumeText'],'claims':[{'kind':'Fact','text':F['historicalApplication']['usedResumeText'],'source_ids':['archive-not-permitted']}]}
-    with pytest.raises(Invalid):store.analyze(j['id'],'resume','')
+    with pytest.raises(Invalid):
+        store.analyze(j['id'],'resume','',idempotency_key='invalid-output',
+                      prepared_id=prepared['prepared_id'], payload_hash=prepared['payload_hash'], confirm_outbound=True)
     assert store.state()['profile']==before
     assert store.state()['resumes'][0]['content']==''
     assert store.state()['runs'][0]['status']=='failed'

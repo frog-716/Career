@@ -1,5 +1,4 @@
 """Batch C public HTTP contract, isolated synthetic data only."""
-import base64
 import json
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -9,7 +8,6 @@ from workbench.app import create_app
 from workbench.core import Store, digest
 from workbench.providers import TestProvider
 
-PDF = base64.b64encode(b'%PDF-1.7\nsynthetic-resume\n%%EOF').decode()
 H = {'X-Career-Request':'1','Content-Type':'application/json'}
 
 def client_at(path):
@@ -34,7 +32,7 @@ def save(c, d, name):
     return r.json()
 
 def version(c,d):
-    return post(c,'/resume-documents/'+d['document_id']+'/versions',dict(document=d['document'],expected_revision=d['revision'],name='普通版',pdf_base64=PDF,idempotency_key='version'))
+    return post(c,'/resume-documents/'+d['document_id']+'/versions',dict(expected_revision=d['revision'],name='普通版',idempotency_key='version'))
 
 def submit(c,o,resume,key='submit'):
     return c.post('/api/opportunities/'+o['id']+'/submitted',json=dict(expected_revision=o['revision'],idempotency_key=key,resume=resume))
@@ -65,7 +63,7 @@ def test_isolation_profile_and_explicit_versions(tmp_path):
 def test_draft_submit_freezes_greeting_and_none_needs_no_material(tmp_path):
     c,s=client_at(tmp_path);o=opportunity(c,'A');d=save(c,start(c,o),'已投递姓名')
     o=post(c,'/opportunities/'+o['id']+'/greeting',dict(content='投递时 Greeting',expected_revision=o['revision'],idempotency_key='greeting'))
-    body=dict(mode='draft',document_id=d['document_id'],expected_document_revision=d['revision'],document=d['document'],pdf_base64=PDF)
+    body=dict(mode='draft',document_id=d['document_id'],expected_document_revision=d['revision'])
     r=submit(c,o,body);assert r.status_code==200,r.text
     result=r.json();event=result['submission'];v=result['submission_version']
     assert v['version_kind']=='submission' and event['version_id']==v['id']
@@ -107,7 +105,7 @@ def test_invalid_sources_cross_owner_stale_and_old_bypass(tmp_path):
     c,s=client_at(tmp_path);a=opportunity(c,'A');b=opportunity(c,'B');d=start(c,a)
     bad=c.post('/api/opportunities/'+b['id']+'/resume/start',json=dict(expected_opportunity_revision=b['revision'],idempotency_key='import',source={'kind':'structured_json','document':d['document']}))
     assert bad.status_code==422
-    req=dict(mode='draft',document_id=d['document_id'],expected_document_revision=d['revision'],document=d['document'],pdf_base64=PDF)
+    req=dict(mode='draft',document_id=d['document_id'],expected_document_revision=d['revision'])
     assert submit(c,b,req).status_code in (409,422)
     save(c,d,'changed');assert submit(c,a,req).status_code==409
     assert s.state()['applications']==[]

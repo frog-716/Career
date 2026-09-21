@@ -8,6 +8,8 @@ export const knowledgeUI = {
   selected: "",
   scope: "all",
   category: "all",
+  cursor: "",
+  nextCursor: "",
 };
 export const entryNames: Obj = {
   goal: "职业目标",
@@ -101,7 +103,7 @@ function wikiTabs() {
       ([k, v]) =>
         `<button role="tab" aria-selected="${knowledgeUI.tab === k}" data-wiki-tab="${k}">${v}</button>`,
     )
-    .join("")}</div>`;
+    .join("")}</div>${knowledgeUI.nextCursor ? '<button type="button" class="text-btn" data-wiki-next>加载下一页</button>' : ""}`;
 }
 export function directoryView(d: Obj) {
   const os = d.domain.objects as Obj[];
@@ -156,7 +158,7 @@ export function resumeUses(d: Obj, jobId?: string) {
       (u.scope_type === "job" && u.scope_id === jobId) ||
       (u.scope_type === "opportunity" && u.scope_id === opportunityId),
   );
-  return `<div class="pane-heading"><h2>${jobId ? "这次机会使用的版本" : "简历用途"}</h2><button class="secondary" id="resume-use">关联已保存版本</button></div>${uses.map((u: Obj) => { const useJobId = u.scope_type === "job" ? u.scope_id : d.state.opportunities?.find((o: Obj) => o.id === u.scope_id)?.legacy_job_id; return `<article class="version"><div><b>${esc(u.version_name)}</b><small>${u.scope_type === "role" ? "方向通用版" : "机会定制版"} · ${esc(u.target_name)}</small></div><a class="text-btn" href="/api/artifacts/${esc(u.artifact_id)}?download=true">下载该 PDF</a>${useJobId ? `<button class="secondary" data-application="${esc(u.version_id)}" data-application-job="${esc(useJobId)}">记录投递</button>` : ""}</article>`; }).join("") || '<p class="muted">选择一个正式版本，明确用于哪个方向或机会；关联不代表已经投递。</p>'}`;
+  return `<div class="pane-heading"><h2>${jobId ? "这次机会使用的版本" : "简历用途"}</h2><button class="secondary" id="resume-use">关联已保存版本</button></div>${uses.map((u: Obj) => { const useJobId = u.scope_type === "job" ? u.scope_id : d.state.opportunities?.find((o: Obj) => o.id === u.scope_id)?.legacy_job_id; return `<article class="version"><div><b>${esc(u.version_name)}</b><small>${u.scope_type === "role" ? "方向通用版" : "机会定制版"} · ${esc(u.target_name)}</small></div><button type="button" class="text-btn" data-protected-artifact="${esc(u.artifact_id)}" data-protected-mode="download" data-filename="resume.pdf">下载该 PDF</button>${useJobId ? `<button class="secondary" data-application="${esc(u.version_id)}" data-application-job="${esc(useJobId)}">记录投递</button>` : ""}</article>`; }).join("") || '<p class="muted">选择一个正式版本，明确用于哪个方向或机会；关联不代表已经投递。</p>'}`;
 }
 export function bindKnowledge(ctx: Obj) {
   const { api, modal, modalError, render, load, navigate, getData } = ctx;
@@ -171,6 +173,7 @@ export function bindKnowledge(ctx: Obj) {
   on("[data-wiki-tab]", (el) => {
     knowledgeUI.tab = el.dataset.wikiTab!;
     knowledgeUI.selected = "";
+    knowledgeUI.cursor = "";
     void navigate("wiki");
   });
   on("[data-wiki-select]", (el) => {
@@ -180,12 +183,18 @@ export function bindKnowledge(ctx: Obj) {
   change("#wiki-scope", (value) => {
     knowledgeUI.scope = value;
     knowledgeUI.selected = "";
-    render();
+    knowledgeUI.cursor = "";
+    void navigate("wiki");
   });
   change("#wiki-category", (value) => {
     knowledgeUI.category = value;
     knowledgeUI.selected = "";
-    render();
+    knowledgeUI.cursor = "";
+    void navigate("wiki");
+  });
+  on("[data-wiki-next]", () => {
+    knowledgeUI.cursor = knowledgeUI.nextCursor;
+    void navigate("wiki");
   });
   on("[data-open-wiki]", (el) => {
     knowledgeUI.scope = el.dataset.openWiki!;

@@ -4,13 +4,15 @@ import json
 import os
 import sqlite3
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .providers import get_provider, ProviderError
 from .artifacts import write_pdf, write_screenshot, read_artifact
-from .secret_store import KeychainSecretStore
+from .attachment_lock import attachment_lifecycle_lock
+from .secret_store import KeychainSecretStore, LocalOnlySecretStore
+from .runtime_mode import resolve_runtime_mode
 
 APP_VERSION = '0.7.0-batch-f'
 ROOT = Path(__file__).resolve().parents[2]
@@ -31,6 +33,7 @@ class Store:
     def __init__(self, data_dir=None, provider=None, secret_store=None):
         self.data_dir=Path(data_dir or os.environ.get('CAREER_DATA_DIR') or Path.home()/'Library/Application Support/Career Data').expanduser().resolve()
         if self.data_dir==ROOT or ROOT in self.data_dir.parents: raise Invalid('数据目录必须在代码目录之外')
+        self.runtime_mode = resolve_runtime_mode()
         database = self.data_dir/'workspace.sqlite3'
         if database.exists():
             with sqlite3.connect(database.as_uri()+'?mode=ro', uri=True) as existing:
@@ -39,8 +42,17 @@ class Store:
         self.data_dir.mkdir(parents=True,exist_ok=True,mode=0o700)
         os.chmod(self.data_dir,0o700)
         self.db=self.data_dir/'workspace.sqlite3'
-        self.provider=provider or get_provider()
-        self.secret_store=secret_store or KeychainSecretStore()
+        self.provider=provider or get_provider(self.runtime_mode)
+        # An injected test or provider object must inherit the Store's
+        # fail-closed mode; otherwise a fixture created under AI_ENABLED could
+        # bypass a LOCAL_ONLY production-shaped Store after an env flip.
+        try:
+            self.provider.runtime_mode = self.runtime_mode
+        except (AttributeError, TypeError):
+            # Custom providers using slots remain protected by ModelGateway's
+            # Store-level gate; built-in and normal test providers are bound.
+            pass
+        self.secret_store=secret_store or (LocalOnlySecretStore() if self.runtime_mode.local_only else KeychainSecretStore())
         with self.connect() as c:
             v=c.execute('PRAGMA user_version').fetchone()[0]
             if v not in (0,6): raise Invalid('数据库版本不匹配')
@@ -60,6 +72,34 @@ class Store:
             CREATE UNIQUE INDEX IF NOT EXISTS interview_review_owner ON records(json_extract(body,'$.interview_session_id')) WHERE kind='interview_final_review';
             CREATE UNIQUE INDEX IF NOT EXISTS opportunity_research_owner ON current(json_extract(body,'$.opportunity_id')) WHERE kind='opportunity_research';
 
+            CREATE TABLE IF NOT EXISTS ai_operations (
+                op_id TEXT PRIMARY KEY,
+                task_type TEXT NOT NULL,
+                target_kind TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                client_intent_hash TEXT NOT NULL,
+                dispatched_payload_hash TEXT,
+                manifest TEXT,
+                state TEXT NOT NULL,
+                dispatch_marker TEXT,
+                result_ref TEXT,
+                error_code TEXT,
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                reserved_at TEXT NOT NULL,
+                dispatched_at TEXT,
+                finished_at TEXT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS ai_operation_identity
+                ON ai_operations(task_type,target_kind,target_id,idempotency_key);
+            CREATE TABLE IF NOT EXISTS ai_dispatch_slot (
+                slot_id INTEGER PRIMARY KEY CHECK(slot_id=1),
+                holder_op_id TEXT,
+                acquired_at TEXT
+            );
+            INSERT OR IGNORE INTO ai_dispatch_slot(slot_id) VALUES(1);
+
             PRAGMA user_version=6;
             ''')
             # executescript commits its surrounding transaction. Reacquire the
@@ -70,25 +110,42 @@ class Store:
             install(c)
             from .resume_artifacts import recover
             recover(c, self.data_dir)
+            from .ai_operations import recover as recover_ai_operations
+            recover_ai_operations(c)
             c.execute('INSERT OR IGNORE INTO current VALUES(?,?,?,?)',('profile','profile',0,dump(dict(id='profile',content='',revision=0,verified=False))))
             for r in self._records(c,'run'):
                 if r['status']=='running':
                     r.update(status='failed',error='上次进程中断，请重新发起；不会自动重试收费调用')
                     self._record(c,'run',r)
+            # A backup contains opaque refs, never Keychain contents. Do not
+            # carry a prior process's "ready" claim into a new process or a
+            # restored data directory; the next explicit test/call can verify
+            # it without probing every item during startup.
+            for config in self._current(c, 'ai_model_config'):
+                if config.get('api_key_ref') and config.get('secret_status') == 'ready':
+                    config['secret_status'] = 'not_checked'
+                    c.execute('UPDATE current SET body=? WHERE id=?', (dump(config), config['id']))
+        # Secret-operation recovery intentionally runs after the startup
+        # transaction has closed. It reconciles only journal-known opaque refs
+        # and never probes every configured Keychain item during boot.
+        if self.runtime_mode.ai_enabled:
+            from .ai_config import recover_secret_operations
+            recover_secret_operations(self)
         os.chmod(self.db,0o600)
 
     @contextmanager
     def connect(self, write=True):
-        c=sqlite3.connect(str(self.db),timeout=15)
-        c.execute('PRAGMA foreign_keys=ON')
-        c.execute('PRAGMA busy_timeout=15000')
-        c.execute('BEGIN IMMEDIATE' if write else 'BEGIN')
-        try:
-            yield c
-            c.commit()
-        except Exception:
-            c.rollback(); raise
-        finally: c.close()
+        with (attachment_lifecycle_lock(self.data_dir) if write else nullcontext()):
+            c=sqlite3.connect(str(self.db),timeout=15)
+            c.execute('PRAGMA foreign_keys=ON')
+            c.execute('PRAGMA busy_timeout=15000')
+            c.execute('BEGIN IMMEDIATE' if write else 'BEGIN')
+            try:
+                yield c
+                c.commit()
+            except Exception:
+                c.rollback(); raise
+            finally: c.close()
 
     def _get(self,c,id,kind=None,record=False):
         row=c.execute('SELECT kind,body FROM '+('records' if record else 'current')+' WHERE id=?',(id,)).fetchone()
@@ -111,17 +168,54 @@ class Store:
         c.execute('INSERT INTO revisions VALUES(?,?,?,?)',(obj['id'],obj['revision'],dump(obj),now()))
         return obj
 
-    def state(self):
+    def state(self, view="full", job_id=None):
         with self.connect(False) as c:
             from .opportunity import current_opportunities, current_jobs
             from .ai_config import settings as ai_settings
-            return dict(profile=self._get(c,'profile'),jobs=current_jobs(self,c),
-                        opportunities=current_opportunities(self,c),
-                        resumes=self._current(c,'resume'),versions=self._records(c,'version'),
+            profile = self._get(c, 'profile')
+            jobs = current_jobs(self, c)
+            opportunities = current_opportunities(self, c)
+            diagnostics = dict(schema_version=6, app_version=APP_VERSION, data_dir=str(self.data_dir),
+                                ai_mode=self.runtime_mode.value,
+                                ai_mode_explicit=self.runtime_mode.explicit,
+                                provider=self.provider.diagnostics())
+            if view == "summary":
+                runs = self._records(c, 'run')
+                applications = [json.loads(r[0]) for r in c.execute('SELECT body FROM applications ORDER BY rowid DESC')]
+                return dict(
+                    profile=dict(profile, content=""), jobs=jobs, opportunities=opportunities,
+                    resumes=[], versions=[], artifacts=[], applications=[], feedback=[], runs=[],
+                    job_summaries=[{
+                        "job_id": job["id"],
+                        "has_succeeded_evaluation": any(r.get("kind") == "job" and r.get("job_id") == job["id"] and r.get("status") == "succeeded" for r in runs),
+                        "application_count": sum(1 for item in applications if item.get("job_id") == job["id"]),
+                    } for job in jobs],
+                    ai=ai_settings(self, c), diagnostics=diagnostics,
+                )
+            if view == "profile":
+                return {"profile": profile}
+            if view == "resume":
+                return dict(profile=profile, jobs=jobs, opportunities=opportunities,
+                            resumes=self._current(c, 'resume'), versions=self._records(c, 'version'),
+                            artifacts=self._records(c, 'artifact'), applications=[json.loads(r[0]) for r in c.execute('SELECT body FROM applications ORDER BY rowid DESC')],
+                            feedback=[], runs=self._records(c, 'run'), ai=ai_settings(self, c), diagnostics=diagnostics)
+            if view == "feedback":
+                return dict(profile=dict(profile, content=""), jobs=jobs, opportunities=opportunities,
+                            resumes=[], versions=[], artifacts=[], applications=[], feedback=self._records(c, 'feedback'), runs=[],
+                            ai=ai_settings(self, c), diagnostics=diagnostics)
+            if view == "opportunity":
+                runs = [run for run in self._records(c, 'run') if not job_id or run.get('job_id') == job_id]
+                applications = [json.loads(r[0]) for r in c.execute('SELECT body FROM applications ORDER BY rowid DESC')]
+                applications = [item for item in applications if not job_id or item.get('job_id') == job_id]
+                return dict(profile=dict(profile, content=""), jobs=jobs, opportunities=opportunities,
+                            resumes=[], versions=[], artifacts=[], applications=applications, feedback=[], runs=runs,
+                            ai=ai_settings(self, c), diagnostics=diagnostics)
+            return dict(profile=profile,jobs=jobs,
+                        opportunities=opportunities,resumes=self._current(c,'resume'),versions=self._records(c,'version'),
                         artifacts=self._records(c,'artifact'),applications=[json.loads(r[0]) for r in c.execute('SELECT body FROM applications ORDER BY rowid DESC')],
                         feedback=self._records(c,'feedback'),runs=self._records(c,'run'),
                         ai=ai_settings(self,c),
-                        diagnostics=dict(schema_version=6,app_version=APP_VERSION,data_dir=str(self.data_dir),provider=self.provider.diagnostics()))
+                        diagnostics=diagnostics)
 
     def save_profile(self,content,expected):
         if not isinstance(content,str) or len(content)>100000:raise Invalid('资料内容过长')
@@ -147,6 +241,35 @@ class Store:
         return ContextCompiler(self).compile(c, job_id, kind, instruction, wiki_ids)
     def context(self,job_id,kind,instruction='',wiki_ids=None):
         with self.connect(False) as c:return self._packet(c,job_id,kind,instruction,wiki_ids)
+
+    def prepare_analysis(self, job_id, kind, instruction='', expected_epoch=None,
+                         idempotency_key=None, wiki_ids=None, model_config_id=None):
+        """Compile and preview legacy analysis without contacting a provider."""
+        from .model_gateway import ModelGateway
+        from . import outbound_policy as outbound
+        key = required(idempotency_key, '请求标识', 100)
+        if kind not in ('job', 'resume'):
+            raise Invalid('分析任务不支持')
+        with self.connect(False) as c:
+            packet = self._packet(c, job_id, kind, instruction, wiki_ids)
+            if expected_epoch is not None and packet['epoch'] != expected_epoch:
+                raise Conflict('预览后的资料已更新，请重新查看本次发送范围')
+        schema = {
+            'version': 2, 'task_kind': kind,
+            'required': ('draft', 'claims') if kind == 'resume' else ('core_goal', 'claims'),
+        }
+        payload, diagnostics, _, clean_packet, budget = ModelGateway(self).prepare_payload(
+            'legacy_analysis', packet, schema, model_config_id
+        )
+        return outbound.create_preparation(
+            self, task_type='legacy_analysis',
+            target={'kind': kind, 'id': str(job_id)},
+            client_intent={'job_id': job_id, 'kind': kind, 'instruction': instruction,
+                           'expected_epoch': expected_epoch, 'wiki_ids': wiki_ids,
+                           'model_config_id': model_config_id, 'idempotency_key': key},
+            packet=clean_packet, payload=payload, diagnostics=diagnostics,
+            budget_info=budget,
+        )
 
     def _resume(self,c,job_id):
         self.job_view(c,job_id)
@@ -181,45 +304,107 @@ class Store:
             if any(not isinstance(s,str) or s not in ids for s in claim['source_ids']):raise Invalid('模型引用了本轮资料之外的来源')
             if claim['kind']=='Fact' and not claim['source_ids']:raise Invalid('事实判断缺少来源')
 
-    def analyze(self,job_id,kind,instruction='',expected_epoch=None,idempotency_key=None,wiki_ids=None):
+    def analyze(self,job_id,kind,instruction='',expected_epoch=None,idempotency_key=None,wiki_ids=None,
+                prepared_id=None, payload_hash=None, confirm_outbound=False, model_config_id=None):
         key=required(idempotency_key or uid(),'请求标识',100)
         fingerprint=digest([job_id,kind,instruction,expected_epoch,wiki_ids])
-        with self.connect() as c:
+        if not prepared_id or not confirm_outbound:
+            return self.prepare_analysis(
+                job_id, kind, instruction, expected_epoch, key, wiki_ids, model_config_id
+            )
+        from . import ai_operations as ao
+        from . import outbound_policy as outbound
+        from .model_gateway import ModelGateway
+        with self.connect(False) as c:
             previous=c.execute("SELECT body FROM records WHERE kind='run' AND json_extract(body,'$.idempotency_key')=?",(key,)).fetchone()
             if previous:
                 run=json.loads(previous[0])
                 if run.get('request_fingerprint')!=fingerprint:raise Conflict('请求标识已用于不同分析')
-                return run
-            packet=self._packet(c,job_id,kind,instruction,wiki_ids)
-            if expected_epoch is not None and packet['epoch']!=expected_epoch:raise Conflict('预览后的资料已更新，请重新查看本次发送范围')
-            draft=self._resume(c,job_id) if kind=='resume' else None
-            # Keep the historical run payload for audit/backward compatibility;
-            # the actual model call is routed through ModelGateway below.
-            payload=self.provider.build_payload(packet)
-            run=dict(id=uid(),idempotency_key=key,request_fingerprint=fingerprint,kind=kind,job_id=job_id,status='running',packet=packet,payload=payload,result=None,created_at=now(),provider=self.provider.diagnostics())
-            self._record(c,'run',run)
-        try:
-            from .model_gateway import ModelGateway
-            result, diagnostics = ModelGateway(self).generate(
-                'legacy_analysis', packet,
-                {'version': 2, 'task_kind': kind, 'required': ('draft', 'claims') if kind == 'resume' else ('core_goal', 'claims')},
+                if not ao.find(self, 'legacy_analysis', kind, str(job_id), key):
+                    return run
+
+        prepared_holder={}
+        def prepare():
+            with self.connect() as c:
+                packet=self._packet(c,job_id,kind,instruction,wiki_ids)
+                if expected_epoch is not None and packet['epoch']!=expected_epoch:
+                    raise Conflict('预览后的资料已更新，请重新查看本次发送范围')
+                draft=self._resume(c,job_id) if kind=='resume' else None
+            schema = {'version': 2, 'task_kind': kind,
+                      'required': ('draft', 'claims') if kind == 'resume' else ('core_goal', 'claims')}
+            payload, diagnostics, _, clean_packet, budget = ModelGateway(self).prepare_payload(
+                'legacy_analysis', packet, schema, model_config_id
             )
-            self._validate_result(result,packet)
+            outbound.validate_preparation(
+                self, prepared_id, task_type='legacy_analysis',
+                target={'kind': kind, 'id': str(job_id)},
+                client_intent={'job_id': job_id, 'kind': kind, 'instruction': instruction,
+                               'expected_epoch': expected_epoch, 'wiki_ids': wiki_ids,
+                               'model_config_id': model_config_id, 'idempotency_key': key},
+                payload_hash=payload_hash, packet=clean_packet, payload=payload,
+            )
+            prepared=dict(packet=clean_packet,draft=draft,payload=payload,
+                          diagnostics=diagnostics,budget=budget)
+            prepared_holder.update(prepared)
+            return prepared
+
+        def dispatch(prepared,binder):
+            from .model_gateway import ModelGateway
+            return ModelGateway(self).generate(
+                'legacy_analysis', prepared['packet'],
+                {'version': 2, 'task_kind': kind, 'required': ('draft', 'claims') if kind == 'resume' else ('core_goal', 'claims')},
+                model_config_id,
+                before_call=binder,
+                operation_id=prepared.get('_operation_id'),
+                target={'kind': kind, 'id': str(job_id)},
+            )
+
+        def persist(prepared,result,diagnostics):
+            try:
+                self._validate_result(result,prepared['packet'])
+            except (Invalid, KeyError, TypeError) as exc:
+                raise ao.AIValidationError(str(exc)) from exc
+            packet,draft=prepared['packet'],prepared['draft']
             with self.connect() as c:
                 stale=self._epoch(c)!=packet['epoch']
                 if draft and self._get(c,draft['id'],'resume')['revision']!=draft['revision']:stale=True
-                run.update(status='stale' if stale else 'succeeded',result=result,provider=diagnostics)
+                run=dict(id=uid(),idempotency_key=key,request_fingerprint=fingerprint,kind=kind,job_id=job_id,
+                         status='stale' if stale else 'succeeded',packet=packet,
+                         payload_meta={'payload_hash': digest(prepared['payload']), 'budget': prepared['budget']},
+                         result=result,created_at=now(),provider=diagnostics)
                 if draft and not stale:
-                    p=dict(id=uid(),target_id=draft['id'],expected_revision=draft['revision'],before=draft['content'],after=result['draft'],epoch=packet['epoch'],status='pending',basis=result['claims'],created_at=now())
+                    p=dict(id=uid(),target_id=draft['id'],expected_revision=draft['revision'],before=draft['content'],
+                           after=result['draft'],epoch=packet['epoch'],status='pending',basis=result['claims'],created_at=now())
                     self._record(c,'proposal',p);run['proposal']=p
                 self._record(c,'run',run)
             return run
-        except Exception as e:
+
+        try:
+            execution=ao.execute(
+                self, task_type='legacy_analysis', target_kind=kind, target_id=str(job_id),
+                idempotency_key=key,
+                client_intent={'job_id':job_id,'kind':kind,'instruction':instruction,
+                               'expected_epoch':expected_epoch,'wiki_ids':wiki_ids},
+                prepare=prepare, dispatch=dispatch, persist=persist,
+            )
+            return ao.unwrap(execution)
+        except Exception as exc:
             with self.connect() as c:
-                run.update(status='failed',error=str(e) if isinstance(e,(Invalid,ProviderError)) else '分析失败，请检查配置或稍后重试')
-                self._record(c,'run',run)
-            if isinstance(e,(Invalid,ProviderError)):raise
-            raise ProviderError('分析失败，请检查配置或稍后重试') from None
+                existing=c.execute("SELECT 1 FROM records WHERE kind='run' AND json_extract(body,'$.idempotency_key')=?",(key,)).fetchone()
+                if not existing and prepared_holder:
+                    status='failed' if (
+                        isinstance(exc, Invalid)
+                        or getattr(exc, 'code', None) in {'not_configured', 'invalid_input'}
+                    ) else 'outcome_unknown'
+                    self._record(c,'run',dict(
+                        id=uid(),idempotency_key=key,request_fingerprint=fingerprint,kind=kind,job_id=job_id,
+                        status=status,packet=prepared_holder.get('packet'),
+                        payload_meta=({'payload_hash': digest(prepared_holder['payload']),
+                                       'budget': prepared_holder.get('budget')}
+                                      if prepared_holder.get('payload') else None),
+                        result=None,created_at=now(),provider=self.provider.diagnostics(),error=str(exc),
+                    ))
+            raise
 
     def apply_proposal(self,id):
         with self.connect() as c:
@@ -247,21 +432,27 @@ class Store:
     def export_pdf(self,id):
         with self.connect(False) as c:
             v=self._get(c,id,'version',True)
-            for a in self._records(c,'artifact'):
-                if a.get('version_id')==id:
-                    p=read_artifact(self.data_dir,a['path'])
-                    if not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest()!=a['sha256']:raise Invalid('历史 PDF 丢失或损坏，请从备份恢复')
-                    return a
-        aid=uid();meta=write_pdf(self.data_dir,aid,v['content'])
-        a=dict(meta,id=aid,version_id=id,created_at=now())
-        with self.connect() as c:
-            # A second request may have generated the same version while we rendered.
             for existing in self._records(c,'artifact'):
                 if existing.get('version_id')==id:
-                    read_artifact(self.data_dir,a['path']).unlink()
+                    p=read_artifact(self.data_dir,existing['path'])
+                    if not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest()!=existing['sha256']:raise Invalid('历史 PDF 丢失或损坏，请从备份恢复')
                     return existing
-            self._record(c,'artifact',a)
-        return a
+        with attachment_lifecycle_lock(self.data_dir):
+            aid=uid();meta=write_pdf(self.data_dir,aid,v['content'])
+            a=dict(meta,id=aid,version_id=id,created_at=now())
+            with self.connect() as c:
+                # A second request may have generated the same version while we rendered.
+                for existing in self._records(c,'artifact'):
+                    if existing.get('version_id')==id:
+                        duplicate=a['path']
+                        break
+                else:
+                    duplicate=None
+                if duplicate is None:
+                    self._record(c,'artifact',a)
+                    return a
+            read_artifact(self.data_dir,duplicate).unlink()
+            return existing
 
     def artifact(self,id):
         with self.connect(False) as c:a=self._get(c,id,'artifact',True)
@@ -299,13 +490,14 @@ class Store:
         required(b.get('text'),'反馈',20000)
         text=b['text']
         f=dict(id=uid(),text=text,created_at=now(),app_version=APP_VERSION,current_page=str(b.get('current_page',''))[:100],entity_id=str(b.get('entity_id') or '')[:100],notes=[])
-        a=None
-        if b.get('screenshot'):
-            aid=uid();a=dict(write_screenshot(self.data_dir,aid,b['screenshot']),id=aid,created_at=now());f['screenshot_id']=aid
-        with self.connect() as c:
-            if a:self._record(c,'artifact',a)
-            self._record(c,'feedback',f)
-        return f
+        with attachment_lifecycle_lock(self.data_dir):
+            a=None
+            if b.get('screenshot'):
+                aid=uid();a=dict(write_screenshot(self.data_dir,aid,b['screenshot']),id=aid,created_at=now());f['screenshot_id']=aid
+            with self.connect() as c:
+                if a:self._record(c,'artifact',a)
+                self._record(c,'feedback',f)
+            return f
     def feedback_note(self,id,text):
         required(text,'补充',20000)
         with self.connect() as c:

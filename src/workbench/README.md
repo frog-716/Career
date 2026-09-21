@@ -1,5 +1,7 @@
 # Career 本地服务
 
+本轮统一本地检查入口为仓库根目录的 `python scripts/review_checks.py`。它执行后端回归、前端 typecheck/build、依赖、秘密扫描、Markdown 本地链接和 diff whitespace 检查；浏览器补充证据使用 `python scripts/browser_regression.py`，默认只启动隔离 `TestProvider`。
+
 当前 Production 已部署通过最终 review 的 **Batch F Opportunity MVP**，运行版本 `0.7.0-batch-f`、schema v6。正式代码位于 `/Users/frog/Projects/Career`，数据仍位于外部 `/Users/frog/Library/Application Support/Career Data`；v1→v6 migration、备份、恢复、完整性与浏览器 smoke 证据见 [Batch F §23](../../docs/execution/OPPORTUNITY-BATCH-F.md#23-opportunity-mvp-production-cutover2026-09-18)。
 
 安装并启动（项目根目录）：
@@ -12,7 +14,19 @@ npm --prefix frontend run build
 .venv/bin/python scripts/macos_app.py start --no-browser
 ```
 
-入口 http://127.0.0.1:8765；启动器复用已有服务。`scripts/run.py` 跟随系统默认浏览器，`macos/Career.app` 则显式使用 Google Chrome，不修改 macOS 全局设置。单进程运行，不使用多 worker。
+启动器必须显式设置 `CAREER_AI_MODE=LOCAL_ONLY` 或 `CAREER_AI_MODE=AI_ENABLED`；缺失或非法值直接拒绝启动，不会回退真实 AI。候选数据演练使用：`CAREER_AI_MODE=LOCAL_ONLY .venv/bin/python scripts/macos_app.py start --no-browser`。入口 http://127.0.0.1:8765；启动器复用已有服务。`scripts/run.py` 跟随系统默认浏览器，`macos/Career.app` 则显式使用 Google Chrome，不修改 macOS 全局设置。单进程运行，不使用多 worker。
+
+仅隔离假数据可显式开启免配对模式：必须同时设置 `CAREER_TEST_MODE=1`、`CAREER_AI_MODE=LOCAL_ONLY`、`CAREER_ALLOW_UNPAIRED_FAKE_DATA=1`，并在系统临时目录的数据目录根部创建内容严格为 `career-fake-data-v1` 的 `.career-fake-data` 普通文件；缺一项就继续要求本地配对。该模式只适用于虚构测试数据，不能用于正式数据或恢复的正式数据副本。示例：
+
+```sh
+mkdir -m 700 -p /tmp/career-fake-data /tmp/career-fake-runtime
+printf 'career-fake-data-v1\n' > /tmp/career-fake-data/.career-fake-data
+CAREER_TEST_MODE=1 CAREER_ALLOW_UNPAIRED_FAKE_DATA=1 CAREER_AI_MODE=LOCAL_ONLY \
+CAREER_DATA_DIR=/tmp/career-fake-data CAREER_RUNTIME_DIR=/tmp/career-fake-runtime \
+.venv/bin/python scripts/run.py --port 8866 --no-browser
+```
+
+然后打开 `http://127.0.0.1:8866/`。真实 Candidate 仍使用配对码。
 生产默认 `~/Library/Application Support/Career Data`；用 `CAREER_DATA_DIR` 指向代码目录之外可更换位置。代码不含任何用户资料，生产与合成测试数据分开。本代码新空库为 SQLite user_version=6，已有库只接受 v6，v1–v5 启动前只读检查并拒绝，不隐式迁移。备份 manifest.schemaVersion=1 是包格式，不是数据库版本。
 
 ## 模块职责与接口
@@ -21,6 +35,7 @@ npm --prefix frontend run build
 - `knowledge`：不可变来源、候选整理/确认、Wiki 当前修订/撤回与历史；来源同 scope 校验；个人/机会/任职隔离。仅个人或当前机会有效条目能进入求职 packet。
 - `domain`：公司/组织树、求职周期/方向、机会关系、固定简历版本用途。用途不创建实际投递；当前实际投递只能走 Opportunity scoped `RecordSubmitted`。接口见 [Wiki 与业务对象整合](../../docs/execution/WIKI-DOMAIN.md)。
 - `opportunity`：current JSON 中唯一 canonical Opportunity，Company 由 company_id 实时读取；Create/Update/End 同事务 CAS/幂等。旧 Job/plan.stage/context.company_id 冻结，legacy 未决对象只读。历史 Submission 快照保持原文，新投递由 `submission` 模块冻结材料并推进阶段。
+- `research`：CompanyResearch 按公司共享、OpportunityResearch 按机会隔离；搜索标题/URL 只保存为 `lead`，用户粘贴摘录保存 owner、input method、scope、日期和 hash；Research item 支持稳定 ID 更正/撤回、显式 supersedes/replaces、来源 owner 校验和 pending proposal 重开，自动搜索不读取网页正文。
 - `employment` / `work`：公开的 Employment 主身份和旧 `journey_episode` 兼容映射；EmploymentStage、Project、Person、WorkEvent、Achievement、Evidence 及其多对多关系。工作成果不会自动写入个人 Wiki。
 - `communication`：Opportunity scoped Communication 的唯一新写入口；Create/Update/Archive 使用幂等命令与记录级 CAS。旧 typed Communication 原 ID 只读投影并可由用户显式核对升级；不复制 `journey_note`，不改变 Opportunity 生命周期。
 - `interview`：Opportunity scoped Real/Simulation、柔性 Preparation、current-only Raw/Final Review、Context Pack 与 real-only Research Patch。`GenerateFinalReview` 和 `GenerateResearchPatch` 是两个独立动作；Simulation 在 service/storage/HTTP/UI 均无 Patch 能力。
@@ -28,9 +43,10 @@ npm --prefix frontend run build
 - `timeline`：按请求从 Opportunity、Submission、未归档 Communication 和 Interview 生成只读投影；不写 Timeline 事实表。
 - `engagement`：ResearchSnapshot、Interview、Offer 及旧 typed Communication 的兼容读取；旧 Communication 新建入口停写。
 - `context`：唯一 Context Compiler，输出 schema v2 的来源 revision/hash、用途、未知/冲突/遗漏、策略版本和预算；读取当前 canonical JD/Company 身份，移除旧目录 description 的隐式正文；资料和身份修改使预览/结果过期。
-- `providers`：只收实际 payload；Provider 不持有 Store、数据库或文件工具。远端不继承会话。每轮 payload 在本地运行审计保存，可在 UI 查看；语义正确性需人工审阅。
+- `editor` / `knowledge` / `communication` 对 Resume、Profile、Interview 使用的跨模块能力通过公开 domain helper 暴露；旧的 underscored helper 只保留给兼容路由和未纳入本轮的迁移/Store 内部代码，不能据此宣称全仓库已消除所有历史松散边界。
+- `providers`：只收实际 payload；Provider 不持有 Store、数据库或文件工具。远端不继承会话。正式调用完成后只保存 payload hash、预算和来源元数据，原始 payload 不作为长期审计正文；语义正确性需人工审阅。
 - `artifacts`：PDF / 截图原子写入与 sha256；数据库只存相对路径、metadata和关系。已有投递关联不可变版本/PDF与岗位快照。
-- `app`：仅回环 Host、同源 Origin、写入自定义 header、请求大小上限；静态服务仅 frontend/dist，不暴露数据目录。
+- `app`：仅回环 Host、同源 Origin、写入自定义 header、请求大小上限；静态服务仅 frontend/dist，不暴露数据目录。生产启动默认需要一次性本地配对：`scripts/macos_app.py pair` 只在交互式终端显示当前实例的 128-bit 配对码，`POST /api/pair` 一次消费后发放 8 小时 Bearer 会话；会话仅存在进程内和浏览器 `sessionStorage`，重启失效。`/healthz` 只返回最小 build 状态，业务 API、artifact 和诊断均需会话；`/api/local/stop` 只接受受保护运行时控制凭据。单实例锁、PID+启动时间+实例身份校验和优雅停止由 `scripts/run.py` / `scripts/macos_app.py` 负责。测试套件使用 `CAREER_TEST_MODE=1` 兼容旧 TestClient；该变量不由生产启动器设置。
 - `backup`：在 SQLite 稳定写入窗口内生成在线一致性快照和关联附件哈希清单；备份、恢复都会逐条核对数据库 artifact 引用、清单、文件与 sha256，并拒绝缺失、哈希不符、清单遗漏或孤儿附件。恢复只允许不存在的新目录，现有 schemaVersion 1 清单仍可读取。
 - `demo`：幂等装载或删除带固定 dataset id 的虚构全链路案例；不会覆盖 profile、现有机会、简历或附件，删除前逐项核对归属。
 - `journey`：机会辅助计划仅保存下一行动/提醒日期，独立 CAS；stage 只读。旧 note/typed interview/offer 新记入口停写，新业务动作由 `communication` / `interview` / `offer` 接管；已有记录更正/候选/历史继续可用，任职分支不变。
@@ -39,23 +55,29 @@ HTTP 路由、错误与并发语义以当前模块实现和对应测试为准，
 
 ## AI 模型配置
 
-默认真实模式，缺配置仍可启动、编辑和导出；AI 操作会明确提示尚未配置模型。当前正式入口是 Career 的“设置 → AI 模型”：可维护多个 OpenAI-compatible 配置、测试连接、选择唯一默认模型并删除配置。模型配置只在数据库保存 `api_key_ref`，真实 API Key 由 macOS Keychain 持有；API response、普通业务备份、Context、Prompt、日志和前端 localStorage 都不会返回或保存完整 Key。
+默认真实模式，缺配置仍可启动、编辑和导出；AI 操作会明确提示尚未配置模型。当前正式入口是 Career 的“设置 → AI 模型”：可维护多个 OpenAI-compatible 配置、测试连接、选择唯一默认模型并删除配置。生产秘密存储显式使用 `keyring.backends.macOS.Keyring`，模型配置只在数据库保存 `api_key_ref`；真实 API Key 不进入 subprocess argv、环境变量、临时文件、API response、普通业务备份、Context、Prompt、日志或前端 localStorage。
 
-编辑配置时 API Key 留空表示保留旧 Key，填写新 Key 才替换。删除当前默认模型必须明确确认，删除后不自动切换其它模型。没有默认模型时人工资料、简历、投递、面试和记录功能继续可用。
+编辑配置时，只有目的地身份（provider、scheme、host、有效端口、base path）未变化且 API Key 留空，才保留旧 Key；目的地或 Key 变化均先写入新 ref，切换成功后再清理未引用的旧 ref。删除当前默认模型必须明确确认，删除后不自动切换其它模型。没有默认模型时人工资料、简历、投递、面试和记录功能继续可用。
+
+配置列表不逐项探测 Keychain；`secret_status` 初始为 `not_checked`，显式测试或正式调用失败后显示 `missing`、`locked` 或 `error`，恢复到新环境后需重新授权或录入。
 
 旧环境变量 Provider 仅为测试和诊断兼容保留，不再作为业务 LLM 的配置或调用入口；旧 `/api/analysis` 也统一经 `ModelGateway`。生产配置请在“设置 → AI 模型”中保存到 macOS Keychain。支持遵循 Chat Completions JSON 对象格式的服务；开发模型配置不代表运行时模型授权。官方请求参考：[Chat Completions](https://platform.openai.com/docs/api-reference/chat/create)。远端请求仅在预览后点击发送，包包括当前基础资料、显式选择的当前 Wiki、该岗位 JD 和本轮指令。API Key 不进入业务包、日志、UI 或浏览器存储；不读宿主登录凭据。
 
-显式测试模式只验证流程，不是真实 AI：
+显式测试 Provider 只验证流程，不是真实 AI；它仍受 `CAREER_AI_MODE` 最终门禁约束：
 
 ```sh
-CAREER_AI_PROVIDER=test CAREER_DATA_DIR=/tmp/career-os-synthetic .venv/bin/python scripts/run.py --port 8766
+CAREER_AI_MODE=AI_ENABLED CAREER_AI_PROVIDER=test CAREER_DATA_DIR=/tmp/career-os-synthetic .venv/bin/python scripts/run.py --port 8766
 ```
+
+候选生产数据副本必须使用 `CAREER_AI_MODE=LOCAL_ONLY`；该模式在 SecretStore、Provider、ModelGateway 和 Research web search 边界拒绝出站，不能由数据库 `ModelConfig`、`secret_ref`、环境 API Key 或 TestProvider 绕过。
 
 不自动种入 fixtures；生产首次为空。
 
 ## 独立简历工作台
 
 构建前端并启动同一服务后，打开 `/editor.html`。`editor.py` 封装结构化草稿、修订冲突、不可变版本和恢复点；历史版本可通过 `DELETE /api/editor/versions/{version_id}` 删除，同时删除未被引用的 PDF。已经关联岗位/方向或登记投递的版本会返回冲突并保留，避免破坏历史投递记录。接口契约及源码来源见 [工作台接入批次](../../docs/execution/RESUME-WORKBENCH.md)。工作稿不进入默认职业事实 Context，线上妙搭资料不自动导入。实际 PDF 存入同一个本地附件目录，纳入下述备份流程。
+
+ResumeDocument 的 AI 建议只接受字段级 `changes`：`POST /api/resume-documents/{document_id}/ai-suggest` 生成 pending proposal，`GET .../ai-proposals` 用于关闭后重开，`POST .../ai-proposals/{proposal_id}/resolve` 接受时可提交逐项 `change_id`、`selected` 和用户编辑后的 `proposed_text`。白名单仅覆盖技能 `content` 与经历/项目/教育的稳定 bullet `content`；姓名、联系方式、组织、职位、日期、数组结构、来源引用和整稿覆盖均不由 AI 直接修改。接受前复核工作稿 revision、字段 `before_hash`、Context manifest 和来源，拒绝不写当前稿；旧整稿 Provider 输出返回 `unsupported_proposal_format`。
 
 ## 验证与恢复
 
@@ -80,7 +102,8 @@ npm --prefix frontend run build
 
 证据目录需预先存在，报告以0600新建，拒绝覆盖或写入受检目录。inventory不初始化Store，不执行DDL；输出schema/全表计数、ID与逐行hash、Opportunity映射候选、公司/多投递/多Offer/面试语义歧义、简历和资料引用及附件hash。历史revisions逐行保全，但不声称已验证每条历史引用的业务语义。退出码0仅说明本次完整性检查通过，**不是迁移许可**；仍需检查`migration_gates`和`demo_legacy_findings`，不能自动决定归属、合并或删除。
 
-backup拒绝把备份写入源数据目录或覆盖已存在备份；restore只接受新目录，并拒绝恢复到备份内部。verify比较全部表行/冻结内容、schema及附件与原备份manifest；恢复副本先保持未启动状态完成此比较，再另建副本做启动演练。现有Store启动初始化可能改变SQLite物理hash；逻辑hash与物理hash分开记录。
+backup拒绝把备份写入源数据目录或覆盖已存在备份；同周 `weekly_backup.py` 会先验证现有 manifest、schema、SQLite integrity、登记附件和 sha256，只有健康恢复点才跳过，否则保留原目录并发布 `<周一>.repair-<id>`。新备份先写唯一 `.partial-*`，文件/manifest `fsync` 后原子发布；中断目录保留并带 `.partial-status.json`，不能被当作完成备份。未登记附件复制到备份内 `quarantine/` 并在 manifest 登记原路径/hash，登记附件缺失或损坏则发布 `status=incomplete` 和 `needs_attention`，不宣称可完整恢复。`verify_backup` 是不启动 Store 的只读检查；`restore` 只接受不存在的新目录，保留 incomplete 状态并记录恢复校验时间。所有附件写入/移动与 DB 写入统一使用数据目录 `.career-attachment.lock`，顺序为附件锁后 SQLite 写锁；现有 Store、PDF/截图、resume staging/recovery 均复用这一锁。
+backup/restore仍比较全部表行/冻结内容、schema及附件与原备份manifest；恢复副本先保持未启动状态完成此比较，再另建副本做启动演练。现有Store启动初始化可能改变SQLite物理hash；逻辑hash与物理hash分开记录。周任务状态保存在备份目录的 `.career-weekly-status.json`，明确记录 `last_success_at`、`last_restore_verified_at`、`last_error`、`recovery_point_age`；loaded/dry-run 不代表已有备份。
 
 针对性测试：`PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -B -m pytest tests/test_migration_baseline.py tests/test_backup.py -q -p no:cacheprovider`。真实生产备份、恢复与运行版本核验见[Opportunity Batch A](../../docs/execution/OPPORTUNITY-BATCH-A.md)。本机启动脚本会复用健康服务，源码更新后需停止旧进程再启动；仅看到源码版本不能证明长驻服务已经加载。
 
@@ -123,9 +146,9 @@ Batch C runtime 只接受v3空库或经显式迁移的隔离副本；不会启�
 - `GET /api/opportunities/{oid}/resume`：返回所属稿或document:null；`POST .../resume/start`：expected_opportunity_revision/idempotency_key/source，来源仅blank、version（source_version_id/source_document_hash）、legacy_draft（source_revision/source_hash）。来源复制不迁移所有权，外部JSON导入不支持。
 - `GET/PUT /api/resume-documents/{did}`：独立当前结构与CAS，PUT为document/expected_revision；current-only，不创建ResumeVersion或全量autosave历史。
 - `GET .../materials`、`GET .../sources`、`POST .../select-facts`：owner推导资料范围，Profile/Wiki必须显式选入；Profile保存不再同步任何工作稿。
-- `GET/POST .../versions`：仅显式保存普通版；POST需document/expected_revision/name/pdf_base64/idempotency_key。`GET/DELETE .../versions/{vid}`、`POST .../restore`（version_id/expected_revision/idempotency_key）只操作本稿版本；恢复只更新当前稿。共享引用阻止删除；特殊投递版永久不可改/删。
+- `GET/POST .../versions`：仅显式保存普通版；POST需name/expected_revision/idempotency_key，服务端从已保存的结构化稿生成文字PDF，不接受客户端PDF字节。`POST .../pdf`只导出当前已保存稿，不创建版本。`GET/DELETE .../versions/{vid}`、`POST .../restore`（version_id/expected_revision/idempotency_key）只操作本稿版本；恢复只更新当前稿。共享引用阻止删除；特殊投递版永久不可改/删。
 - `POST /api/opportunities/{oid}/greeting`：content（可null/空串）、expected_revision、idempotency_key；当前值投递后仍可修改。
-- `POST /api/opportunities/{oid}/submitted`：expected_revision/idempotency_key/resume。resume.mode=none、draft（did/CAS/结构/PDF）或version（source_version_id/document hash/artifact hash）。同事务冻结Submission及Greeting、创建独立特殊版/PDF（none不制造材料）、推进phase/date；同键重放，异键不能第二次。后期/已结束不借补录回退阶段。
+- `POST /api/opportunities/{oid}/submitted`：expected_revision/idempotency_key/resume。resume.mode=none、draft（did/CAS，服务端读取并渲染结构化稿）或version（source_version_id/document hash/artifact hash）。同事务冻结Submission及Greeting、创建独立特殊版/PDF（none不制造材料）、推进phase/date；同键重放，异键不能第二次。后期/已结束不借补录回退阶段。
 - 全局`/api/editor`和`/api/editor/versions`只读兼容来源；所有旧写入口409，`job_id`不能选中全局可写稿。旧ResumeUse及其PDF保持原引用。
 
 `resume_artifacts.py`使用SQLite写锁、私有staging、fsync、atomic rename、hash检查。DB引用是唯一提交判据；启动/备份检查完整性，未提交C文件移动到resume-quarantine，既有legacy文件不删除。无通用Artifact WAL/operation journal；所有移动在数据库写锁内，不与另一个提交抢文件。已提交PDF缺失/hash错误时fail closed，不能给出有效备份或投递读取。

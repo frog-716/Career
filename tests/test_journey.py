@@ -110,12 +110,20 @@ def test_get_journey_is_read_only_and_context_excludes_journey_records(tmp_path)
     ]
     for payload in note_payloads:
         assert client.post("/api/journey/notes", json=payload).status_code == 200
-    first_run = store.analyze(job["id"], "job", idempotency_key="context-1")
-    first_payload = json.dumps(first_run["payload"], ensure_ascii=False)
+    calls=[]; original=store.provider.complete
+    store.provider.complete=lambda payload: (calls.append(payload) or original(payload))
+    first_prepared = store.analyze(job["id"], "job", idempotency_key="context-1")
+    first_run = store.analyze(job["id"], "job", idempotency_key="context-1",
+                              prepared_id=first_prepared["prepared_id"],
+                              payload_hash=first_prepared["payload_hash"], confirm_outbound=True)
+    first_payload = json.dumps(calls[-1], ensure_ascii=False)
     assert all(sentinel not in first_payload for sentinel in ("sentinel-episode", "sentinel-job-note", "sentinel-collaboration"))
     store.save_profile("新资料 sentinel-profile-new", 1)
-    second_run = store.analyze(job["id"], "job", idempotency_key="context-2")
-    second_payload = json.dumps(second_run["payload"], ensure_ascii=False)
+    second_prepared = store.analyze(job["id"], "job", idempotency_key="context-2")
+    second_run = store.analyze(job["id"], "job", idempotency_key="context-2",
+                               prepared_id=second_prepared["prepared_id"],
+                               payload_hash=second_prepared["payload_hash"], confirm_outbound=True)
+    second_payload = json.dumps(calls[-1], ensure_ascii=False)
     assert "sentinel-profile-old" not in second_payload and "sentinel-profile-new" in second_payload
     after = store.db.read_bytes()
     assert client.get("/api/journey").status_code == 200

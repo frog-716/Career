@@ -4,6 +4,15 @@ import json
 from test_communication import setup_submitted, create as create_communication
 
 
+def ai_confirm(client, path, body):
+    prepared = client.post(path, json=body)
+    if prepared.status_code == 409 and prepared.json().get("status") == "context_confirmation_required":
+        value = prepared.json()
+        return client.post(path, json={**body, "prepared_id": value["prepared_id"],
+                                      "payload_hash": value["payload_hash"], "confirm_outbound": True})
+    return prepared
+
+
 def confirm(client, opportunity, key="real-1", **extra):
     body = {
         "name": extra.pop("name", "业务一面"),
@@ -144,6 +153,63 @@ def test_simulation_parent_preparation_raw_review_and_zero_patch(tmp_path):
     assert replay.status_code == 200 and replay.json()["interview"]["id"] == sim["id"]
 
 
+def test_schedule_nullable_timestamp_reaches_api(tmp_path):
+    client, _, submitted = setup_submitted(tmp_path / "data")
+    result = confirm(client, submitted).json()
+    interview, opportunity = result["interview"], result["opportunity"]
+    scheduled = client.post(
+        f"/api/opportunities/{opportunity['id']}/interviews/{interview['id']}/schedule",
+        json={"scheduled_on": "2026-10-01", "scheduled_at": None,
+              "expected_revision": interview["revision"], "idempotency_key": "nullable-time"},
+    )
+    assert scheduled.status_code == 200, scheduled.text
+    assert scheduled.json()["scheduled_on"] == "2026-10-01"
+    assert scheduled.json()["scheduled_at"] is None
+    assert client.get(
+        f"/api/opportunities/{opportunity['id']}/interviews/{interview['id']}"
+    ).json()["scheduled_on"] == "2026-10-01"
+
+
+def test_preparation_two_saves_use_latest_revision(tmp_path):
+    client, _, submitted = setup_submitted(tmp_path / "data")
+    result = confirm(client, submitted).json()
+    interview, opportunity = result["interview"], result["opportunity"]
+    base = {"expected_questions": [], "priority_projects": [], "risks": [], "notes": ""}
+    first = client.put(
+        f"/api/opportunities/{opportunity['id']}/interviews/{interview['id']}/preparation",
+        json={**base, "focus": "第一版", "expected_revision": 0, "idempotency_key": "prep-1"},
+    )
+    assert first.status_code == 200, first.text
+    second = client.put(
+        f"/api/opportunities/{opportunity['id']}/interviews/{interview['id']}/preparation",
+        json={**base, "focus": "第二版", "expected_revision": first.json()["revision"], "idempotency_key": "prep-2"},
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["revision"] == first.json()["revision"] + 1
+    assert second.json()["focus"] == "第二版"
+
+
+def test_preparation_real_conflict_keeps_input(tmp_path):
+    client, _, submitted = setup_submitted(tmp_path / "data")
+    result = confirm(client, submitted).json()
+    interview, opportunity = result["interview"], result["opportunity"]
+    base = {"expected_questions": [], "priority_projects": [], "risks": [], "notes": ""}
+    saved = client.put(
+        f"/api/opportunities/{opportunity['id']}/interviews/{interview['id']}/preparation",
+        json={**base, "focus": "窗口 A", "expected_revision": 0, "idempotency_key": "prep-a"},
+    )
+    assert saved.status_code == 200, saved.text
+    conflict = client.put(
+        f"/api/opportunities/{opportunity['id']}/interviews/{interview['id']}/preparation",
+        json={**base, "focus": "窗口 B 的未保存输入", "expected_revision": 0, "idempotency_key": "prep-b"},
+    )
+    assert conflict.status_code == 409, conflict.text
+    latest = client.get(
+        f"/api/opportunities/{opportunity['id']}/interviews/{interview['id']}/preparation"
+    )
+    assert latest.status_code == 200 and latest.json()["focus"] == "窗口 A"
+
+
 def test_context_pack_review_selection_and_ai_intents_are_separate(tmp_path):
     client, store, submitted = setup_submitted(tmp_path / "data")
     first_result = confirm(client, submitted).json()
@@ -196,10 +262,14 @@ def test_context_pack_review_selection_and_ai_intents_are_separate(tmp_path):
     ).json()
     assert replay_n["context_snapshot_id"] == sim_n["context_snapshot_id"]
 
-    generated_review = client.post(
-        f"/api/opportunities/{opportunity['id']}/interviews/{first['id']}/generate-final-review",
-        json={"communication_ids": [], "wiki_ids": [], "idempotency_key": "generate-review"},
-    )
+    review_path = f"/api/opportunities/{opportunity['id']}/interviews/{first['id']}/generate-final-review"
+    review_body = {"communication_ids": [], "wiki_ids": [], "idempotency_key": "generate-review"}
+    review_prepared = client.post(review_path, json=review_body)
+    assert review_prepared.status_code == 409
+    review_info = review_prepared.json()
+    review_exec = {**review_body, "prepared_id": review_info["prepared_id"],
+                   "payload_hash": review_info["payload_hash"], "confirm_outbound": True}
+    generated_review = client.post(review_path, json=review_exec)
     assert generated_review.status_code == 200, generated_review.text
     suggestion = generated_review.json()
     assert suggestion["mode"] == "test" and set(suggestion["suggestion"]) == {
@@ -208,17 +278,13 @@ def test_context_pack_review_selection_and_ai_intents_are_separate(tmp_path):
     with store.connect(False) as connection:
         assert connection.execute("SELECT count(*) FROM records WHERE kind='patch_proposal'").fetchone()[0] == 0
         snapshots = connection.execute("SELECT count(*) FROM records WHERE kind='context_snapshot'").fetchone()[0]
-    assert client.post(
-        f"/api/opportunities/{opportunity['id']}/interviews/{first['id']}/generate-final-review",
-        json={"communication_ids": [], "wiki_ids": [], "idempotency_key": "generate-review"},
-    ).json() == suggestion
+    assert client.post(review_path, json=review_exec).json() == suggestion
     with store.connect(False) as connection:
         assert connection.execute("SELECT count(*) FROM records WHERE kind='context_snapshot'").fetchone()[0] == snapshots
 
-    generated_patch = client.post(
-        f"/api/opportunities/{opportunity['id']}/interviews/{first['id']}/generate-research-patch",
-        json={"communication_ids": [], "wiki_ids": [], "idempotency_key": "generate-patch"},
-    )
+    patch_path = f"/api/opportunities/{opportunity['id']}/interviews/{first['id']}/generate-research-patch"
+    patch_body = {"communication_ids": [], "wiki_ids": [], "idempotency_key": "generate-patch"}
+    generated_patch = ai_confirm(client, patch_path, patch_body)
     assert generated_patch.status_code == 200, generated_patch.text
     proposal = generated_patch.json()["proposal"]
     assert proposal["status"] == "pending" and proposal["origin_interview_id"] == first["id"]
@@ -238,10 +304,8 @@ def test_context_pack_review_selection_and_ai_intents_are_separate(tmp_path):
     assert client.get(f"/api/opportunities/{opportunity['id']}").json()["phase"] == "interview"
 
     # A later Raw correction invalidates a still-pending real proposal, not the applied one.
-    pending = client.post(
-        f"/api/opportunities/{opportunity['id']}/interviews/{first['id']}/generate-research-patch",
-        json={"communication_ids": [], "wiki_ids": [], "idempotency_key": "generate-patch-2"},
-    ).json()["proposal"]
+    pending_body = {"communication_ids": [], "wiki_ids": [], "idempotency_key": "generate-patch-2"}
+    pending = ai_confirm(client, patch_path, pending_body).json()["proposal"]
     corrected = client.put(
         f"/api/opportunities/{opportunity['id']}/interviews/{first['id']}/raw",
         json={"content": "[00:01] 面试官：已修正的信息。", "expected_revision": real_raw["revision"],
@@ -302,15 +366,14 @@ def test_interview_timeline_and_archived_communication_source(tmp_path):
 
 
 def test_context_uses_frozen_submission_resume_not_later_draft(tmp_path):
-    from test_record_submitted import client_at, opportunity as make_opportunity, start, save, submit, PDF
+    from test_record_submitted import client_at, opportunity as make_opportunity, start, save, submit
 
     client, _ = client_at(tmp_path / "data")
     opportunity = make_opportunity(client, "冻结简历上下文")
     document = save(client, start(client, opportunity), "投递时姓名")
     sent = submit(client, opportunity, {
         "mode": "draft", "document_id": document["document_id"],
-        "expected_document_revision": document["revision"], "document": document["document"],
-        "pdf_base64": PDF,
+        "expected_document_revision": document["revision"],
     }).json()
     changed = save(client, document, "投递后当前稿姓名")
     real = confirm(client, sent["opportunity"]).json()["interview"]

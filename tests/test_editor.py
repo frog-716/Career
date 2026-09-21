@@ -1,5 +1,4 @@
 from batch_b_helpers import save_job
-import base64
 import hashlib
 import json
 from copy import deepcopy
@@ -25,10 +24,6 @@ def doc(label="A"):
     return {"schemaVersion": 1, "profile": {"id": "profile", "name": label, "contacts": []}, "sections": [{"id": "experience", "type": "experience", "title": "经历", "items": [{"id": "item-1", "organization": "Org", "role": "Role", "date": "2020", "bullets": [{"id": "bullet-1", "content": label}]}]}], "formatting": {"font": "sans"}, "meta": {"title": label}}
 
 
-def pdf():
-    return base64.b64encode(b"%PDF-1.7\n1 0 obj\nendobj\n%%EOF\n").decode()
-
-
 def test_structured_draft_conflict_and_blank_is_read_only(tmp_path):
     client, store = client_for(tmp_path)
     assert client.get(client.editor_path).json()['revision']==0
@@ -43,7 +38,7 @@ def test_version_pdf_freeze_idempotency_restore_and_backup_compatibility(tmp_pat
     client, store = client_for(tmp_path)
     document = doc()
     client.put(client.editor_path, json={"document": document, "expected_revision": 0})
-    body = {"name": "v1", "document": document, "expected_revision": 1, "pdf_base64": pdf(), "idempotency_key": "version-key"}
+    body = {"name": "v1", "expected_revision": 1, "idempotency_key": "version-key"}
     created = client.post(client.editor_path+"/versions", json=body).json()
     replay = client.post(client.editor_path+"/versions", json=body).json()
     assert replay == created
@@ -72,7 +67,7 @@ def test_delete_unreferenced_editor_version_removes_pdf_and_rejects_used_version
     client, store = client_for(tmp_path)
     document = doc()
     client.put(client.editor_path, json={"document": document, "expected_revision": 0})
-    body = {"name": "可删除版本", "document": document, "expected_revision": 1, "pdf_base64": pdf(), "idempotency_key": "delete-version-key"}
+    body = {"name": "可删除版本", "expected_revision": 1, "idempotency_key": "delete-version-key"}
     created = client.post(client.editor_path+"/versions", json=body).json()
     artifact_path = store.state()["artifacts"][0]["path"]
     assert client.delete(client.editor_path+"/versions/" + created["id"]).json() == {"deleted": created["id"]}
@@ -92,7 +87,7 @@ def test_validation_and_context_isolation(tmp_path):
     client, store = client_for(tmp_path)
     assert client.put(client.editor_path, json={"document": {"schemaVersion": 2}, "expected_revision": 0}).status_code == 422
     client.put(client.editor_path, json={"document": doc("editor-only-private-sentinel"), "expected_revision": 0})
-    assert client.post(client.editor_path+"/versions", json={"name": "v", "document": doc("other"), "expected_revision": 1, "pdf_base64": pdf(), "idempotency_key": "k"}).status_code == 409
+    assert client.post(client.editor_path+"/versions", json={"name": "v", "expected_revision": 1, "idempotency_key": "k", "unexpected": "client-pdf"}).status_code == 422
     store.save_profile("current profile", 0)
     job = save_job(store,{"company": "C", "title": "T", "jd": "J"})
     packet = store.context(job["id"], "job")
@@ -117,7 +112,7 @@ def test_same_idempotency_key_concurrent_requests_create_one_version(tmp_path):
     client, store = client_for(tmp_path)
     document = doc()
     assert client.put(client.editor_path, json={"document": document, "expected_revision": 0}).status_code == 200
-    body = {"name": "v1", "document": document, "expected_revision": 1, "pdf_base64": pdf(), "idempotency_key": "concurrent"}
+    body = {"name": "v1", "expected_revision": 1, "idempotency_key": "concurrent"}
     def request(_):
         with TestClient(client.app,headers={'X-Career-Request':'1','Content-Type':'application/json'}) as c:
             return c.post(client.editor_path+"/versions", json=body).status_code

@@ -5,6 +5,7 @@ from datetime import date
 from fastapi import APIRouter
 
 from .core import Conflict, Invalid, Missing, digest, now, required, uid
+from .pagination import page
 
 
 CURRENT = {
@@ -144,10 +145,10 @@ def work_router(store):
     router = APIRouter()
 
     @router.get("/api/work-domain")
-    def read_domain():
+    def read_domain(kind: str | None = None, scope_type: str = "all", scope_id: str = "", limit: int | None = None, cursor: str | None = None):
         with store.connect(False) as c:
             from .employment import current_employments
-            return {
+            result = {
                 "employments": current_employments(store, c),
                 "stages": store._current(c, CURRENT["stage"]),
                 "projects": store._current(c, CURRENT["project"]),
@@ -159,6 +160,15 @@ def work_router(store):
                 "evidence": store._records(c, IMMUTABLE["evidence"]),
                 "evidence_links": store._records(c, IMMUTABLE["evidence_link"]),
             }
+            if kind is None and limit is None and cursor is None:
+                return result
+            if kind not in result:
+                raise Invalid("work-domain kind 不合法")
+            if scope_type != "all":
+                if scope_type not in {"personal", "episode", "employment", "project"}:
+                    raise Invalid("work-domain scope 不合法")
+                result[kind] = [item for item in result[kind] if item.get("scope_type") == scope_type and (not scope_id or item.get("scope_id") == scope_id)]
+            return page(result[kind], scope=f"work-domain:{kind}:{scope_type}:{scope_id}", limit=limit, cursor=cursor)
 
     @router.post("/api/work/employments/{employment_id}/stages")
     def create_stage(employment_id: str, body: dict):

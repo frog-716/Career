@@ -171,6 +171,32 @@ def _apply_profile(document, profile):
     return document
 
 
+# Public domain helpers for the Resume service. The underscored names remain
+# as a compatibility layer for the legacy editor routes.
+def validate_document(value):
+    return _document(value)
+
+
+def blank_document():
+    return _blank()
+
+
+def pdf_data(data):
+    return _pdf(data)
+
+
+def fact_allowed(entry, job_id):
+    return _fact_allowed(entry, job_id)
+
+
+def item_ids(document):
+    return _item_ids(document)
+
+
+def apply_profile(document, profile):
+    return _apply_profile(document, profile)
+
+
 def editor_router(store):
     """Legacy read adapter. No unscoped writes survive schema v3."""
     router = APIRouter(prefix='/api/editor')

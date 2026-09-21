@@ -139,12 +139,15 @@ def journey_router(store):
                         headers={"Content-Disposition": 'attachment; filename="career-stage.md"'})
 
     @router.get("/api/journey")
-    def journey():
+    def journey(summary: bool = False):
         with store.connect(False) as c:
+            notes = [_note_view(store, c, n) for n in store._records(c, "journey_note")]
+            if summary:
+                notes = [dict(note, content="", original_content="") for note in notes]
             return {
                 "plans": store._current(c, "journey_plan"),
                 "episodes": store._current(c, "journey_episode"),
-                "notes": [_note_view(store, c, n) for n in store._records(c, "journey_note")],
+                "notes": notes,
             }
 
     @router.post("/api/journey/notes/{note_id}/correct")

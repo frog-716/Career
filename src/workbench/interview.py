@@ -3,16 +3,20 @@ import json
 from datetime import date, datetime
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 from .core import Conflict, Invalid, Missing, ProviderError, digest, now, required, uid
 from . import opportunity as op
+from . import ai_operations as ao
+from . import context_manifest as cm
+from . import research_store as rs
+from . import outbound_policy as outbound
+from .model_gateway import ModelGateway
 
 
 REAL_STATUSES = {"pending", "scheduled", "completed", "cancelled"}
 SIMULATION_STATUSES = {"pending", "completed", "cancelled"}
-RESEARCH_CATEGORIES = {
-    "company_business", "role", "team", "recruiting_context", "process", "unknown",
-}
+RESEARCH_CATEGORIES = rs.CATEGORIES
 PREPARATION_FIELDS = ("focus", "expected_questions", "priority_projects", "risks", "notes")
 REVIEW_FIELDS = ("summary", "key_qa", "patterns", "discoveries", "next_actions")
 
@@ -133,7 +137,7 @@ def _detail(store, c, opportunity_id, interview_id):
     source_id = item.get("source_communication_id")
     if source_id:
         try:
-            from .communication import _owned as communication_owned
+            from .communication import owned as communication_owned
             item["source_communication"] = communication_owned(
                 store, c, opportunity["id"], source_id, include_archived=True
             )[2]
@@ -180,7 +184,7 @@ def confirm_real(store, opportunity_id, body):
             raise Conflict("confirm_real_requires_submitted_or_interview: 仅进行中的已投递/面试机会可确认正式面试")
         source_id = body.get("source_communication_id")
         if source_id is not None:
-            from .communication import _owned as communication_owned
+            from .communication import owned as communication_owned
             communication_owned(store, c, opportunity["id"], required(source_id, "来源沟通", 500))
         timestamp = now()
         confirmed_on = op.business_day(timestamp)
@@ -490,7 +494,7 @@ def _compile_pack(store, c, opportunity, target_real, task_type, body, raw=None,
         sources.append(_source(preparation["id"], preparation["revision"], {
             key: preparation[key] for key in PREPARATION_FIELDS
         }, "interview_preparation"))
-    from .communication import _owned as communication_owned
+    from .communication import owned as communication_owned
     for communication_id in communication_ids:
         event = communication_owned(store, c, opportunity["id"], communication_id, include_archived=True)[2]
         sources.append(_source(event["id"], event["revision"], {
@@ -584,17 +588,33 @@ def start_simulation(store, opportunity_id, real_id, body):
                 "context_pack": pack, "mode": "export"}
 
 
-def _provider_result(store, pack):
+def _provider_result(store, pack, before_call=None, operation_id=None, target=None):
     from .model_gateway import ModelGateway
     schemas = {
         "interview_final_review": {"version": 1, "type": "object", "required": list(REVIEW_FIELDS)},
         "interview_research_patch": {"version": 1, "type": "object", "required": ["items"]},
     }
-    return ModelGateway(store).generate(pack["task_type"], pack, schemas[pack["task_type"]])
+    return ModelGateway(store).generate(
+        pack["task_type"], pack, schemas[pack["task_type"]], before_call=before_call,
+        operation_id=operation_id, target=target,
+    )
 
 
-def generate_final_review(store, opportunity_id, interview_id, body):
-    _strict(body, {"communication_ids", "wiki_ids", "idempotency_key"}, "GenerateFinalReview")
+def _ai_intent_body(body):
+    return {key: body.get(key) for key in
+            ("communication_ids", "wiki_ids", "idempotency_key", "model_config_id") if key in body}
+
+
+def _ai_client_intent(opportunity_id, interview_id, body):
+    return {"opportunity_id": opportunity_id, "interview_id": interview_id,
+            **_ai_intent_body(body)}
+
+
+def _final_review_output_schema():
+    return {"version": 1, "type": "object", "required": list(REVIEW_FIELDS)}
+
+
+def _final_review_prepare(store, opportunity_id, interview_id, body):
     with store.connect(False) as c:
         opportunity = op.writable(store, c, opportunity_id)
         _, _, session = _owned(store, c, opportunity["id"], interview_id, require_current=True)
@@ -602,57 +622,123 @@ def generate_final_review(store, opportunity_id, interview_id, body):
         target_real = session if session["type"] == "real" else _owned(
             store, c, opportunity["id"], session["target_real_interview_id"], require_current=True
         )[2]
-        pack_body = dict(body, selected_review_ids=[])
-        pack = _compile_pack(store, c, opportunity, target_real, "interview_final_review", pack_body,
-                             raw, task_session=session)
-        replay, _, _ = _command(store, c, "generate_final_review", opportunity["id"], interview_id, body)
-        if replay is not None and (replay.get("source_raw_revision"), replay.get("source_raw_hash")) != (
-                raw["revision"], raw["hash"]):
-            raise Conflict("Raw 已更新，请使用新的请求标识生成 Final Review 建议")
-    result, diagnostics = _provider_result(store, pack)
-    suggestion = {key: result[key] for key in REVIEW_FIELDS}
-    _review_values({**suggestion, "expected_revision": 0, "idempotency_key": "validation"})
+        pack = _compile_pack(store, c, opportunity, target_real, "interview_final_review",
+                             dict(body, selected_review_ids=[]), raw, task_session=session)
+        pack["manifest"] = cm.manifest(
+            "interview_final_review",
+            {"kind": "interview", "id": session["id"]},
+            session["revision"],
+            [cm.dependency(
+                "interview_source", source["id"], source["revision"],
+                source["selected_content"], source["purpose"], content_hash=source["hash"]
+            ) for source in pack["sources"]],
+        )
+        replay, _, _ = _command(store, c, "generate_final_review", opportunity["id"], interview_id, _ai_intent_body(body))
     if replay is not None:
-        if replay.get("suggestion_hash") != digest(suggestion):
-            raise Conflict("同一请求的建议结果不一致")
-        return {"suggestion": suggestion, "mode": replay["mode"],
-                "context_snapshot_id": replay["context_snapshot_id"],
-                "source_raw_revision": raw["revision"]}
+        saved = replay.get("api_result")
+        if saved is None:
+            return {"_replay_expired": True}
+        return {"_replay_value": saved}
+    return {"opportunity": opportunity, "session": session, "raw": raw, "pack": pack, "body": body}
+
+
+def _final_review_dispatch(store, prepared, binder):
+    return _provider_result(
+        store, prepared["pack"],
+        before_call=lambda payload_hash: binder(payload_hash, prepared["pack"].get("manifest")),
+        operation_id=prepared.get("_operation_id"),
+        target={"kind": "interview", "id": prepared["session"]["id"]},
+    )
+
+
+def _final_review_persist(store, prepared, result, diagnostics):
+    try:
+        suggestion = {key: result[key] for key in REVIEW_FIELDS}
+        _review_values({**suggestion, "expected_revision": 0, "idempotency_key": "validation"})
+    except (Invalid, KeyError, TypeError) as exc:
+        raise ao.AIValidationError(str(exc)) from exc
+    raw, opportunity, body, pack = prepared["raw"], prepared["opportunity"], prepared["body"], prepared["pack"]
+    value = {"suggestion": suggestion, "mode": diagnostics["mode"],
+             "context_snapshot_id": None, "source_raw_revision": raw["revision"]}
     with store.connect() as c:
-        opportunity = op.writable(store, c, opportunity_id)
+        current_opportunity = op.writable(store, c, opportunity["id"])
         replay, command_id, fingerprint = _command(
-            store, c, "generate_final_review", opportunity["id"], interview_id, body
+            store, c, "generate_final_review", current_opportunity["id"], prepared["session"]["id"], _ai_intent_body(body)
         )
         if replay is not None:
-            if (replay.get("source_raw_revision"), replay.get("source_raw_hash")) != (
-                    raw["revision"], raw["hash"]) or replay.get("suggestion_hash") != digest(suggestion):
-                raise Conflict("同一请求的来源或建议已变化")
-            return {"suggestion": suggestion, "mode": replay["mode"],
-                    "context_snapshot_id": replay["context_snapshot_id"],
-                    "source_raw_revision": raw["revision"]}
-        current = _get_material(store, c, "interview_raw", interview_id, True)
-        if current["revision"] != raw["revision"] or current["hash"] != raw["hash"]:
-            raise Conflict("Raw 已更新，请重新生成 Final Review 建议")
+            if replay.get("api_result") is None:
+                raise ao.AIValidationError("result_expired: 旧 Interview 建议正文已不可恢复")
+            return replay["api_result"]
         snapshot = _snapshot(store, c, pack, False)
+        value["context_snapshot_id"] = snapshot["id"]
         _remember(store, c, command_id, fingerprint, {
             "mode": diagnostics["mode"], "context_snapshot_id": snapshot["id"],
             "source_raw_revision": raw["revision"], "source_raw_hash": raw["hash"],
             "suggestion_hash": digest(suggestion),
         })
-        return {"suggestion": suggestion, "mode": diagnostics["mode"],
-                "context_snapshot_id": snapshot["id"], "source_raw_revision": raw["revision"]}
+    return value
+
+
+def _final_review_prepare_record(store, opportunity_id, interview_id, body):
+    prepared = _final_review_prepare(store, opportunity_id, interview_id, body)
+    if "_replay_value" in prepared or "_replay_expired" in prepared:
+        return prepared
+    payload, diagnostics, _, clean_pack, budget_info = ModelGateway(store).prepare_payload(
+        "interview_final_review", prepared["pack"], _final_review_output_schema(), body.get("model_config_id")
+    )
+    prepared.update(pack=clean_pack, payload=payload, diagnostics=diagnostics, budget=budget_info)
+    return prepared
+
+
+def _final_review_create_preparation(store, opportunity_id, interview_id, body):
+    prepared = _final_review_prepare_record(store, opportunity_id, interview_id, body)
+    if "_replay_value" in prepared:
+        return prepared["_replay_value"]
+    return outbound.create_preparation(
+        store, task_type="interview_final_review", target={"kind": "interview", "id": interview_id},
+        client_intent=_ai_client_intent(opportunity_id, interview_id, body),
+        packet=prepared["pack"], payload=prepared["payload"], manifest=prepared["pack"].get("manifest"),
+        diagnostics=prepared["diagnostics"], budget_info=prepared["budget"],
+    )
+
+
+def _final_review_prepare_for_execution(store, opportunity_id, interview_id, body):
+    prepared = _final_review_prepare_record(store, opportunity_id, interview_id, body)
+    if "_replay_value" in prepared or "_replay_expired" in prepared:
+        return prepared
+    outbound.validate_preparation(
+        store, body["prepared_id"], task_type="interview_final_review",
+        target={"kind": "interview", "id": interview_id},
+        client_intent=_ai_client_intent(opportunity_id, interview_id, body),
+        payload_hash=body.get("payload_hash"), packet=prepared["pack"], payload=prepared["payload"],
+        manifest=prepared["pack"].get("manifest"),
+    )
+    return prepared
+
+
+def generate_final_review(store, opportunity_id, interview_id, body):
+    _strict(body, {"communication_ids", "wiki_ids", "idempotency_key", "model_config_id",
+                   "prepared_id", "payload_hash", "confirm_outbound"}, "GenerateFinalReview")
+    key = required(body.get("idempotency_key"), "idempotency_key（请刷新客户端）", 200)
+    if not body.get("prepared_id") or body.get("confirm_outbound") is not True:
+        return JSONResponse(_final_review_create_preparation(store, opportunity_id, interview_id, body), status_code=409)
+    execution = ao.execute(
+        store, task_type="interview_final_review", target_kind="interview", target_id=interview_id,
+        idempotency_key=key, client_intent=_ai_client_intent(opportunity_id, interview_id, body),
+        prepare=lambda: _final_review_prepare_for_execution(store, opportunity_id, interview_id, body),
+        dispatch=lambda prepared, binder: _final_review_dispatch(store, prepared, binder),
+        persist=lambda prepared, result, diagnostics: _final_review_persist(store, prepared, result, diagnostics),
+        retain_result=False,
+    )
+    return ao.unwrap(execution)
 
 
 def _research_id(opportunity_id):
-    return "opportunity-research:" + digest(opportunity_id)
+    return rs.research_id("opportunity_research", opportunity_id)
 
 
 def _get_research(store, c, opportunity_id):
-    ident = _research_id(opportunity_id)
-    row = c.execute("SELECT body FROM current WHERE id=? AND kind='opportunity_research'", (ident,)).fetchone()
-    if row:
-        return json.loads(row[0])
-    return {"id": ident, "opportunity_id": opportunity_id, "items": [], "revision": 0}
+    return rs.get(store, c, "opportunity_research", opportunity_id)
 
 
 def _patch_items(value):
@@ -670,59 +756,158 @@ def _patch_items(value):
     return result
 
 
-def generate_research_patch(store, opportunity_id, interview_id, body):
-    _strict(body, {"communication_ids", "wiki_ids", "idempotency_key"}, "GenerateResearchPatch")
-    with store.connect() as c:
-        opportunity = op.writable(store, c, opportunity_id)
-        _, _, session = _owned(store, c, opportunity["id"], interview_id, require_current=True)
-        if session["type"] != "real":
-            raise Conflict("Simulation 没有 GenerateResearchPatch 能力")
-        replay, _, _ = _command(store, c, "generate_research_patch", opportunity["id"], interview_id, body)
-        if replay is not None:
-            return {"proposal": store._get(c, replay["proposal_id"], "patch_proposal", True),
-                    "mode": replay["mode"]}
+def _patch_prepare(store, opportunity_id, interview_id, body):
     with store.connect(False) as c:
         opportunity = op.writable(store, c, opportunity_id)
         _, _, session = _owned(store, c, opportunity["id"], interview_id, require_current=True)
         if session["type"] != "real":
             raise Conflict("Simulation 没有 GenerateResearchPatch 能力")
+        replay, _, _ = _command(store, c, "generate_research_patch", opportunity["id"], interview_id, _ai_intent_body(body))
+        if replay is not None:
+            if replay.get("api_result") is not None:
+                return {"_replay_value": replay["api_result"]}
+            if replay.get("proposal_id"):
+                proposal = store._get(c, replay["proposal_id"], "patch_proposal", True)
+                return {"_replay_value": {"proposal": proposal, "mode": replay.get("mode", "unknown")}}
+            return {"_replay_expired": True}
         raw = _get_material(store, c, "interview_raw", interview_id, True)
         pack = _compile_pack(store, c, opportunity, session, "interview_research_patch",
                              dict(body, selected_review_ids=[]), raw, task_session=session)
-        target = _get_research(store, c, opportunity["id"])
-    result, diagnostics = _provider_result(store, pack)
-    items = _patch_items(result.get("items"))
+        target, target_exists = rs.lookup(store, c, "opportunity_research", opportunity["id"])
+        dependencies = [
+            cm.dependency("opportunity", opportunity["id"], opportunity["revision"],
+                          cm.selected_opportunity(opportunity), "current_jd"),
+            cm.dependency("interview_raw", raw["id"], raw["revision"], raw["content"],
+                          "current_interview_raw", content_hash=raw["hash"]),
+            cm.dependency(
+                "opportunity_research", target["id"], target["revision"],
+                rs.content_hash(target) if target_exists else None, "target_opportunity_research",
+                content_hash=rs.content_hash(target) if target_exists else None,
+                expected_absent=not target_exists, owner_id=opportunity["id"],
+            ),
+        ]
+        for source in pack["sources"]:
+            if source["purpose"] == "selected_communication":
+                dependencies.append(cm.dependency(
+                    "communication", source["id"], source["revision"], source["selected_content"],
+                    source["purpose"], content_hash=source["hash"],
+                ))
+            elif source["purpose"] == "career_context":
+                dependencies.append(cm.dependency(
+                    "wiki_entry", source["id"], source["revision"], source["selected_content"],
+                    source["purpose"], content_hash=source["hash"],
+                ))
+        patch_manifest = cm.manifest(
+            "interview_research_patch",
+            {"kind": "opportunity_research", "id": target["id"], "opportunity_id": opportunity["id"],
+             **({"expected_absent": True} if not target_exists else {})},
+            target["revision"], dependencies,
+        )
+    return {"opportunity": opportunity, "session": session, "raw": raw, "target": target,
+            "pack": pack, "manifest": patch_manifest, "body": body}
+
+
+def _patch_dispatch(store, prepared, binder):
+    return _provider_result(
+        store, prepared["pack"],
+        before_call=lambda payload_hash: binder(payload_hash, prepared["manifest"]),
+        operation_id=prepared.get("_operation_id"),
+        target={"kind": "interview", "id": prepared["session"]["id"]},
+    )
+
+
+def _patch_persist(store, prepared, result, diagnostics):
+    try:
+        items = _patch_items(result.get("items"))
+    except (Invalid, AttributeError, TypeError, KeyError) as exc:
+        raise ao.AIValidationError(str(exc)) from exc
+    opportunity, raw, target, body = prepared["opportunity"], prepared["raw"], prepared["target"], prepared["body"]
     with store.connect() as c:
-        opportunity = op.writable(store, c, opportunity_id)
-        _, _, current_session = _owned(store, c, opportunity["id"], interview_id, require_current=True)
-        if current_session["type"] != "real":
-            raise Conflict("Simulation 没有 GenerateResearchPatch 能力")
-        current_raw = _get_material(store, c, "interview_raw", interview_id, True)
-        current_target = _get_research(store, c, opportunity["id"])
-        if (current_raw["revision"], current_raw["hash"]) != (raw["revision"], raw["hash"]):
-            raise Conflict("Raw 已更新，请重新生成 Research Patch")
-        if current_target["revision"] != target["revision"]:
-            raise Conflict("OpportunityResearch 已更新，请重新生成 Patch")
-        replay, command_id, fingerprint = _command(store, c, "generate_research_patch",
-                                                    opportunity["id"], interview_id, body)
+        current_opportunity = op.writable(store, c, opportunity["id"])
+        replay, command_id, fingerprint = _command(
+            store, c, "generate_research_patch", current_opportunity["id"], prepared["session"]["id"], _ai_intent_body(body)
+        )
         if replay is not None:
-            return {"proposal": store._get(c, replay["proposal_id"], "patch_proposal", True),
-                    "mode": diagnostics["mode"]}
-        snapshot = _snapshot(store, c, pack, False)
+            if replay.get("api_result") is not None:
+                return replay["api_result"]
+            if replay.get("proposal_id"):
+                proposal = store._get(c, replay["proposal_id"], "patch_proposal", True)
+                return {"proposal": proposal, "mode": replay.get("mode", diagnostics["mode"])}
+            raise ao.AIValidationError("result_expired: 旧 Research Patch 建议正文已不可恢复")
+        snapshot = _snapshot(store, c, prepared["pack"], False)
         timestamp = now()
         proposal = {
             "id": uid(), "proposal_format": 1, "opportunity_id": opportunity["id"],
-            "origin_interview_id": interview_id, "origin_interview_type": "real",
+            "origin_interview_id": prepared["session"]["id"], "origin_interview_type": "real",
             "source_raw_id": raw["id"], "source_raw_revision": raw["revision"],
             "source_raw_hash": raw["hash"], "target_type": "opportunity_research",
             "target_id": target["id"], "expected_target_revision": target["revision"],
             "items": items, "status": "pending", "revision": 0,
-            "context_snapshot_id": snapshot["id"], "created_at": timestamp, "updated_at": timestamp,
+            "context_snapshot_id": snapshot["id"], "manifest": prepared["manifest"],
+            "created_at": timestamp, "updated_at": timestamp,
         }
+        api_result = {"proposal": proposal, "mode": diagnostics["mode"]}
         store._record(c, "patch_proposal", proposal)
         _remember(store, c, command_id, fingerprint,
-                  {"proposal_id": proposal["id"], "mode": diagnostics["mode"]})
-        return {"proposal": proposal, "mode": diagnostics["mode"]}
+                  {"proposal_id": proposal["id"], "mode": diagnostics["mode"], "api_result": api_result})
+        return api_result
+
+
+def _patch_output_schema():
+    return {"version": 1, "type": "object", "required": ["items"]}
+
+
+def _patch_prepare_record(store, opportunity_id, interview_id, body):
+    prepared = _patch_prepare(store, opportunity_id, interview_id, body)
+    if "_replay_value" in prepared or "_replay_expired" in prepared:
+        return prepared
+    payload, diagnostics, _, clean_pack, budget_info = ModelGateway(store).prepare_payload(
+        "interview_research_patch", prepared["pack"], _patch_output_schema(), body.get("model_config_id")
+    )
+    prepared.update(pack=clean_pack, payload=payload, diagnostics=diagnostics, budget=budget_info)
+    return prepared
+
+
+def _patch_create_preparation(store, opportunity_id, interview_id, body):
+    prepared = _patch_prepare_record(store, opportunity_id, interview_id, body)
+    if "_replay_value" in prepared:
+        return prepared["_replay_value"]
+    return outbound.create_preparation(
+        store, task_type="interview_research_patch", target={"kind": "interview", "id": interview_id},
+        client_intent=_ai_client_intent(opportunity_id, interview_id, body),
+        packet=prepared["pack"], payload=prepared["payload"], manifest=prepared["manifest"],
+        diagnostics=prepared["diagnostics"], budget_info=prepared["budget"],
+    )
+
+
+def _patch_prepare_for_execution(store, opportunity_id, interview_id, body):
+    prepared = _patch_prepare_record(store, opportunity_id, interview_id, body)
+    if "_replay_value" in prepared or "_replay_expired" in prepared:
+        return prepared
+    outbound.validate_preparation(
+        store, body["prepared_id"], task_type="interview_research_patch",
+        target={"kind": "interview", "id": interview_id},
+        client_intent=_ai_client_intent(opportunity_id, interview_id, body),
+        payload_hash=body.get("payload_hash"), packet=prepared["pack"], payload=prepared["payload"],
+        manifest=prepared["manifest"],
+    )
+    return prepared
+
+
+def generate_research_patch(store, opportunity_id, interview_id, body):
+    _strict(body, {"communication_ids", "wiki_ids", "idempotency_key", "model_config_id",
+                   "prepared_id", "payload_hash", "confirm_outbound"}, "GenerateResearchPatch")
+    key = required(body.get("idempotency_key"), "idempotency_key（请刷新客户端）", 200)
+    if not body.get("prepared_id") or body.get("confirm_outbound") is not True:
+        return JSONResponse(_patch_create_preparation(store, opportunity_id, interview_id, body), status_code=409)
+    execution = ao.execute(
+        store, task_type="interview_research_patch", target_kind="interview", target_id=interview_id,
+        idempotency_key=key, client_intent=_ai_client_intent(opportunity_id, interview_id, body),
+        prepare=lambda: _patch_prepare_for_execution(store, opportunity_id, interview_id, body),
+        dispatch=lambda prepared, binder: _patch_dispatch(store, prepared, binder),
+        persist=lambda prepared, result, diagnostics: _patch_persist(store, prepared, result, diagnostics),
+    )
+    return ao.unwrap(execution)
 
 
 def _owned_proposal(store, c, opportunity_id, proposal_id):
@@ -768,6 +953,12 @@ def resolve_patch(store, opportunity_id, proposal_id, body):
             return store._get(c, proposal_id, "patch_proposal", True)
         if proposal["status"] != "pending" or proposal["revision"] != expected:
             raise Conflict("PatchProposal 已变化或不可处理")
+        if body["decision"] == "reject":
+            proposal.update(status="rejected", revision=expected + 1, resolved_at=now(), updated_at=now())
+            store._record(c, "patch_proposal", proposal)
+            _remember(store, c, command_id, fingerprint, {"proposal_id": proposal_id, "revision": proposal["revision"]})
+            return proposal
+        cm.validate(store, c, proposal.get("manifest"))
         raw = _get_material(store, c, "interview_raw", proposal["origin_interview_id"], True)
         target = _get_research(store, c, opportunity["id"])
         if (raw["revision"], raw["hash"]) != (proposal["source_raw_revision"], proposal["source_raw_hash"]):
@@ -779,9 +970,7 @@ def resolve_patch(store, opportunity_id, proposal_id, body):
                 "kind": "interview_raw", "id": raw["id"], "revision": raw["revision"],
                 "hash": raw["hash"], "interview_id": proposal["origin_interview_id"],
             }]) for item in proposal["items"]]
-            target = store._save(c, "opportunity_research", {
-                **target, "items": target["items"] + additions, "created_at": target.get("created_at", now()),
-            }, target["revision"])
+            target = rs.append(store, c, "opportunity_research", opportunity["id"], additions, target["revision"])
             store._bump(c)
             proposal["applied_target_revision"] = target["revision"]
         proposal.update(status="applied" if body["decision"] == "accept" else "rejected",
@@ -876,8 +1065,18 @@ def router(store):
     def patches(opportunity_id: str):
         with store.connect(False) as c:
             opportunity = op.resolve(store, c, opportunity_id)
-            return [proposal for proposal in store._records(c, "patch_proposal")
-                    if proposal.get("opportunity_id") == opportunity["id"]]
+            result = []
+            for proposal in store._records(c, "patch_proposal"):
+                if proposal.get("opportunity_id") != opportunity["id"]:
+                    continue
+                proposal = dict(proposal)
+                if proposal.get("status") == "pending":
+                    try:
+                        cm.validate(store, c, proposal.get("manifest"))
+                    except Conflict as exc:
+                        proposal.update(stale=True, stale_reason=str(exc))
+                result.append(proposal)
+            return result
 
     @api.put("/research-patches/{proposal_id}")
     def patch_edit(opportunity_id: str, proposal_id: str, body: dict):

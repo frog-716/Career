@@ -4,6 +4,7 @@ import json
 from fastapi import APIRouter
 
 from .core import Conflict, Invalid, digest, now, required, uid
+from .pagination import page
 
 
 SOURCE_TYPES = {"text", "document", "local_repository", "git_repository", "url"}
@@ -85,6 +86,24 @@ def _remember(store, c, key, fingerprint, result):
     })
 
 
+# Public domain boundary for profile and Resume material selection. Private
+# aliases remain for legacy compatibility routes only.
+def expected(value, optional=False):
+    return _expected(value, optional)
+
+
+def entry_values(body):
+    return _entry_values(body)
+
+
+def request(store, c, key, action, payload):
+    return _request(store, c, key, action, payload)
+
+
+def remember(store, c, key, fingerprint, result):
+    return _remember(store, c, key, fingerprint, result)
+
+
 def _candidate_payload(store, c, body):
     source_ids = _source_ids(body.get("source_ids"))
     entry_type, title, content = _entry_values(body)
@@ -153,13 +172,29 @@ def knowledge_router(store):
     router = APIRouter()
 
     @router.get("/api/knowledge")
-    def knowledge():
+    def knowledge(scope: str = "all", tab: str = "all", category: str = "all", limit: int | None = None, cursor: str | None = None):
         with store.connect(False) as c:
-            return {
+            result = {
                 "sources": store._records(c, "knowledge_source"),
                 "candidates": store._current(c, "knowledge_candidate"),
                 "entries": store._current(c, "wiki_entry"),
             }
+            if limit is None and cursor is None and scope == "all" and tab == "all" and category == "all":
+                return result
+            if tab not in {"sources", "candidates", "entries"}:
+                raise Invalid("knowledge tab 不合法")
+            if scope != "all" and (scope != "personal" and not scope.startswith(("job:", "episode:"))):
+                raise Invalid("knowledge scope 不合法")
+            items = result[tab]
+            if scope != "all":
+                scope_type, _, scope_id = scope.partition(":")
+                if scope == "personal":
+                    items = [item for item in items if item.get("scope_type") == "personal"]
+                else:
+                    items = [item for item in items if item.get("scope_type") == scope_type and item.get("scope_id") == scope_id]
+            if category != "all":
+                items = [item for item in items if item.get("entry_type") == category]
+            return page(items, scope=f"knowledge:{scope}:{tab}:{category}", limit=limit, cursor=cursor)
 
     @router.post("/api/knowledge/sources")
     def create_source(body: dict):

@@ -6,6 +6,9 @@ import { bindKnowledge, knowledgeUI, entryNames } from "./knowledge-ui";
 import { bindProfile, hasUnsavedProfile } from "./profile-ui";
 import { bindRecords } from "./record-ui";
 import { bindAiSettings } from "./ai-config-ui";
+import { closeDialogIfAllowed, guardOpenDialog } from "./edit-session";
+import { logoutLocalSession, requestWithSession } from "./local-session";
+import { isJsonObject, parseInterviewSessions, parseJsonEnvelope, parseResearchView, parseResumeDocuments } from "./contracts";
 
 type Obj = Record<string, any>;
 type Page =
@@ -36,6 +39,7 @@ let state: Obj = {
   feedback: [],
   runs: [],
   diagnostics: {},
+  job_summaries: [],
 };
 let journey: Obj = { plans: [], episodes: [], notes: [] };
 let editorVersions: Obj[] = [];
@@ -52,6 +56,7 @@ const planBuffers = new Map<string, Obj>();
 let page: Page = sidebarHome() as Page;
 let jobId = "";
 let notice = "";
+let navigationSequence = 0;
 let opportunityView = "all";
 let opportunityAnchor = "";
 let profileBuffer: Obj | null = null;
@@ -59,6 +64,11 @@ const jobBuffers = new Map<string, Obj>();
 const resumeBuffers = new Map<string, Obj>();
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let saving: Promise<boolean> | null = null;
+type LoadPhase = "idle" | "loading" | "ready" | "error";
+const pageLoads: Record<Page, {phase: LoadPhase; error?: string}> = Object.fromEntries(
+  PAGE_IDS.map((name) => [name, {phase: "idle"}]),
+) as Record<Page, {phase: LoadPhase; error?: string}>;
+const pageRequestSequence = Object.fromEntries(PAGE_IDS.map((name) => [name, 0])) as Record<Page, number>;
 const statusNames: Obj = {
   active: "进行中",
   excluded: "已排除",
@@ -115,12 +125,13 @@ class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    public data: Obj = {},
   ) {
     super(message);
   }
 }
-async function api(path: string, body?: Obj, method = "POST"): Promise<any> {
-  const response = await fetch(
+async function api<T = Obj>(path: string, body?: Obj, method = "POST"): Promise<T> {
+  const response = await requestWithSession(
     "/api" + path,
     body === undefined
       ? {}
@@ -133,33 +144,144 @@ async function api(path: string, body?: Obj, method = "POST"): Promise<any> {
           body: JSON.stringify(body),
         },
   );
-  const result = await response.json().catch(() => ({}));
+  const result = parseJsonEnvelope(await response.json().catch(() => ({})));
+  const errorBody = isJsonObject(result) ? result : {};
   if (!response.ok)
     throw new ApiError(
-      typeof result.detail === "string"
-        ? result.detail
+      typeof errorBody.detail === "string"
+        ? errorBody.detail
         : "输入格式不正确，请检查后重试",
       response.status,
+      errorBody,
     );
-  return result;
+  return result as T;
+}
+
+async function downloadProtected(path: string, mode: "preview" | "download", filename: string): Promise<void> {
+  const response = await requestWithSession(path, {cache: "no-store"});
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({}));
+    throw new Error(result.detail || `下载失败：HTTP ${response.status}`);
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = mode === "download" ? filename : "";
+  anchor.target = mode === "preview" ? "_blank" : "_self";
+  anchor.rel = "noopener";
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+function bindProtectedDownloads(): void {
+  document.querySelectorAll<HTMLElement>("[data-protected-artifact]").forEach((element) => {
+    element.onclick = () => {
+      const id = element.dataset.protectedArtifact;
+      if (!id) return;
+      const mode = element.dataset.protectedMode === "preview" ? "preview" : "download";
+      void downloadProtected(`/api/artifacts/${encodeURIComponent(id)}${mode === "download" ? "?download=true" : ""}`, mode, element.dataset.filename || "career-artifact").catch(failure);
+    };
+  });
+  document.querySelectorAll<HTMLElement>("[data-protected-export]").forEach((element) => {
+    element.onclick = () => {
+      const format = element.dataset.protectedExport === "md" ? "md" : "json";
+      void downloadProtected(`/api/feedback/export?format=${format}`, "download", `career-feedback.${format}`).catch(failure);
+    };
+  });
 }
 async function load() {
-  const data = await Promise.all([
-    api("/state"),
-    api("/journey"),
-    api("/knowledge"),
-    api("/domain"),
-    api("/work-domain").catch(() => ({ employments: [], projects: [], sources: [], persons: [], participants: [], events: [], achievements: [], evidence: [], evidence_links: [] })),
-  ]);
-  [state, journey, knowledge, domain, workDomain] = data;
-  const [editorResult, catalogue] = await Promise.all([api("/editor/versions"), api("/resume-documents")]);
-  state.resume_documents = catalogue.documents;
-  editorVersions = Array.isArray(editorResult)
-    ? editorResult
-    : editorResult.versions;
-  if (!Array.isArray(editorVersions))
-    throw new Error("编辑器版本返回格式不正确");
-  await loadOpportunityScope(jobId);
+  const targetPage = page;
+  const request = ++pageRequestSequence[targetPage];
+  const current = () => page === targetPage && pageRequestSequence[targetPage] === request;
+  pageLoads[targetPage] = {phase: "loading"};
+  let summary: Obj;
+  try {
+    summary = await api("/state?view=summary");
+  } catch (error) {
+    if (current()) pageLoads[targetPage] = {phase: "error", error: error instanceof Error ? error.message : "加载失败，请重试"};
+    throw error;
+  }
+  if (!current()) return;
+  state = {
+    ...state,
+    ...summary,
+    // A summary refresh must not erase a previously rendered detail view when
+    // a later page-specific request fails; the old data remains visible with
+    // the retry state above.
+    resumes: state.resumes,
+    versions: state.versions,
+    artifacts: state.artifacts,
+    applications: state.applications,
+    feedback: state.feedback,
+    runs: state.runs,
+    resume_documents: state.resume_documents,
+  };
+  try {
+    if (targetPage === "jobs" || targetPage === "progress") {
+      const [journeyResult, domainResult, opportunityState] = await Promise.all([
+        api("/journey?summary=true"),
+        api("/domain?summary=true"),
+        ui.jobTab === "analysis" || ui.jobTab === "resume"
+          ? api("/state?view=opportunity&job_id=" + encodeURIComponent(jobId))
+          : Promise.resolve(null),
+      ]);
+      if (!current()) return;
+      journey = journeyResult;
+      domain = domainResult;
+      if (opportunityState) state = {...state, ...opportunityState};
+      await loadOpportunityScope(jobId);
+    } else if (targetPage === "work") {
+      const [journeyResult, workResult] = await Promise.all([
+        api("/journey"),
+        api("/work-domain"),
+      ]);
+      if (!current()) return;
+      journey = journeyResult;
+      workDomain = workResult;
+    } else if (targetPage === "wiki") {
+      const params = new URLSearchParams({
+        scope: knowledgeUI.scope,
+        tab: knowledgeUI.tab,
+        category: knowledgeUI.category,
+        limit: "50",
+      });
+      if (knowledgeUI.cursor) params.set("cursor", knowledgeUI.cursor);
+      const [journeyResult, knowledgeResult] = await Promise.all([
+        api("/journey?summary=true"),
+        api("/knowledge?" + params.toString()),
+      ]);
+      if (!current()) return;
+      journey = journeyResult;
+      knowledge = {...knowledge, [knowledgeUI.tab]: knowledgeResult.items || knowledgeResult[knowledgeUI.tab] || [], page_scope: knowledgeResult.scope};
+      knowledgeUI.nextCursor = knowledgeResult.next_cursor || "";
+    } else if (targetPage === "directory") {
+      domain = await api("/domain");
+    } else if (targetPage === "resume") {
+      const [resumeState, editorResult, catalogue] = await Promise.all([
+        api("/state?view=resume"), api("/editor/versions"), api("/resume-documents"),
+      ]);
+      if (!current()) return;
+      state = {...state, ...resumeState};
+      state.resume_documents = parseResumeDocuments(catalogue.documents) as unknown as Obj[];
+      editorVersions = Array.isArray(editorResult) ? editorResult : editorResult.versions;
+      if (!Array.isArray(editorVersions)) throw new Error("编辑器版本返回格式不正确");
+    } else if (targetPage === "profile") {
+      const profile = await api("/state?view=profile");
+      if (!current()) return;
+      state.profile = profile.profile;
+    } else if (targetPage === "feedback") {
+      const feedbackState = await api("/state?view=feedback");
+      if (!current()) return;
+      state = {...state, ...feedbackState};
+    } else if (targetPage === "practice" || targetPage === "footprint") {
+      journey = await api("/journey");
+    }
+    if (!current()) return;
+    pageLoads[targetPage] = {phase: "ready"};
+  } catch (error) {
+    if (current()) pageLoads[targetPage] = {phase: "error", error: error instanceof Error ? error.message : "加载失败，请重试"};
+    throw error;
+  }
 }
 async function loadOpportunityScope(id: string) {
   const token = ++opportunityLoadToken;
@@ -172,14 +294,18 @@ async function loadOpportunityScope(id: string) {
     return;
   }
   const result = await Promise.all([
-    api("/opportunities/" + encodeURIComponent(id) + "/communications"),
-    api("/opportunities/" + encodeURIComponent(id) + "/timeline"),
-    api("/opportunities/" + encodeURIComponent(id) + "/interviews"),
-    api("/opportunities/" + encodeURIComponent(id) + "/offer"),
-    api("/opportunities/" + encodeURIComponent(id) + "/research-overview"),
+    api<Obj[]>("/opportunities/" + encodeURIComponent(id) + "/communications"),
+    api<Obj>("/opportunities/" + encodeURIComponent(id) + "/timeline"),
+    api<Obj[]>("/opportunities/" + encodeURIComponent(id) + "/interviews"),
+    api<Obj | null>("/opportunities/" + encodeURIComponent(id) + "/offer"),
+    api<Obj>("/opportunities/" + encodeURIComponent(id) + "/research-overview"),
   ]);
   if (token !== opportunityLoadToken || id !== jobId || !(page === "jobs" || page === "progress")) return;
-  [opportunityCommunications, opportunityTimeline, opportunityInterviews, opportunityOffer, opportunityResearch] = result;
+  opportunityCommunications = result[0];
+  opportunityTimeline = result[1];
+  opportunityInterviews = parseInterviewSessions(result[2]) as unknown as Obj[];
+  opportunityOffer = result[3];
+  opportunityResearch = parseResearchView(result[4]) as unknown as Obj;
 }
 function inform(text: string) {
   notice = text;
@@ -191,6 +317,7 @@ function inform(text: string) {
 }
 function failure(error: unknown) {
   inform(error instanceof Error ? error.message : "操作失败，请重试");
+  if (root.innerHTML) render();
 }
 function isDirty() {
   return (
@@ -221,7 +348,14 @@ function modal(
   document.body.appendChild(dialog);
   dialog
     .querySelector('[aria-label="关闭弹窗"]')!
-    .addEventListener("click", () => dialog.close());
+    .addEventListener("click", () => closeDialogIfAllowed(dialog));
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) closeDialogIfAllowed(dialog);
+  });
+  dialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeDialogIfAllowed(dialog);
+  });
   dialog
     .querySelector("[data-modal-feedback]")
     ?.addEventListener("click", captureFeedback);
@@ -293,7 +427,7 @@ function versionsHtml(resumeId: string) {
       .filter((v: Obj) => v.resume_id === resumeId)
       .map((v: Obj, i: number) => {
         const a = state.artifacts.find((a: Obj) => a.version_id === v.id);
-        return `<div class="version"><div><b>${date(v.created_at)}</b><small>工作稿版本 ${v.draft_revision}</small><details><summary>查看保存的正文</summary><pre>${esc(v.content)}</pre></details></div><div>${a ? `<a href="/api/artifacts/${a.id}" target="_blank" rel="noopener" class="text-btn">预览 PDF</a><a href="/api/artifacts/${a.id}?download=true" class="text-btn">下载 PDF</a>` : `<button class="text-btn" data-pdf="${v.id}">生成 PDF</button>`}<button class="secondary" data-application="${v.id}" ${a ? "" : "disabled"}>记录投递</button></div></div>`;
+        return `<div class="version"><div><b>${date(v.created_at)}</b><small>工作稿版本 ${v.draft_revision}</small><details><summary>查看保存的正文</summary><pre>${esc(v.content)}</pre></details></div><div>${a ? `<button type="button" data-protected-artifact="${a.id}" data-protected-mode="preview" class="text-btn">预览 PDF</button><button type="button" data-protected-artifact="${a.id}" data-protected-mode="download" data-filename="resume.pdf" class="text-btn">下载 PDF</button>` : `<button class="text-btn" data-pdf="${v.id}">生成 PDF</button>`}<button class="secondary" data-application="${v.id}" ${a ? "" : "disabled"}>记录投递</button></div></div>`;
       })
       .join("") ||
     '<p class="muted">先保存正式版本，再生成 PDF。保存版本不会自动记录投递。</p>'
@@ -316,7 +450,7 @@ function applicationsHtml(id: string) {
   return state.applications.filter((a: Obj) => a.job_id === id).map((a: Obj) => {
     const v = a.resume_snapshot;
     const name = v.document ? v.name : `早期文字稿 · 工作稿版本 ${v.draft_revision}`;
-    return `<article class="application-row"><b>${esc(a.job_snapshot.company)} · ${esc(a.job_snapshot.title)}</b><p>${date(a.applied_at)} · ${esc(a.channel || "渠道未记录")}</p><p>投递版本：${esc(name)}</p><a href="/api/artifacts/${a.artifact_id}" target="_blank" rel="noopener">预览实际投递 PDF</a> <a href="/api/artifacts/${a.artifact_id}?download=true">下载实际投递 PDF</a><p>历史投递状态只读；当前阶段请查看机会。</p><details><summary>当时的简历正文</summary><pre>${esc(frozenResumeText(v))}</pre></details><details><summary>当时的岗位条件</summary><pre>${esc(a.job_snapshot.jd)}</pre></details></article>`;
+    return `<article class="application-row"><b>${esc(a.job_snapshot.company)} · ${esc(a.job_snapshot.title)}</b><p>${date(a.applied_at)} · ${esc(a.channel || "渠道未记录")}</p><p>投递版本：${esc(name)}</p><button type="button" data-protected-artifact="${a.artifact_id}" data-protected-mode="preview" class="text-btn">预览实际投递 PDF</button> <button type="button" data-protected-artifact="${a.artifact_id}" data-protected-mode="download" data-filename="submitted-resume.pdf" class="text-btn">下载实际投递 PDF</button><p>历史投递状态只读；当前阶段请查看机会。</p><details><summary>当时的简历正文</summary><pre>${esc(frozenResumeText(v))}</pre></details><details><summary>当时的岗位条件</summary><pre>${esc(a.job_snapshot.jd)}</pre></details></article>`;
   }).join("") || '<p class="muted">暂无实际投递。从已关联的版本登记已经发生的投递；关联版本不会自动创建投递。</p>';
 }
 
@@ -348,16 +482,22 @@ function runsHtml(kind: string, id: string) {
     (r: Obj) => r.kind === kind && r.job_id === id,
   );
   return runs.length
-    ? `<section class="runs"><h2>${kind === "job" ? "岗位分析" : "简历建议"}</h2>${runs.map((r: Obj, i: number) => `<details class="analysis-box" ${i === 0 ? "open" : ""}><summary>${date(r.created_at)} · ${statusNames[r.status] || r.status} · ${r.provider?.mode === "test" ? "测试结果" : "真实 Provider"}</summary>${r.error ? `<p class="notice">${esc(r.error)}</p>` : ""}${r.status === "stale" ? '<p class="notice">资料或草稿已变化，本结果仅供历史查看，不能应用。</p>' : ""}${r.result ? renderResult(r.result, r.packet?.sources || []) : ""}${r.proposal ? `<details><summary>查看修改前后</summary><div class="diff"><section><h3>修改前</h3><pre>${esc(r.proposal.before)}</pre></section><section><h3>建议修改后</h3><pre>${esc(r.proposal.after)}</pre></section></div></details>${r.status === "succeeded" && r.proposal.status === "pending" ? `<p class="muted">请核对每一项职业事实，再确认采用。</p><button class="primary" data-proposal="${r.proposal.id}">确认应用提案</button>` : r.proposal.status === "applied" ? "<p>提案已确认应用</p>" : ""}` : ""}<details><summary>本轮资料包与版本</summary><pre>${esc(JSON.stringify(r.packet, null, 2))}</pre></details><details><summary>实际 Provider 请求体</summary><pre>${esc(JSON.stringify(r.payload, null, 2))}</pre></details></details>`).join("")}</section>`
+    ? `<section class="runs"><h2>${kind === "job" ? "岗位分析" : "简历建议"}</h2>${runs.map((r: Obj, i: number) => `<details class="analysis-box" ${i === 0 ? "open" : ""}><summary>${date(r.created_at)} · ${statusNames[r.status] || r.status} · ${r.provider?.mode === "test" ? "测试结果" : "真实 Provider"}</summary>${r.error ? `<p class="notice">${esc(r.error)}</p>` : ""}${r.status === "stale" ? '<p class="notice">资料或草稿已变化，本结果仅供历史查看，不能应用。</p>' : ""}${r.result ? renderResult(r.result, r.packet?.sources || []) : ""}${r.proposal ? `<details><summary>查看修改前后</summary><div class="diff"><section><h3>修改前</h3><pre>${esc(r.proposal.before)}</pre></section><section><h3>建议修改后</h3><pre>${esc(r.proposal.after)}</pre></section></div></details>${r.status === "succeeded" && r.proposal.status === "pending" ? `<p class="muted">请核对每一项职业事实，再确认采用。</p><button class="primary" data-proposal="${r.proposal.id}">确认应用提案</button>` : r.proposal.status === "applied" ? "<p>提案已确认应用</p>" : ""}` : ""}<details><summary>本轮资料包与版本</summary><pre>${esc(JSON.stringify(r.packet, null, 2))}</pre></details><details><summary>出站元数据（不含原始 Provider 请求体）</summary><pre>${esc(JSON.stringify(r.payload_meta, null, 2))}</pre></details></details>`).join("")}</section>`
     : "";
+}
+function pageStatusHTML() {
+  const status = pageLoads[page];
+  if (status.phase === "loading") return '<div class="notice" role="status">正在加载当前模块…</div>';
+  if (status.phase === "error") return `<div class="notice" role="alert">加载失败：${esc(status.error || "请重试")} <button type="button" class="text-btn" data-retry-page>重试</button></div>`;
+  return "";
 }
 function render() {
   if (page === 'jobs' || page === 'progress') {
     const ctx = {state,domain,journey,id:jobId,filter:opportunityView,anchor:opportunityAnchor,communications:opportunityCommunications,timeline:opportunityTimeline,interviews:opportunityInterviews,offer:opportunityOffer,research:opportunityResearch};
-    root.innerHTML=shell('jobs',opportunityHTML(ctx),notice,state.diagnostics?.provider?.mode==='test');
+    root.innerHTML=shell('jobs',pageStatusHTML()+opportunityHTML(ctx),notice,state.diagnostics?.provider?.mode==='test');
     history.replaceState(null,'','#opportunities'+(jobId?'/'+encodeURIComponent(jobId):'')+'?view='+opportunityView+(opportunityAnchor?'&tab='+encodeURIComponent(opportunityAnchor):''));
     bind();
-    bindOpportunity(ctx,{api,refresh:load,go:(id,filter)=>{const changed=id!==jobId;jobId=id;if(filter)opportunityView=filter;opportunityAnchor='';if(changed)void load().then(render).catch(failure);else render();}});
+    bindOpportunity(ctx,{api,refresh:load,go:(id,filter)=>{const changed=id!==jobId;jobId=id;if(filter)opportunityView=filter;opportunityAnchor='';if(changed)void load().then(()=>{if(jobId===id)render();}).catch(failure);else render();}});
     return;
   }
   const ep =
@@ -383,7 +523,7 @@ function render() {
     ui.jobTab = "jd";
   root.innerHTML = shell(
     page,
-    view(
+    pageStatusHTML()+view(
       page,
       {
         state,
@@ -406,18 +546,14 @@ function render() {
 }
 async function navigate(next: Page, id = jobId) {
   if (!(await flushResume())) return;
+  const navigation = ++navigationSequence;
   page = next;
   jobId = id;
   notice = "";
-  if (page === "jobs" || page === "progress") await loadOpportunityScope(jobId);
   if (page === "profile") knowledgeUI.tab = "profile";
-  if (page === "profile" || (page === "wiki" && knowledgeUI.tab === "profile")) state.profile = (await api("/state")).profile;
-  if (page === "resume") {
-    const v = await api("/editor/versions");
-    editorVersions = Array.isArray(v) ? v : v.versions;
-  }
-  if (page === "resume" && ui.materialTab === "legacy" && jobId)
-    await ensureResume();
+  await load();
+  if (navigation !== navigationSequence || page !== next || jobId !== id) return;
+  if (page === "resume" && ui.materialTab === "legacy" && jobId) await ensureResume();
   history.replaceState(
     null,
     "",
@@ -1016,12 +1152,13 @@ async function prepareAnalysis(kind: "job" | "resume") {
             button.disabled = true;
             button.textContent = "正在分析，请稍候…";
             ($("#adjust-context") as HTMLButtonElement).disabled = true;
-            try {
-              const result = await api("/analysis", {
-                ...body,
-                expected_epoch: packet.epoch,
-                idempotency_key: key,
-              });
+            const request = {
+              ...body,
+              expected_epoch: packet.epoch,
+              idempotency_key: key,
+            };
+            const execute = async (confirmation?: Obj) => {
+              const result = await api("/analysis", { ...request, ...confirmation });
               await load();
               dialog.close();
               render();
@@ -1030,10 +1167,41 @@ async function prepareAnalysis(kind: "job" | "resume") {
                   ? "分析已返回，请审阅依据和未知项。"
                   : statusNames[result.status] || result.status,
               );
+            };
+            try {
+              await execute();
             } catch (e) {
-              modalError(e);
-              button.disabled = false;
-              button.textContent = "检查结果 / 重试同一请求";
+              const preparation = (e as ApiError).data;
+              if (
+                (e as ApiError).status === 409 &&
+                preparation?.status === "context_confirmation_required"
+              ) {
+                $("#context-preview")!.insertAdjacentHTML(
+                  "beforeend",
+                  `<section class="context-source"><h3>即将发送给 Provider 的精确请求</h3><p>以下是去除认证信息后的最终预览；确认后才会产生远端调用。</p><pre>${esc(JSON.stringify(preparation.payload_preview, null, 2))}</pre><button class="primary full" id="confirm-outbound-analysis">确认发送给 Provider</button></section>`,
+                );
+                button.hidden = true;
+                $("#confirm-outbound-analysis")!.addEventListener("click", async () => {
+                  const confirmButton = $("#confirm-outbound-analysis") as HTMLButtonElement;
+                  confirmButton.disabled = true;
+                  confirmButton.textContent = "正在分析，请稍候…";
+                  try {
+                    await execute({
+                      prepared_id: preparation.prepared_id,
+                      payload_hash: preparation.payload_hash,
+                      confirm_outbound: true,
+                    });
+                  } catch (error) {
+                    modalError(error);
+                    confirmButton.disabled = false;
+                    confirmButton.textContent = "检查结果 / 重试同一请求";
+                  }
+                });
+              } else {
+                modalError(e);
+                button.disabled = false;
+                button.textContent = "检查结果 / 重试同一请求";
+              }
             }
           };
         } catch (e) {
@@ -1159,8 +1327,16 @@ function addNote(id: string) {
   );
 }
 function bind() {
+  bindProtectedDownloads();
   bindSidebarOrder();
+  document.querySelector<HTMLElement>("[data-retry-page]")?.addEventListener("click", () => {
+    void load().then(render).catch(failure);
+  });
   if (page === "diagnostics") bindAiSettings({state, api, modal, modalError, load, render, inform});
+  document.querySelector<HTMLButtonElement>("#logout-session")?.addEventListener("click", async () => {
+    await logoutLocalSession();
+    location.reload();
+  });
   bindProfile({state, api, modal, modalError, load, render, navigate: async () => {
     knowledgeUI.tab = "candidates"; knowledgeUI.scope = "all"; knowledgeUI.category = "all"; await navigate("wiki");
   }});
@@ -1239,6 +1415,7 @@ function bind() {
             );
             if (!xs.some((x: Obj) => x.id === jobId)) jobId = xs[0]?.id || "";
           }
+          if (group === "jobTab" && ["analysis", "resume"].includes(ui.jobTab)) await load();
           render();
         })().catch(failure);
       }),
@@ -1462,7 +1639,7 @@ window.addEventListener("hashchange", () => {
     const requested = rawRequested === "home" || !rawRequested ? sidebarHome() : rawRequested;
     if (!isPage(requested)) return;
     // Modal inputs stay in their owning task until the user closes the dialog.
-    if (document.querySelector("dialog[open]") || !(await flushResume())) {
+    if (!guardOpenDialog() || !(await flushResume())) {
       history.replaceState(
         null,
         "",

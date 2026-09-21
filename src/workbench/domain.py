@@ -34,7 +34,7 @@ def domain_router(store):
         return result
 
     @router.get('')
-    def read():
+    def read(summary: bool = False):
         with store.connect(False) as c:
             return dict(objects=[o for k in sorted(KINDS) for o in store._current(c,'domain_'+k)],
                         opportunities=store._current(c,'opportunity_context'),resume_uses=store._records(c,'resume_use'))

@@ -17,6 +17,7 @@ const materialsDialog = document.getElementById("materialsDialog");
 const materialsList = document.getElementById("materialsList");
 const sourcesDialog = document.getElementById("sourcesDialog");
 const sourcesList = document.getElementById("sourcesList");
+const openAiProposalsButton = document.getElementById("openAiProposals");
 let editorJobId = new URLSearchParams(location.search).get("job_id") || "";
 
 const documentId = new URLSearchParams(location.search).get("document_id") || "";
@@ -259,7 +260,8 @@ async function requestBackend(url, {method = "GET", data, cache} = {}) {
     return window.__backendRequest__(url, {method, data});
   }
 
-  const response = await fetch(url, {
+  const request = window.__careerSessionRequest__ || fetch;
+  const response = await request(url, {
     method,
     headers: {"Content-Type": "application/json", "X-Career-Request": "1"},
     body: data === undefined ? undefined : JSON.stringify(data),
@@ -825,20 +827,6 @@ function download(filename, content, type) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-async function createPdfArtifact() {
-  if (!window.html2canvas || !window.jspdf?.jsPDF) throw new Error("PDF 组件未加载");
-  document.body.classList.add("pdf-rendering");
-  try {
-    const canvas = await window.html2canvas(paper, {scale: 2, useCORS: true, backgroundColor: "#ffffff"});
-    const pdf = new window.jspdf.jsPDF({orientation: "portrait", unit: "mm", format: "a4", compress: true});
-    pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, 210, 297, undefined, "FAST");
-    const fileName = `简历-${new Date().toISOString().slice(0, 10)}.pdf`;
-    return {blob: pdf.output("blob"), fileName};
-  } finally {
-    document.body.classList.remove("pdf-rendering");
-  }
-}
-
 function downloadBlob(fileName, blob) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -848,13 +836,36 @@ function downloadBlob(fileName, blob) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+async function fetchPdf(url, data) {
+  const request = window.__careerSessionRequest__ || fetch;
+  const response = await request(url, {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "X-Career-Request": "1"},
+    body: JSON.stringify(data),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try { detail = (await response.json())?.detail || detail; } catch {}
+    const error = new Error(detail); error.status = response.status; throw error;
+  }
+  return response.blob();
+}
+
+async function fetchArtifact(artifactId) {
+  const request = window.__careerSessionRequest__ || fetch;
+  const response = await request(`/api/artifacts/${encodeURIComponent(artifactId)}?download=true`, {cache: "no-store"});
+  if (!response.ok) throw new Error(`PDF 下载失败：HTTP ${response.status}`);
+  return response.blob();
+}
+
 async function commitPendingVersion() {
   if (!pendingVersion || editorLocked) return;
   const pending = pendingVersion;
   lockEditor(true);
   try {
     const {data: result} = await requestBackend(editorBase + "/versions", {method: "POST", data: pending.body});
-    if (pending.downloadLocal) downloadBlob(pending.artifact.fileName, pending.artifact.blob);
+    if (pending.downloadLocal) downloadBlob(`简历-${new Date().toISOString().slice(0, 10)}.pdf`, await fetchArtifact(result.artifact_id));
     pendingVersion = null;
     document.getElementById('versionRetry').hidden = true;
     setStatus("已保存"); showToast(`已保存版本：${result.name}`);
@@ -875,17 +886,8 @@ async function saveVersionToCloud(name, options = {}) {
   lockEditor(true);
   try {
     await flushSave();
-    await document.fonts.ready;
-    updatePageStatus();
-    if (lastOverflowPixels > 2) throw new Error("内容超出 A4，请缩减内容或调整格式后再保存 PDF");
-    const frozen = clone(resume), frozenRevision = revision;
-    const artifact = await createPdfArtifact();
-    const pdfBase64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]);
-      reader.onerror = () => reject(new Error('PDF 读取失败')); reader.readAsDataURL(artifact.blob);
-    });
-    pendingVersion = {body: {name: cleanName, document: frozen, expected_revision: frozenRevision,
-      pdf_base64: pdfBase64, idempotency_key: crypto.randomUUID()}, artifact, downloadLocal: options.downloadLocal};
+    pendingVersion = {body: {name: cleanName, expected_revision: revision,
+      idempotency_key: crypto.randomUUID()}, downloadLocal: options.downloadLocal};
   } finally { lockEditor(false); }
   return commitPendingVersion();
 }
@@ -985,7 +987,8 @@ async function getHistoricalVersion(id) {
 async function downloadHistoricalPdf(id) {
   try {
     const version = await getHistoricalVersion(id);
-    const response = await fetch(`/api/artifacts/${version.artifact_id}?download=true`);
+    const request = window.__careerSessionRequest__ || fetch;
+    const response = await request(`/api/artifacts/${version.artifact_id}?download=true`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     downloadBlob(`简历-${version.name}.pdf`, await response.blob());
     showToast(`已下载：${version.name}`);
@@ -1268,33 +1271,103 @@ async function importMaterials() {
   } finally { lockEditor(false); setMaterialsBusy(false); }
 }
 
+function openResumeAiProposal(proposal) {
+  lockEditor(false);
+  const dialog = document.createElement("dialog"); dialog.className = "restore-dialog";
+  dialog.innerHTML = '<div class="dialog-head"><div><h2>AI 简历字段建议</h2><p>每条建议只允许修改白名单中的表述字段；身份、组织、职位、日期和来源不会由 AI 改写。确认前不会修改当前稿。</p></div><button data-close type="button">关闭</button></div><div data-changes></div><p data-suggestions></p><p role="alert"></p><div class="restore-actions"><button data-reject type="button">拒绝</button><button data-accept class="primary" type="button">接受选中建议</button></div>';
+  const changes = Array.isArray(proposal.changes) ? proposal.changes : [];
+  const changesRoot = dialog.querySelector('[data-changes]');
+  if (!changes.length) {
+    const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "本轮没有可应用的字段级变化。你可以关闭或确认结束本轮建议。"; changesRoot.append(empty);
+  }
+  changes.forEach(change => {
+    const row = document.createElement("article"); row.className = "ai-change"; row.dataset.changeId = change.change_id;
+    const heading = document.createElement("h3"); heading.textContent = `${change.item_id} · ${change.field}`; row.append(heading);
+    const label = document.createElement("label");
+    const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = true; label.append(checkbox, document.createTextNode(" 选中此条")); row.append(label);
+    const before = document.createElement("pre"); before.textContent = `原文：${change.before_text || ""}`; row.append(before);
+    const textarea = document.createElement("textarea"); textarea.value = change.proposed_text || ""; textarea.maxLength = 20000; textarea.setAttribute("aria-label", `编辑 ${change.field} 建议`); row.append(textarea);
+    const detail = document.createElement("p"); detail.className = "muted"; detail.textContent = `${change.reason || "未提供理由"}${change.requires_fact_check ? " · 需逐条核对数字、单位或时间" : " · 仍需人工核对"}`; row.append(detail);
+    const refs = document.createElement("p"); refs.className = "muted"; refs.textContent = change.source_refs?.length ? `本轮引用：${change.source_refs.map(ref => `${ref.id} · v${ref.revision}`).join("、")}` : "本轮未新增来源引用；原有材料来源保持不变"; row.append(refs);
+    changesRoot.append(row);
+  });
+  dialog.querySelector('[data-suggestions]').textContent = (proposal.suggestions || []).join("；");
+  if (proposal.stale) {
+    dialog.querySelector('[role="alert"]').textContent = `此建议已过期：${proposal.stale_reason || "资料或工作稿已变化"}；可拒绝，但不能应用。`;
+    dialog.querySelector('[data-accept]').disabled = true;
+  }
+  document.body.append(dialog); dialog.showModal();
+  dialog.querySelector('[data-close]').onclick = () => dialog.close();
+  dialog.addEventListener('close', () => dialog.remove());
+  const resolve = async decision => {
+    const button = dialog.querySelector(`[data-${decision}]`); button.disabled = true;
+    try {
+      const selected = [...dialog.querySelectorAll('.ai-change')].map(row => ({
+        change_id: row.dataset.changeId,
+        selected: row.querySelector('input[type="checkbox"]').checked,
+        proposed_text: row.querySelector('textarea').value,
+      }));
+      const {data} = await requestBackend(editorBase + "/ai-proposals/" + encodeURIComponent(proposal.id) + "/resolve", {method: "POST", data: {decision, ...(decision === "accept" ? {changes: selected} : {})}});
+      if (decision === "accept" && data.document) { resume = normalizeDocument(data.document.document || data.document); revision = data.document.revision; savedSnapshot = snapshot(); localChangePending = false; render(); setStatus(selected.some(item => item.selected) ? "已接受选中 AI 字段建议并保存" : "已处理 AI 建议，当前稿未修改"); }
+      await refreshAiProposals();
+      dialog.close();
+    } catch (error) { dialog.querySelector('[role="alert"]').textContent = error.message; button.disabled = false; }
+  };
+  dialog.querySelector('[data-accept]').onclick = () => resolve('accept');
+  dialog.querySelector('[data-reject]').onclick = () => resolve('reject');
+}
+
 async function aiOptimize() {
   if (editorLocked || !resume) return;
-  try {
-    await flushSave();
-    const instruction = "围绕当前岗位优化表达，保持事实不变。";
-    lockEditor(true);
-    const {data: proposal} = await requestBackend(editorBase + "/ai-suggest", {method: "POST", data: {instruction: instruction || "围绕当前岗位优化表达，保持事实不变。", idempotency_key: crypto.randomUUID()}});
+  await flushSave();
+  const instruction = "围绕当前岗位优化表达，保持事实不变。";
+  const request = {instruction, idempotency_key: crypto.randomUUID()};
+  const openConfirmation = preparation => {
     lockEditor(false);
     const dialog = document.createElement("dialog"); dialog.className = "restore-dialog";
-    dialog.innerHTML = '<div class="dialog-head"><div><h2>AI 简历建议</h2><p>建议只针对当前 Opportunity 的工作稿；确认前不会修改当前稿，历史版本和投递快照不受影响。</p></div><button data-close>关闭</button></div><div class="diff"><section><h3>当前稿</h3><pre data-before></pre></section><section><h3>建议稿</h3><pre data-after></pre></section></div><p data-suggestions></p><p role="alert"></p><div class="restore-actions"><button data-reject type="button">拒绝</button><button data-accept class="primary" type="button">接受并保存当前稿</button></div>';
-    dialog.querySelector('[data-before]').textContent = documentText(proposal.before_document);
-    dialog.querySelector('[data-after]').textContent = documentText(proposal.proposed_document);
-    dialog.querySelector('[data-suggestions]').textContent = (proposal.suggestions || []).join("；");
+    dialog.innerHTML = '<div class="dialog-head"><div><h2>确认发送简历资料</h2><p>以下是去除认证信息后的最终请求预览；确认后才会产生一次 Provider 调用。</p></div><button data-close>关闭</button></div><pre data-preview></pre><p role="alert"></p><div class="restore-actions"><button data-cancel type="button">取消</button><button data-confirm class="primary" type="button">确认发送给 Provider</button></div>';
+    dialog.querySelector('[data-preview]').textContent = JSON.stringify(preparation.payload_preview, null, 2);
     document.body.append(dialog); dialog.showModal();
     dialog.querySelector('[data-close]').onclick = () => dialog.close();
+    dialog.querySelector('[data-cancel]').onclick = () => dialog.close();
     dialog.addEventListener('close', () => dialog.remove());
-    const resolve = async decision => {
-      const button = dialog.querySelector(`[data-${decision}]`); button.disabled = true;
+    dialog.querySelector('[data-confirm]').onclick = async () => {
+      const button = dialog.querySelector('[data-confirm]'); button.disabled = true; button.textContent = "正在生成建议…";
+      lockEditor(true);
       try {
-        const {data} = await requestBackend(editorBase + "/ai-proposals/" + encodeURIComponent(proposal.id) + "/resolve", {method: "POST", data: {decision}});
-        if (decision === "accept") { resume = normalizeDocument(data.document.document || data.document); revision = data.document.revision; savedSnapshot = snapshot(); localChangePending = false; render(); setStatus("已接受 AI 建议并保存当前稿"); }
+        const {data: proposal} = await requestBackend(editorBase + "/ai-suggest", {method: "POST", data: {...request, prepared_id: preparation.prepared_id, payload_hash: preparation.payload_hash, confirm_outbound: true}});
         dialog.close();
-      } catch (error) { dialog.querySelector('[role="alert"]').textContent = error.message; button.disabled = false; }
+        openResumeAiProposal(proposal);
+        refreshAiProposals().catch(() => {});
+      } catch (error) { lockEditor(false); dialog.querySelector('[role="alert"]').textContent = error.message; button.disabled = false; button.textContent = "检查结果 / 重试同一请求"; }
     };
-    dialog.querySelector('[data-accept]').onclick = () => resolve('accept');
-    dialog.querySelector('[data-reject]').onclick = () => resolve('reject');
-  } catch (error) { lockEditor(false); showToast(`AI 优化失败：${error.message}`); }
+  };
+  try {
+    lockEditor(true);
+    const {data: proposal} = await requestBackend(editorBase + "/ai-suggest", {method: "POST", data: request});
+    openResumeAiProposal(proposal);
+    refreshAiProposals().catch(() => {});
+  } catch (error) {
+    lockEditor(false);
+    if (error.status === 409 && error.payload?.status === "context_confirmation_required") {
+      openConfirmation(error.payload);
+    } else showToast(`AI 优化失败：${error.message}`);
+  }
+}
+
+async function refreshAiProposals() {
+  if (!documentId || !openAiProposalsButton) return [];
+  const {data} = await requestBackend(editorBase + "/ai-proposals", {cache: "no-store"});
+  const pending = (Array.isArray(data) ? data : []).filter(proposal => proposal.status === "pending");
+  openAiProposalsButton.hidden = pending.length === 0;
+  openAiProposalsButton.textContent = `待处理建议（${pending.length}）`;
+  openAiProposalsButton.onclick = () => aiOpenExistingProposal(pending[0]);
+  return pending;
+}
+
+function aiOpenExistingProposal(proposal) {
+  // Reuse the persisted proposal without creating a new paid operation.
+  openResumeAiProposal(proposal);
 }
 
 function wireToolbar() {
@@ -1336,11 +1409,9 @@ function wireToolbar() {
     await refreshVersions();
   });
   document.getElementById("exportPdf").addEventListener("click", async () => {
-    updatePageStatus();
-    if (lastOverflowPixels > 2) { showToast("内容超出 A4，请调整后再导出"); return; }
     if (editorLocked || pendingVersion || pendingSubmission) { showToast("请先处理当前保存"); return; }
     lockEditor(true);
-    try {await flushSave();await document.fonts.ready;const artifact=await createPdfArtifact();downloadBlob(artifact.fileName,artifact.blob);}
+    try {await flushSave();downloadBlob(`简历-${new Date().toISOString().slice(0, 10)}.pdf`, await fetchPdf(`${editorBase}/pdf`, {expected_revision: revision}));}
     catch(error){showToast(error.message);}finally{lockEditor(false);}
   });
   document.addEventListener("selectionchange", () => {
@@ -1410,11 +1481,8 @@ async function confirmSubmission() {
     const button=dialog.querySelector('[data-submit]');button.disabled=true;lockEditor(true);
     try {
       if(!pendingSubmission){
-        await flushSave();await document.fonts.ready;updatePageStatus();
-        if(lastOverflowPixels>2)throw new Error('内容超出A4，请调整后投递');
-        const frozen=clone(resume),frozenRevision=revision;const artifact=await createPdfArtifact();
-        const pdf=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error('PDF读取失败'));reader.readAsDataURL(artifact.blob);});
-        pendingSubmission={expected_revision:o.revision,idempotency_key:crypto.randomUUID(),resume:{mode:'draft',document_id:documentId,expected_document_revision:frozenRevision,document:frozen,pdf_base64:pdf}};
+        await flushSave();
+        pendingSubmission={expected_revision:o.revision,idempotency_key:crypto.randomUUID(),resume:{mode:'draft',document_id:documentId,expected_document_revision:revision}};
       }
       await requestBackend('/api/opportunities/'+encodeURIComponent(opportunityId)+'/submitted',{method:'POST',data:pendingSubmission});
       pendingSubmission=null;localChangePending=false;lockEditor(false);dialog.close();location.href='/#opportunities/'+encodeURIComponent(opportunityId);
@@ -1445,7 +1513,7 @@ async function start() {
     opportunityId=payload.opportunity_id;editorJobId=opportunityId.replace(/^opportunity:/,'');
     if(backLink)backLink.href='/#opportunities/'+encodeURIComponent(opportunityId);
     resume=normalizeDocument(payload.document);revision=payload.revision;savedSnapshot=snapshot();lastCloudSavedAt=payload.savedAt;
-    wireToolbar();render();setStatus('已保存 · 本机会独立稿');updateHistoryButtons();refreshSources().catch(()=>{});registerWebMCP();
+    wireToolbar();render();setStatus('已保存 · 本机会独立稿');updateHistoryButtons();refreshSources().catch(()=>{});refreshAiProposals().catch(()=>{});registerWebMCP();
     document.getElementById('recordSubmitted').onclick=()=>confirmSubmission().catch(e=>showToast(e.message));
     const {data:o}=await requestBackend('/api/opportunities/'+encodeURIComponent(opportunityId));
     document.querySelector('.brand strong').textContent=o.company+' · '+o.title+' · 简历';

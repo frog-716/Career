@@ -5,8 +5,9 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import sys
+from types import SimpleNamespace
 import pytest
-from test_record_submitted import client_at, opportunity, start, save, version, submit, post, PDF
+from test_record_submitted import client_at, opportunity, start, save, version, submit, post
 from workbench.core import Store, digest
 from workbench.providers import TestProvider
 from workbench.resume_artifacts import ArtifactError
@@ -15,7 +16,7 @@ from workbench.resume_artifacts import ArtifactError
 @pytest.mark.parametrize('point',['after_stage','after_rename','after_version','after_submission','before_commit','after_commit'])
 def test_real_process_interruption_and_recovery(tmp_path,point):
     c,s=client_at(tmp_path/'data');o=opportunity(c,'进程中断');d=save(c,start(c,o),'虚构稿')
-    body=dict(expected_revision=o['revision'],idempotency_key='crash',resume=dict(mode='draft',document_id=d['document_id'],expected_document_revision=d['revision'],document=d['document'],pdf_base64=PDF))
+    body=dict(expected_revision=o['revision'],idempotency_key='crash',resume=dict(mode='draft',document_id=d['document_id'],expected_document_revision=d['revision']))
     request=tmp_path/'request.json';request.write_text(json.dumps(body))
     code='''import json,os,sys
 from workbench.core import Store
@@ -43,7 +44,7 @@ record_submitted(s,sys.argv[2],json.load(open(sys.argv[3])))
 def test_db_exception_and_corrupt_pdf_fail_closed(tmp_path,monkeypatch):
     from workbench import resume_artifacts
     c,s=client_at(tmp_path);o=opportunity(c,'失败');d=start(c,o)
-    req=dict(mode='draft',document_id=d['document_id'],expected_document_revision=d['revision'],document=d['document'],pdf_base64=PDF)
+    req=dict(mode='draft',document_id=d['document_id'],expected_document_revision=d['revision'])
     def fail(p):
         if p=='after_submission':raise RuntimeError('database transaction failed')
     monkeypatch.setattr(resume_artifacts,'fault',fail)
@@ -76,7 +77,7 @@ def test_explicit_source_copy_and_stale_profile(tmp_path):
 
 def test_frozen_db_constraints_and_no_second_application_null_bypass(tmp_path):
     c,s=client_at(tmp_path);o=opportunity(c,'不可变');d=start(c,o)
-    result=submit(c,o,dict(mode='draft',document_id=d['document_id'],expected_document_revision=d['revision'],document=d['document'],pdf_base64=PDF)).json()
+    result=submit(c,o,dict(mode='draft',document_id=d['document_id'],expected_document_revision=d['revision'])).json()
     with pytest.raises(sqlite3.IntegrityError):
         with s.connect() as con:con.execute('DELETE FROM records WHERE id=?',(result['submission_version']['id'],))
     with pytest.raises(sqlite3.IntegrityError):
@@ -123,14 +124,22 @@ TestClient(create_app(s),headers={'X-Career-Request':'1','Content-Type':'applica
 def test_startup_cannot_quarantine_another_process_pending_pdf(tmp_path,monkeypatch):
     from concurrent.futures import ThreadPoolExecutor, TimeoutError
     from threading import Event
-    from workbench import resume_artifacts
+    from workbench import resume_artifacts, submission
     c,s=client_at(tmp_path);o=opportunity(c,'启动与投递并发');d=start(c,o)
     renamed=Event();release=Event()
+    # This test exercises the artifact transaction/recovery boundary. Keep the
+    # renderer behind a deterministic seam so Chromium cold-start latency
+    # cannot prevent the test from reaching after_rename.
+    monkeypatch.setattr(submission,'render_pdf',lambda document:SimpleNamespace(
+        data=b'%PDF-1.7\n% synthetic test artifact\n',
+        renderer_version='test-fake-renderer',
+        document_hash=digest(document),
+    ))
     def pause(point):
         if point=='after_rename':renamed.set();assert release.wait(5)
     monkeypatch.setattr(resume_artifacts,'fault',pause)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        writer=pool.submit(submit,c,o,dict(mode='draft',document_id=d['document_id'],expected_document_revision=d['revision'],document=d['document'],pdf_base64=PDF))
+        writer=pool.submit(submit,c,o,dict(mode='draft',document_id=d['document_id'],expected_document_revision=d['revision']))
         assert renamed.wait(3)
         opener=pool.submit(Store,s.data_dir,TestProvider())
         try:

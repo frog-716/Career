@@ -2,7 +2,7 @@
 from fastapi import APIRouter
 from urllib.parse import urlsplit
 from .core import Conflict, Invalid, digest, now, uid
-from .knowledge import _entry_values, _expected, _request, _remember
+from .knowledge import entry_values, expected as validate_expected, request, remember
 
 
 def _web_url(value):
@@ -53,7 +53,7 @@ def profile_router(store):
 
     @router.post('/basics')
     def save_basics(body: dict):
-        basics = _basics(body.get('basics')); expected = _expected(body.get('expected_revision'))
+        basics = _basics(body.get('basics')); expected = validate_expected(body.get('expected_revision'))
         with store.connect() as c:
             old = store._get(c, 'profile', 'profile')
             if old.get('mode') != 'structured' and old['content'].strip():
@@ -62,16 +62,16 @@ def profile_router(store):
 
     @router.post('/organize')
     def organize(body: dict):
-        basics = _basics(body.get('basics')); expected = _expected(body.get('expected_revision'))
+        basics = _basics(body.get('basics')); expected = validate_expected(body.get('expected_revision'))
         if body.get('confirmed') is not True: raise Invalid('请确认已核对原文及整理后的资料边界')
         entries = body.get('entries', [])
         if not isinstance(entries, list) or len(entries) > 30: raise Invalid('一次最多整理30条候选')
         values = []
         for e in entries:
             if not isinstance(e, dict): raise Invalid('候选结构不合法')
-            values.append(_entry_values(e))
+            values.append(entry_values(e))
         with store.connect() as c:
-            previous, key, fingerprint = _request(store, c, body.get('idempotency_key'), 'organize_profile', body)
+            previous, key, fingerprint = request(store, c, body.get('idempotency_key'), 'organize_profile', body)
             if previous is not None: return previous
             old = store._get(c, 'profile', 'profile')
             if old['revision'] != expected: raise Conflict('资料已更新，请核对当前版本再整理')
@@ -85,7 +85,7 @@ def profile_router(store):
                     entry_type=kind, scope_type='personal', scope_id='', source_ids=[source['id']],
                     status='pending', entry_id=None, created_at=now()), 0)
             result = _save(store, c, old, basics, expected)
-            _remember(store, c, key, fingerprint, result)
+            remember(store, c, key, fingerprint, result)
             return result
 
     return router

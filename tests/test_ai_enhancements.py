@@ -54,8 +54,13 @@ def test_deepseek_legacy_model_alias_is_normalized_and_first_config_is_default(t
 def test_structured_resume_ai_is_proposal_until_confirmed(tmp_path):
     store = Store(tmp_path / "data", TestProvider())
     client = editor_client(store)
+    seed = {"instruction": "保持事实不变，检查表达。", "idempotency_key": "resume-ai-1"}
+    prepared_response = client.post(client.editor_path + "/ai-suggest", json=seed)
+    assert prepared_response.status_code == 409, prepared_response.text
+    prepared = prepared_response.json()
     response = client.post(client.editor_path + "/ai-suggest", json={
-        "instruction": "保持事实不变，检查表达。", "idempotency_key": "resume-ai-1",
+        **seed, "prepared_id": prepared["prepared_id"],
+        "payload_hash": prepared["payload_hash"], "confirm_outbound": True,
     })
     assert response.status_code == 200, response.text
     proposal = response.json()
@@ -73,7 +78,17 @@ def test_research_web_proposal_requires_confirmation_and_keeps_provenance(tmp_pa
     opportunity = create_opportunity(store, {"company_name": "虚构公司", "title": "研究工程师", "jd": "负责研究", "idempotency_key": "research-op"})
     monkeypatch.setattr("workbench.research.web_search", lambda *args: [{"url": "https://example.test/company", "title": "公司主页", "retrieved_at": "2026-09-18T00:00:00+00:00"}])
     before = client.get(f"/api/opportunities/{opportunity['id']}/research-overview").json()
-    proposal = client.post(f"/api/opportunities/{opportunity['id']}/research/update", json={"idempotency_key": "research-1"})
+    seed = {"idempotency_key": "research-1"}
+    assert client.post(f"/api/opportunities/{opportunity['id']}/research/update", json=seed).status_code == 409
+    prepared_response = client.post(f"/api/opportunities/{opportunity['id']}/research/update", json={
+        **seed, "search_confirmed": True,
+    })
+    assert prepared_response.status_code == 409, prepared_response.text
+    prepared = prepared_response.json()
+    proposal = client.post(f"/api/opportunities/{opportunity['id']}/research/update", json={
+        **seed, "search_confirmed": True, "prepared_id": prepared["prepared_id"],
+        "payload_hash": prepared["payload_hash"], "confirm_outbound": True,
+    })
     assert proposal.status_code == 200, proposal.text
     proposal = proposal.json()
     pending = client.get(f"/api/opportunities/{opportunity['id']}/research-overview").json()
@@ -116,7 +131,12 @@ def test_model_gateway_uses_selected_config_without_exposing_secret(tmp_path, mo
     }).json()
     client.post(f"/api/ai/models/{config['id']}/default", json={"expected_revision": config["revision"]})
     monkeypatch.setattr(OpenAICompatibleAdapter, "complete", lambda self, packet, schema: {"ok": True})
-    result, diagnostics = ModelGateway(store).generate("synthetic_task", {"id": "context-1"}, {"version": 4})
+    result, diagnostics = ModelGateway(store).generate("legacy_analysis", {
+        "task_type": "legacy_analysis", "sources": [{
+            "id": "target-jd", "revision": 1, "purpose": "target_jd",
+            "selected_content": {"jd": "synthetic"},
+        }],
+    }, {"version": 4})
     assert result == {"ok": True}
     assert diagnostics["model_config_id"] == config["id"]
     with store.connect(False) as connection:
