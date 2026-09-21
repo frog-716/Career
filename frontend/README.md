@@ -51,7 +51,7 @@ PDF 由服务端从结构化简历生成受控 HTML，并使用锁定版本的�
 
 `profile-ui.ts` 管理基础字段表单、旧文本整理与CAS；`record-ui.ts` 为机会、工作卡及聚合记录复用更正/历史/选段候选操作。`legacy-app.js` 提供明确选材和来源提示，保存工作稿成功后再发选材CAS；不确定响应复用同一请求。撤销/重做保留服务端来源历史，恢复正式版本采用冻结来源。
 
-机会进入简历工作台的URL携带document_id，由服务端确认所属opportunity_id，返回来源Opportunity Workspace；来源可深链当前Wiki条目或基础资料。普通面试/足迹空状态只指向创建所属的机会或工作卡。分析预览先展示可读正文，允许返回调整，完整JSON收在技术详情中。验收详见 [事实闭环](../docs/execution/FACT-LOOP.md)。
+机会进入简历工作台的URL携带document_id，由服务端确认所属opportunity_id，返回来源Opportunity Workspace；来源可深链当前Wiki条目或基础资料。普通面试/足迹空状态只指向创建所属的机会或工作卡。分析预览先展示可读正文，允许返回调整，完整JSON收在技术详情中。T14 的 Work 页面显示 Achievement、关联 Evidence 查看入口和“整理为求职复用”弹窗；用户编辑并明确批准后，批准的 personal `wiki_entry` 才会出现在当前 Resume 的 Wiki 选材中。撤销只影响未来选材，已冻结/已投递快照不变。验收详见 [事实闭环](../docs/execution/FACT-LOOP.md)。
 
 
 

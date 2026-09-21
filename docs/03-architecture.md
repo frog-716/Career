@@ -23,9 +23,9 @@
 | opportunity / domain | canonical Opportunity/Company、phase/result、CAS/幂等与旧 ID resolver；旧 Job/JourneyPlan 保留兼容读取，不能继续写求职状态正本 |
 | journey / engagement | 任职工作卡及 legacy note/typed 活动兼容读取；求职 Communication/Interview/Offer 新写由 scoped Domain Action 接管 |
 | editor / profile / resume_documents | 一个 Resume Workspace UI 管理 Opportunity-owned ResumeDocument；autosave current、显式普通版本、冻结投递版本/PDF及引用保护；profile只有显式选材才进入当前稿 |
-| knowledge | 来源登记、人工候选确认、Wiki修订/撤回、scope/来源校验；登记locator不读取外部内容 |
+| knowledge | 来源登记、人工候选确认、Wiki修订/撤回、scope/来源校验；登记locator不读取外部内容；T14 复用现有 personal `wiki_entry` 承载用户批准的成果表达 |
 | context / providers | Compiler按明确任务读取允许的当前资料与冻结 Submission snapshot；ModelGateway只接收受控packet，OpenAI-compatible adapter与SecretStore封装远端调用。没有默认模型时基础业务继续可用 |
-| employment / work | Employment与episode兼容身份；Stage、Project、Person、Participant、WorkEvent、Achievement、Evidence等受控接口；不等于Stage→Project→Wiki全链自动连接 |
+| employment / work | Employment与episode兼容身份；Stage、Project、Person、Participant、WorkEvent、Achievement、Evidence等受控接口；不等于Stage→Project→Wiki全链自动连接，T14 只通过用户查看证据、编辑并明确批准的单条表达建立受控回流 |
 | artifacts / backup / demo | 文件hash/原子写、路径保护、隔离恢复与虚构案例管理；Production Cutover 已真实验证备份、恢复、引用和附件 hash，同盘副本仍不能抵御整盘故障 |
 
 新写入以 canonical Opportunity 为唯一求职状态正本，Company→Opportunity 为 1:N；phase 固定为写简历/已投递/面试/Offer，`result != active` 进入已结束 View。旧 Job/JourneyPlan、legacy typed activity 与旧 Submission 保持只读/待核对，不根据历史名称、状态或日期自动推导。每个 Opportunity 可拥有独立 ResumeDocument，唯一 Submission 冻结当时 Greeting、ResumeVersion、PDF 与机会快照；Communication、Real/Simulation Interview、Preparation/Raw/Final Review、real-only Research Patch、唯一 current Offer 与谈薪均由各自 Domain Action 管理，Timeline 仅为读取投影。
@@ -100,7 +100,7 @@ flowchart LR
 | ProjectSource / EvidenceLink | project_id/fact_id、source_id、定位、用途、覆盖范围 | RawSource/Evidence N:M CareerFact；版本化引用，不能把README当全部事实 | Evidence 与 EvidenceLink 已建模；页/行级定位待扩展 |
 | Person / ProjectParticipant | person_id、project_id、role、职责、参与起止 | Person独立身份，任职期内私密协作；Project N:M Person，关系单独保存 | Person 与 Participant 多对多关系已建模 |
 
-Employment仍可独立手工管理，接受Offer不自动创建Employment。任职原话、更正历史、项目来源、参与关系、成果与证据保留；Stage与Project不存在已验证的直接父子链，成果到Wiki不视为已经自动接通。Opportunity只经Career Context接口取得允许复用的职业事实，不读取任职私聊或复制这些对象成为第二正本。
+Employment仍可独立手工管理，接受Offer不自动创建Employment。任职原话、更正历史、项目来源、参与关系、成果与证据保留；Stage与Project不存在已验证的直接父子链，成果到Wiki不自动接通。T14 允许用户明确批准一条编辑后的成果表达进入现有 personal `wiki_entry`，并以 provenance 保存原成果版本/hash 与 Evidence 指针；撤销只阻止未来 Resume 选材。Opportunity只经 Career Context 接口取得允许复用的职业事实，不读取任职私聊或复制这些对象成为第二正本。
 
 ### 未来 Repository Ingestion
 

@@ -4,6 +4,8 @@
 
 本轮用户结果：文本原始资料留存 → 手工整理候选 → 确认进 Wiki → 修改/撤回形成 revision → 按机会明确选取最新 Wiki → 预览并发送实际分析。项目/目标/约束/能力等用独立条目；项目可关联任职。机会保持原 job ID，任职保持原 episode ID。独立简历正式版本可明确引用到机会，不改原工作台和已导出 PDF。
 
+T14 增量：Achievement 仍归任职/Work 域，Evidence 仍归任职/Project 域；只有用户在任职页查看关联证据、编辑/脱敏表达并明确批准“允许求职复用”后，系统才在现有 personal `wiki_entry` 容器创建 `fact_status=confirmed`、`reuse_status=approved` 的表达。Resume 和 Career Context 只读取该批准表达；provenance 仅保存原成果版本/hash、owner 和 Evidence 指针/hash，不复制 Evidence 原文。撤销未来复用不改原始成果，也不改已冻结简历版本。
+
 接口冻结（后台 Sol 执行 knowledge.py 与 tests/test_knowledge.py；主控负责其余整合）：
 
 - `GET /api/knowledge` → `{sources:[], candidates:[], entries:[]}`。

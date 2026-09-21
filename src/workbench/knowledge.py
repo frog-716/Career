@@ -16,6 +16,50 @@ ENTRY_TYPES = {
 ENTRY_STATUSES = {"active", "withdrawn"}
 
 
+def _resume_reuse_allowed(entry):
+    """Keep a confirmed personal fact separate from its resume permission."""
+    reuse_status = entry.get("reuse_status")
+    if reuse_status is None:
+        return True
+    return reuse_status == "approved" and "resume" in entry.get("allowed_uses", [])
+
+
+def create_reusable_personal_entry(store, connection, *, title, content, provenance):
+    """Create the approved expression in the existing personal-fact container.
+
+    The provenance contains pointers and hashes only.  It must never contain
+    the source achievement or evidence body.
+    """
+    if not isinstance(provenance, dict) or provenance.get("kind") != "work_achievement_reuse":
+        raise Invalid("成果复用来源不合法")
+    return store._save(connection, "wiki_entry", {
+        "id": uid(),
+        "title": title,
+        "content": content,
+        "entry_type": "achievement",
+        "scope_type": "personal",
+        "scope_id": "",
+        "source_ids": [],
+        "status": "active",
+        "verification": "user_asserted",
+        "fact_status": "confirmed",
+        "reuse_status": "approved",
+        "allowed_uses": ["resume"],
+        "reuse_provenance": provenance,
+        "created_at": now(),
+        "approved_at": now(),
+    }, 0)
+
+
+def revoke_reusable_personal_entry(store, connection, entry):
+    """Revoke only future resume use; retain the confirmed fact and expression."""
+    return store._save(connection, "wiki_entry", dict(
+        entry,
+        reuse_status="revoked",
+        revoked_at=now(),
+    ), entry.get("revision", 0))
+
+
 def _text(value, field, limit=100000, strip=False):
     if not isinstance(value, str) or not value.strip() or len(value) > limit:
         raise Invalid(field + "不能为空或超出长度限制")
@@ -141,6 +185,8 @@ def selected_wiki_sources(store, c, ids, job_id):
         entry = store._get(c, entry_id, "wiki_entry")
         if entry.get("status") != "active":
             raise Invalid("所选 Wiki 条目已撤回")
+        if entry.get("scope_type") == "personal" and not _resume_reuse_allowed(entry):
+            raise Invalid("该个人事实未获准用于求职")
         if entry.get("scope_type") == "episode":
             raise Invalid("任职范围 Wiki 不可用于求职分析")
         if entry.get("scope_type") == "job" and entry.get("scope_id") != job_id:
@@ -154,18 +200,30 @@ def selected_wiki_sources(store, c, ids, job_id):
         raise Invalid("Wiki 选材超过 30 条限制")
     if sum(len(entry["content"]) for entry in selected) > 100000:
         raise Invalid("Wiki 选材正文超过 100000 字符限制")
-    return [{
-        "id": entry["id"],
-        "revision": entry["revision"],
-        "hash": digest({"title": entry["title"], "entry_type": entry["entry_type"],
+    sources = []
+    for entry in selected:
+        source = {
+            "id": entry["id"],
+            "revision": entry["revision"],
+            "hash": digest({"title": entry["title"], "entry_type": entry["entry_type"],
+                            "content": entry["content"], "scope_type": entry["scope_type"],
+                            "scope_id": entry["scope_id"]}),
+            "purpose": "current_fact" if entry["scope_type"] == "personal" else "task_context",
+            "content": {"title": entry["title"], "entry_type": entry["entry_type"],
                         "content": entry["content"], "scope_type": entry["scope_type"],
-                        "scope_id": entry["scope_id"]}),
-        "purpose": "current_fact" if entry["scope_type"] == "personal" else "task_context",
-        "content": {"title": entry["title"], "entry_type": entry["entry_type"],
-                    "content": entry["content"], "scope_type": entry["scope_type"],
-                    "scope_id": entry["scope_id"]},
-        "source_ids": entry["source_ids"],
-    } for entry in selected]
+                        "scope_id": entry["scope_id"]},
+            "source_ids": entry["source_ids"],
+        }
+        provenance = entry.get("reuse_provenance")
+        if isinstance(provenance, dict) and provenance.get("kind") == "work_achievement_reuse":
+            source["provenance"] = {
+                "kind": provenance["kind"],
+                "owner": provenance.get("owner"),
+                "source": provenance.get("source"),
+                "evidence_refs": provenance.get("evidence_refs", []),
+            }
+        sources.append(source)
+    return sources
 
 
 def knowledge_router(store):

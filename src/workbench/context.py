@@ -65,7 +65,8 @@ class ContextCompiler:
             selected = item.get("content")
             sources.append(self._source(
                 item["id"], item["revision"], selected, item["purpose"],
-                item["hash"], source_ids=item.get("source_ids", [])))
+                item["hash"], source_ids=item.get("source_ids", []),
+                provenance=item.get("provenance")))
 
         content_size = sum(len(str(source["selected_content"])) for source in sources)
         unknowns = []
@@ -96,7 +97,7 @@ class ContextCompiler:
 
     @staticmethod
     def _source(source_id, revision, selected_content, purpose, source_hash,
-                source_ids=None):
+                source_ids=None, provenance=None):
         source = {
             "id": source_id,
             "revision": revision,
@@ -109,4 +110,6 @@ class ContextCompiler:
         }
         if source_ids:
             source["source_ids"] = source_ids
+        if provenance:
+            source["provenance"] = provenance
         return source

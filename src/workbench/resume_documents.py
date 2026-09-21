@@ -498,7 +498,7 @@ def router(store):
             for ref in d['document']['meta'].get('source_refs',[]):
                 row=c.execute('SELECT body FROM current WHERE id=? AND kind=?',(ref['source_id'],ref['source_kind'])).fetchone()
                 value=json.loads(row[0]) if row else None
-                status='removed' if ref['item_id'] not in ids else 'withdrawn' if not value or value.get('status')=='withdrawn' else 'updated' if value['revision']!=ref['revision'] else 'current'
+                status='removed' if ref['item_id'] not in ids else 'withdrawn' if not value or value.get('status')=='withdrawn' else 'revoked' if value.get('reuse_status')=='revoked' else 'updated' if value['revision']!=ref['revision'] else 'current'
                 result.append(dict(ref,status=status))
             return dict(sources=result,copied_sources=d['provenance'].get('source_refs',[]))
     @router.post('/api/resume-documents/{document_id}/select-facts')
@@ -541,7 +541,11 @@ def router(store):
                     fields = {'experience':dict(organization='', role=title, date=''), 'projects':dict(title=title, responsibility='', date=''), 'education':dict(school=title, major='', date='')}[kind]
                     item = dict(id=item_id, bullets=[dict(id=uid(), content=content)], **fields)
                 section['items'].append(item)
-                refs.append(dict(item_id=item_id, source_kind='wiki_entry', source_id=e['id'], revision=e['revision'], hash=digest(e), title=e['title'], scope_type=e['scope_type'], scope_id=e['scope_id']))
+                ref = dict(item_id=item_id, source_kind='wiki_entry', source_id=e['id'], revision=e['revision'], hash=digest(e), title=e['title'], scope_type=e['scope_type'], scope_id=e['scope_id'])
+                provenance = e.get('reuse_provenance')
+                if isinstance(provenance, dict) and provenance.get('kind') == 'work_achievement_reuse':
+                    ref['evidence_refs'] = deepcopy(provenance.get('evidence_refs', []))
+                refs.append(ref)
                 imported.add(e['id'])
             if include_profile:
                 p = store._get(c, 'profile', 'profile')

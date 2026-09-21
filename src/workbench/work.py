@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from .core import Conflict, Invalid, Missing, digest, now, required, uid
 from .pagination import page
+from . import knowledge
 
 
 CURRENT = {
@@ -141,6 +142,144 @@ def _create_current(store, c, kind, body, values):
     return result
 
 
+def _achievement_hash(achievement):
+    return digest({
+        "id": achievement["id"],
+        "title": achievement["title"],
+        "content": achievement["content"],
+        "project_id": achievement.get("project_id"),
+    })
+
+
+def _evidence_pointer(evidence):
+    """Return a traceable pointer without copying evidence content."""
+    return {
+        "id": evidence["id"],
+        "kind": "work_evidence",
+        "title": evidence["title"],
+        "source_type": evidence["source_type"],
+        "scope_type": evidence["scope_type"],
+        "scope_id": evidence["scope_id"],
+        "created_at": evidence["created_at"],
+        "hash": digest(evidence),
+    }
+
+
+def _achievement_evidence(store, c, achievement_id):
+    links = store._records(c, IMMUTABLE["evidence_link"])
+    evidence_by_id = {item["id"]: item for item in store._records(c, IMMUTABLE["evidence"])}
+    return [
+        _evidence_pointer(evidence_by_id[link["evidence_id"]])
+        for link in links
+        if link.get("achievement_id") == achievement_id and link.get("evidence_id") in evidence_by_id
+    ]
+
+
+def _reuse_summary(store, c, achievement_id):
+    entries = []
+    for entry in store._current(c, "wiki_entry"):
+        provenance = entry.get("reuse_provenance")
+        if isinstance(provenance, dict) and provenance.get("kind") == "work_achievement_reuse" and provenance.get("source", {}).get("id") == achievement_id:
+            entries.append(entry)
+    if not entries:
+        return None
+    entries.sort(key=lambda item: (item.get("approved_at", ""), item.get("created_at", ""), item["id"]), reverse=True)
+    entry = entries[0]
+    return {
+        "id": entry["id"],
+        "revision": entry["revision"],
+        "status": entry.get("reuse_status"),
+        "fact_status": entry.get("fact_status"),
+        "allowed_uses": entry.get("allowed_uses", []),
+        "approved_at": entry.get("approved_at"),
+        "revoked_at": entry.get("revoked_at"),
+    }
+
+
+def _employment_owner(store, c, project):
+    scope_type, scope_id = project.get("scope_type"), project.get("scope_id")
+    if scope_type == "employment":
+        return {"kind": "employment", "id": scope_id}
+    if scope_type == "episode":
+        return {"kind": "employment", "id": "employment:" + scope_id}
+    return {"kind": "project", "id": project["id"]}
+
+
+def approve_achievement_reuse(store, achievement_id, body):
+    expected = _expected(body.get("expected_revision"))
+    title = _text(body.get("title"), "复用表达标题", 500)
+    content = _text(body.get("content"), "复用表达")
+    if body.get("allow_resume_reuse") is not True:
+        raise Invalid("必须明确批准允许用于求职复用")
+    with store.connect() as c:
+        achievement = store._get(c, achievement_id, CURRENT["achievement"])
+        if achievement["revision"] != expected:
+            raise Conflict("成果已更新，请重新载入后再批准复用")
+        evidence_refs = _achievement_evidence(store, c, achievement_id)
+        if not evidence_refs:
+            raise Invalid("请先为成果关联至少一条证据")
+        payload = {
+            "achievement_id": achievement_id,
+            "expected_revision": expected,
+            "title": title,
+            "content": content,
+            "allow_resume_reuse": True,
+        }
+        previous, key, fingerprint = _request(store, c, body.get("idempotency_key"), "approve_achievement_reuse", payload)
+        if previous is not None:
+            return previous
+        for entry in store._current(c, "wiki_entry"):
+            provenance = entry.get("reuse_provenance")
+            if isinstance(provenance, dict) and provenance.get("kind") == "work_achievement_reuse" and provenance.get("source", {}).get("id") == achievement_id and entry.get("reuse_status") == "approved":
+                raise Conflict("该成果已经批准求职复用，请直接在简历中选择")
+        project = None
+        if achievement.get("project_id"):
+            project = store._get(c, achievement["project_id"], CURRENT["project"])
+        provenance = {
+            "kind": "work_achievement_reuse",
+            "owner": _employment_owner(store, c, project) if project else {"kind": "achievement", "id": achievement_id},
+            "source": {
+                "kind": "work_achievement",
+                "id": achievement_id,
+                "revision": achievement["revision"],
+                "hash": _achievement_hash(achievement),
+            },
+            "project_id": project["id"] if project else None,
+            "evidence_refs": evidence_refs,
+            "approved_content_hash": digest({"title": title, "content": content}),
+            "approved_at": now(),
+            "allowed_uses": ["resume"],
+        }
+        entry = knowledge.create_reusable_personal_entry(
+            store, c, title=title, content=content, provenance=provenance,
+        )
+        store._bump(c)
+        result = dict(entry, source_achievement_id=achievement_id)
+        _remember(store, c, key, fingerprint, result)
+        return result
+
+
+def revoke_achievement_reuse(store, reuse_id, body):
+    expected = _expected(body.get("expected_revision"))
+    with store.connect() as c:
+        entry = store._get(c, reuse_id, "wiki_entry")
+        provenance = entry.get("reuse_provenance")
+        if not isinstance(provenance, dict) or provenance.get("kind") != "work_achievement_reuse":
+            raise Missing("成果复用授权不存在")
+        payload = {"reuse_id": reuse_id, "expected_revision": expected}
+        previous, key, fingerprint = _request(store, c, body.get("idempotency_key"), "revoke_achievement_reuse", payload)
+        if previous is not None:
+            return previous
+        if entry.get("reuse_status") != "approved":
+            raise Conflict("成果求职复用已经撤销")
+        if entry["revision"] != expected:
+            raise Conflict("复用授权已更新，请重新载入")
+        result = knowledge.revoke_reusable_personal_entry(store, c, entry)
+        store._bump(c)
+        _remember(store, c, key, fingerprint, result)
+        return result
+
+
 def work_router(store):
     router = APIRouter()
 
@@ -156,10 +295,14 @@ def work_router(store):
                 "persons": store._current(c, CURRENT["person"]),
                 "participants": store._records(c, IMMUTABLE["participant"]),
                 "events": store._records(c, IMMUTABLE["event"]),
-                "achievements": store._current(c, CURRENT["achievement"]),
+                "achievements": [],
                 "evidence": store._records(c, IMMUTABLE["evidence"]),
                 "evidence_links": store._records(c, IMMUTABLE["evidence_link"]),
             }
+            for achievement in store._current(c, CURRENT["achievement"]):
+                item = dict(achievement)
+                item["resume_reuse"] = _reuse_summary(store, c, achievement["id"])
+                result["achievements"].append(item)
             if kind is None and limit is None and cursor is None:
                 return result
             if kind not in result:
@@ -334,6 +477,14 @@ def work_router(store):
             result = store._save(c, CURRENT["achievement"], dict(old, title=title, content=content), expected)
             _remember(store, c, key, fingerprint, result)
             return result
+
+    @router.post("/api/work/achievements/{achievement_id}/reuse")
+    def approve_reuse(achievement_id: str, body: dict):
+        return approve_achievement_reuse(store, achievement_id, body)
+
+    @router.post("/api/work/reuses/{reuse_id}/revoke")
+    def revoke_reuse(reuse_id: str, body: dict):
+        return revoke_achievement_reuse(store, reuse_id, body)
 
     @router.post("/api/work/evidence")
     def create_evidence(body: dict):
