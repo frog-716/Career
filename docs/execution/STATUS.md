@@ -1,20 +1,20 @@
 # 当前状态
 
-最后整理：2026-09-21（T01–T13 开发冻结；Stage 3 已按绑定身份完成 `LOCAL_ONLY` 正式本机切换，未进入 Stage 4）。本文顶部只维护当前源码/运行身份、阶段状态、阻断项、下一动作和证据位置；历史批次的过程和证据留在下方既有章节及各自文档。
+最后整理：2026-09-21（T01–T13 开发冻结；Stage 3 已按绑定身份完成 `LOCAL_ONLY` 正式本机切换；Stage 4A.1 已完成源码收口）。本文顶部只维护当前源码/运行身份、阶段状态、阻断项、下一动作和证据位置；历史批次的过程和证据留在下方既有章节及各自文档。
 
 ## 当前生产切换阶段
 
-- 唯一切换账本：[PRODUCTION-CUTOVER](PRODUCTION-CUTOVER.md)。本轮已完成阶段 0、1、1.5、2、2.5、3，状态为 `CUTOVER_GATE=STAGE_3_LOCAL_ONLY_DEPLOYED_VERIFIED`、`RELEASE_GATE=PASS_LOCAL_ONLY`；未执行 Stage 4。
+- 唯一切换账本：[PRODUCTION-CUTOVER](PRODUCTION-CUTOVER.md)。本轮已完成阶段 0、1、1.5、2、2.5、3；Stage 4A.1 已完成 Git/source consolidation，状态为 `CUTOVER_GATE=STAGE_3_LOCAL_ONLY_DEPLOYED_VERIFIED`、`RELEASE_GATE=PASS_LOCAL_ONLY`、`SOURCE_CONSOLIDATION=SOURCE_CONSOLIDATED`。
 - Stage 3 执行门已通过；[RELEASE-GATE](RELEASE-GATE.md) 保留的是执行前重分类历史。`AI_ENABLED`、真实 Keychain/Provider 和收费调用没有包含在本次发布授权内。
 - 真实 Provider 未调用，真实 Keychain 未读取、修改或删除；本次通过仅适用于 `LOCAL_ONLY`。
 - 当前计划身份：`plan_id=career-cutover-20260920-stage25-resume-template-e2dcd25c`，`plan_hash=a4dc6c46fab037bb17303439773285d2709bfc379839549aed0f5c5548a0a26e`，`release_id=career-0.7.0-batch-f-stage25-resume-template-20260920`。
-- 当前冻结身份：`HEAD=82af33dfe4d572e6ab04f36f3757b13a28049037`，`source_fingerprint=e2dcd25c1479f895f4c540ea19812a08e7bdacdde2d91747d367f5fdeb440d0d`，`static_fingerprint=2daf9f5aaddf62d94cd3d555555d0f734057b42a6a9132ccde927fd921568ede`，backend/frontend build=`career-0.7.0-batch-f`。Stage 2.5 修改了服务端 PDF 模板映射，上一版阶段 2 / Stage 3 身份自动作废；新身份按冻结发布文件列表重算，`source_fingerprint` 变化，`static_fingerprint` 未变化。
+- 当前冻结身份：`HEAD=920d08b645db14d272bc524103e969a2f504f1fb`，`source_fingerprint=e2dcd25c1479f895f4c540ea19812a08e7bdacdde2d91747d367f5fdeb440d0d`，`static_fingerprint=2daf9f5aaddf62d94cd3d555555d0f734057b42a6a9132ccde927fd921568ede`，backend/frontend build=`career-0.7.0-batch-f`。Stage 2.5 修改了服务端 PDF 模板映射，以上 source/static fingerprint 与 Stage 3 有效发布对象一致。
 - 旧正式 PID `79422` 已在完整身份核验后优雅停止；原正式数据、旧 App、旧 Python 环境和旧 runtime 均保留。当前正式 PID=`39300`、Python=`3.12.14`、build=`career-0.7.0-batch-f`、data instance=`42ff565e28a08e31414442521540ac3e`、端口=`127.0.0.1:8765`、模式=`LOCAL_ONLY`。LaunchAgent plist 和正式周任务未修改或触发。
 
 ## 当前源码/运行身份
 
-- 隔离 worktree：`/Users/frog/Projects/Career-worktrees/review-t00-t01-20260919`；正式目录 `/Users/frog/Projects/Career` 已按批准发布对象完成本机切换，未合并 Git、未 push。
-- 当前基线：`HEAD=82af33dfe4d572e6ab04f36f3757b13a28049037`，T01–T11 的有效未提交修改与本批 T12 修改均保留在该隔离树；schema v6、前端构建入口和 requirements/package lock 以当前源码为准。
+- 隔离 worktree：`/Users/frog/Projects/Career-worktrees/review-t00-t01-20260919`；正式目录 `/Users/frog/Projects/Career` 已按批准发布对象完成本机源码收口，未 push，review worktree、review branch 和安全分支均保留。
+- 当前基线：`main`=`920d08b645db14d272bc524103e969a2f504f1fb`；Stage 4A.1 由 review commit fast-forward 合并完成。主项目原有本机资料未进入 Git；保护提交为 `d8c25f7b0ff321a256b2376909986d8f76845ecd`，安全分支为 `safety/pre-stage4a-main-20260921`。
 - 测试身份：自动测试继续使用虚构数据、`TestProvider` 和隔离临时目录；Stage 3 仅通过一致性备份读取正式源并在恢复副本上验收，未读取真实 Keychain、未调用收费模型。
 - 最终交付身份：正式 Python 已切到固定 `3.12.14` 环境；source/static fingerprint 与授权值一致。Stage 3 没有源码修复、提交、Git 合并或 push。
 
@@ -27,6 +27,7 @@
 - T12：`CODE_VERIFIED`；完成类型边界、状态文档、R01–R18 回归映射、浏览器回归入口、最小 CI、依赖/秘密/文档检查。浏览器入口本机因 Chromium 下载阻塞未取得运行证据，未标 `BROWSER_VERIFIED`；`ACCEPTED` 留待最终用户验收。
 - T12.1：`CODE_VERIFIED`；5 个可安全升级的包已按最小修复版本更新，2 条实际 Starlette 边界已加应用层防护；`pip-audit` 仍保留 Starlette 的 14 条重复/别名记录，逐项分类与接受理由见下方 T12.1 章节，未伪造为通过。
 - T13：开发已冻结；`tests/test_t13_release_readiness.py` 专项与阶段 0/1 隔离验收已通过或已明确列为未验，仍不等同 `ACCEPTED` 或 `DEPLOYED_VERIFIED`。
+- Stage 4A.1：`SOURCE_CONSOLIDATED`；review commit `920d08b645db14d272bc524103e969a2f504f1fb` 从原 `main` 基线 `82af33dfe4d572e6ab04f36f3757b13a28049037` fast-forward 合并。A 类 tracked 修改与 C 类 17 个源码/测试/文档文件均纳入 review 历史；未发现 review 之外的合法源码修改；D 类本机资料仍在原处且未进入 Git。主项目门禁重新通过：`pytest 282 passed`、前端 typecheck/build、pip check、npm ls、secret scan、review_checks、git diff --check 均 exit `0`。主项目 90 个源文件和 12 个静态文件按 Stage 3 冻结清单重算，与授权 fingerprint 一致；正式 Career PID `39300` 健康运行且 `LOCAL_ONLY`，正式 DB 与 Stage 3 最终 inventory 的 hash 一致。
 - Stage 1.5：`CODE_VERIFIED`；`CAREER_AI_MODE=LOCAL_ONLY` 在 SecretStore、Provider、ModelGateway、Research web search 与启动器边界 fail closed。生产样式 `ModelConfig`/`secret_ref`、假 API Key、注入 TestProvider、四条 AI 路径和网络 trap 专项通过；不等同阶段 2 或正式切换授权。
 - Stage 2：`PASS`（Candidate-only rehearsal）+ `BLOCKED`（正式切换/Stage 3）；固定 Python 3.12.14、正式数据一致性备份、全新隔离恢复、schema v6/inventory/restore verify、Candidate App/8865、Chrome 只读链、PDF 文本层和 LOCAL_ONLY 证据已完成。正式源 DB hash 未改变，正式 PID `79422` 未停止。没有执行 migration apply、Keychain、真实 Provider 或正式切换。
 - Stage 2 follow-up：`CODE_VERIFIED`；新增 `CAREER_TEST_MODE=1` + `CAREER_AI_MODE=LOCAL_ONLY` + `CAREER_ALLOW_UNPAIRED_FAKE_DATA=1` + 临时目录 `.career-fake-data` 标记的免配对模式。四重条件齐全时真实 `scripts/run.py` 的业务 API 无需配对；缺少显式开关仍返回 `401 pairing_required`。正式数据和恢复正式副本不满足临时目录约束，继续要求配对。
@@ -45,7 +46,7 @@
 
 ## 下一动作
 
-- 等待用户对 `DEPLOYED_VERIFIED (LOCAL_ONLY)` 结果做最终确认。不得自动进入 Stage 4，不得合并、删除 Worktree、访问 Keychain、调用 Provider、push 或清理旧版本/恢复点。
+- 等待用户对 `DEPLOYED_VERIFIED (LOCAL_ONLY)` 与 `SOURCE_CONSOLIDATED` 结果做最终确认。不得自动进入后续产品开发，不得删除 Worktree、安全分支、旧版本或恢复点，不得访问 Keychain、调用 Provider、push 或清理本机资料。
 
 ## Stage 2 Candidate-only rehearsal：2026-09-20
 
