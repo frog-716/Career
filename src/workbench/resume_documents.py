@@ -558,10 +558,7 @@ def router(store):
         with store.connect(False) as c:
             get_document(store,c,document_id)
             return dict(versions=[version_summary(v) for v in store._records(c,'editor_version') if v.get('document_id')==document_id])
-    @router.post('/api/resume-documents/{document_id}/pdf')
-    def export_pdf(document_id:str, body:dict):
-        strict(body, {'expected_revision'})
-        expected = revision(body.get('expected_revision'))
+    def current_pdf(document_id, expected):
         with store.connect(False) as c:
             document = get_document(store, c, document_id)
             if document['revision'] != expected:
@@ -581,6 +578,10 @@ def router(store):
                 'X-Resume-Renderer-Version': rendered.renderer_version,
             },
         )
+    @router.post('/api/resume-documents/{document_id}/pdf')
+    def export_pdf(document_id:str, body:dict):
+        strict(body, {'expected_revision'})
+        return current_pdf(document_id, revision(body.get('expected_revision')))
     @router.post('/api/resume-documents/{document_id}/ai-suggest')
     def ai_suggest(document_id: str, body: dict):
         return generate_ai_suggestion(store, document_id, body)
