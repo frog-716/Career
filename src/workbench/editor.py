@@ -126,8 +126,14 @@ def _pdf(data):
 
 
 def _fact_allowed(entry, job_id):
-    return entry.get('status') == 'active' and (entry.get('scope_type') == 'personal' or
-        (job_id and entry.get('scope_type') == 'job' and entry.get('scope_id') == job_id))
+    if entry.get('status') != 'active':
+        return False
+    if entry.get('scope_type') == 'personal':
+        reuse_status = entry.get('reuse_status')
+        if reuse_status is not None:
+            return reuse_status == 'approved' and 'resume' in entry.get('allowed_uses', [])
+        return True
+    return bool(job_id and entry.get('scope_type') == 'job' and entry.get('scope_id') == job_id)
 
 
 def _item_ids(document):

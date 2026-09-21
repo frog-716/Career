@@ -1014,6 +1014,65 @@ function createWorkEvent(projectId: string) {
 function createWorkAchievement(projectId: string) {
   workForm("记录成果", `<label>成果标题<input name="title" required maxlength="500"></label><label>成果内容<textarea name="content" required maxlength="100000"></textarea></label>`, "保存成果", (v) => api("/work/achievements", { ...v, project_id: projectId, idempotency_key: crypto.randomUUID() }));
 }
+function approveWorkReuse(achievementId: string) {
+  const achievement = workDomain.achievements.find((item: Obj) => item.id === achievementId);
+  if (!achievement) return;
+  const links = workDomain.evidence_links.filter((item: Obj) => item.achievement_id === achievementId);
+  const evidence = links
+    .map((link: Obj) => workDomain.evidence.find((item: Obj) => item.id === link.evidence_id))
+    .filter(Boolean) as Obj[];
+  if (!evidence.length) {
+    inform("请先关联至少一条证据，再整理为求职复用。");
+    return;
+  }
+  modal(
+    "整理为求职复用",
+    `<form data-work-reuse-form><fieldset><label>求职表达标题<input name="title" required maxlength="500" value="${esc(achievement.title)}"></label><label>编辑/脱敏后的表达<textarea name="content" required maxlength="100000">${esc(achievement.content)}</textarea></label><label class="check-row"><input type="checkbox" name="allow_resume_reuse" required>我明确批准这条编辑后的表达用于求职简历</label></fieldset><p class="muted">原始任职成果和证据不会被覆盖；简历只会读取这条批准后的表达。证据仅保留可追溯指针：${evidence.map((item) => esc(item.title)).join("、")}。</p><button class="primary full" type="submit">确认并允许求职复用</button></form>`,
+    (dialog) => {
+      const form = dialog.querySelector<HTMLFormElement>("form")!;
+      form.onsubmit = async (event) => {
+        event.preventDefault();
+        const button = form.querySelector<HTMLButtonElement>("button[type=submit]")!;
+        const values = Object.fromEntries(new FormData(form).entries());
+        const consent = form.querySelector<HTMLInputElement>("[name=allow_resume_reuse]")!;
+        if (!consent.checked) {
+          modalError(new Error("请明确批准用于求职复用。"));
+          return;
+        }
+        if (button.disabled) return;
+        button.disabled = true;
+        try {
+          await api(`/work/achievements/${encodeURIComponent(achievementId)}/reuse`, {
+            expected_revision: achievement.revision,
+            title: values.title,
+            content: values.content,
+            allow_resume_reuse: true,
+            idempotency_key: crypto.randomUUID(),
+          });
+          await load();
+          dialog.close();
+          render();
+          inform("已批准一条可用于求职的编辑表达。");
+        } catch (error) {
+          modalError(error);
+          button.disabled = false;
+        }
+      };
+    },
+  );
+}
+function revokeWorkReuse(reuseId: string, revision: string) {
+  if (!window.confirm("撤销后，新的简历不能再选择这条成果；已冻结或已投递的版本不受影响。确认撤销？")) return;
+  void (async () => {
+    await api(`/work/reuses/${encodeURIComponent(reuseId)}/revoke`, {
+      expected_revision: Number(revision),
+      idempotency_key: crypto.randomUUID(),
+    });
+    await load();
+    render();
+    inform("已撤销未来简历复用授权；历史冻结版本保持不变。");
+  })().catch(failure);
+}
 function createWorkEvidence(projectId: string) {
   workForm("添加证据", `<label>证据标题<input name="title" required maxlength="500"></label><label>证据类型<input name="source_type" required maxlength="100" value="文档"></label><label>证据原文<textarea name="content" required maxlength="100000"></textarea></label>`, "保存证据", (v) => api("/work/evidence", { ...v, scope_type: "project", scope_id: projectId, idempotency_key: crypto.randomUUID() }));
 }
@@ -1444,6 +1503,8 @@ function bind() {
   document.querySelectorAll<HTMLElement>("[data-work-project]").forEach((el) => (el.onclick = () => createWorkProject(el.dataset.workProject!)));
   document.querySelectorAll<HTMLElement>("[data-work-event]").forEach((el) => (el.onclick = () => createWorkEvent(el.dataset.workEvent!)));
   document.querySelectorAll<HTMLElement>("[data-work-achievement]").forEach((el) => (el.onclick = () => createWorkAchievement(el.dataset.workAchievement!)));
+  document.querySelectorAll<HTMLElement>("[data-work-reuse]").forEach((el) => (el.onclick = () => approveWorkReuse(el.dataset.workReuse!)));
+  document.querySelectorAll<HTMLElement>("[data-work-revoke]").forEach((el) => (el.onclick = () => revokeWorkReuse(el.dataset.workRevoke!, el.dataset.workRevokeRevision!)));
   document.querySelectorAll<HTMLElement>("[data-work-evidence]").forEach((el) => (el.onclick = () => createWorkEvidence(el.dataset.workEvidence!)));
   document.querySelectorAll<HTMLElement>("[data-work-link-evidence]").forEach((el) => (el.onclick = () => linkWorkEvidence(el.dataset.workLinkEvidence!)));
   document.querySelectorAll<HTMLElement>("[data-work-person]").forEach((el) => (el.onclick = () => addWorkPerson(el.dataset.workPerson!)));

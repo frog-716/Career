@@ -36,7 +36,7 @@ CAREER_DATA_DIR=/tmp/career-fake-data CAREER_RUNTIME_DIR=/tmp/career-fake-runtim
 - `domain`：公司/组织树、求职周期/方向、机会关系、固定简历版本用途。用途不创建实际投递；当前实际投递只能走 Opportunity scoped `RecordSubmitted`。接口见 [Wiki 与业务对象整合](../../docs/execution/WIKI-DOMAIN.md)。
 - `opportunity`：current JSON 中唯一 canonical Opportunity，Company 由 company_id 实时读取；Create/Update/End 同事务 CAS/幂等。旧 Job/plan.stage/context.company_id 冻结，legacy 未决对象只读。历史 Submission 快照保持原文，新投递由 `submission` 模块冻结材料并推进阶段。
 - `research`：CompanyResearch 按公司共享、OpportunityResearch 按机会隔离；搜索标题/URL 只保存为 `lead`，用户粘贴摘录保存 owner、input method、scope、日期和 hash；Research item 支持稳定 ID 更正/撤回、显式 supersedes/replaces、来源 owner 校验和 pending proposal 重开，自动搜索不读取网页正文。
-- `employment` / `work`：公开的 Employment 主身份和旧 `journey_episode` 兼容映射；EmploymentStage、Project、Person、WorkEvent、Achievement、Evidence 及其多对多关系。工作成果不会自动写入个人 Wiki。
+- `employment` / `work`：公开的 Employment 主身份和旧 `journey_episode` 兼容映射；EmploymentStage、Project、Person、WorkEvent、Achievement、Evidence 及其多对多关系。工作成果不会自动写入个人 Wiki；T14 仅允许用户在查看证据后，编辑并明确批准一条复用表达，写入现有 personal `wiki_entry` 容器。
 - `communication`：Opportunity scoped Communication 的唯一新写入口；Create/Update/Archive 使用幂等命令与记录级 CAS。旧 typed Communication 原 ID 只读投影并可由用户显式核对升级；不复制 `journey_note`，不改变 Opportunity 生命周期。
 - `interview`：Opportunity scoped Real/Simulation、柔性 Preparation、current-only Raw/Final Review、Context Pack 与 real-only Research Patch。`GenerateFinalReview` 和 `GenerateResearchPatch` 是两个独立动作；Simulation 在 service/storage/HTTP/UI 均无 Patch 能力。
 - `offer`：Opportunity scoped 唯一 current Offer。RecordOffer 原子创建 `offer_format=2` 并推进 phase；UpdateOffer 原位 CAS 更新明确确认的当前条件；AcceptOffer 只结束 Opportunity。legacy typed Offer 默认只读，必须完整核对后同 ID 升级。
@@ -129,6 +129,8 @@ dry-run 默认逐 Job `defer_legacy`，不根据记录存在或 demo 猜 phase/r
 开写前 rollback 是备份恢复到另一个新目录并使用匹配 v1 代码；开写后应备份 v2 并 forward recover，不能把 user_version 改回 1 或用旧备份抹掉新增数据。本批不提供无损逆迁移，也不执行生产部署。实际证据及测试命令见[Batch B](../../docs/execution/OPPORTUNITY-BATCH-B.md)。
 
 ## 事实回流接口
+
+- `work.py` T14 成果复用：`POST /api/work/achievements/{achievement_id}/reuse` 在成果版本、关联 Evidence、幂等键和 `allow_resume_reuse=true` 均通过后创建批准的 personal `wiki_entry`；`POST /api/work/reuses/{reuse_id}/revoke` 只撤销未来 Resume 使用。两者均保留原始 Achievement/Project/Evidence；`reuse_provenance` 只保存 owner、source revision/hash 和 Evidence 指针，不保存 Evidence 原文。
 
 - `profile.py`：`POST /api/profile/basics`（basics:name/email/phone/wechat/github/links, expected_revision）；旧非空文本先调用 `/api/profile/organize`（basics, entries, confirmed:true, expected_revision, idempotency_key），同事务归档原文、生成pending候选、更新唯一profile。
 - `journey.py`：`POST /api/journey/notes/{id}/correct`（title/content/expected_revision/idempotency_key）；`GET .../history` 保留原件及全部更正；`POST .../candidate`（title/content/entry_type/scope_type/scope_id/promote_to_personal/expected_revision/idempotency_key）。原note可带同job的submission_id；候选固定继承该引用。任职导出在同一读事务输出原文及全部更正正文。

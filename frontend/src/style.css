@@ -1363,6 +1363,14 @@ blockquote {
 .work-project h3 { margin: 0 0 6px; font-size: 15px; }
 .work-project .preserve { margin: 0 0 10px; }
 .work-project-meta { display: flex; gap: 12px; color: #777; font-size: 12px; margin-bottom: 10px; }
+.work-achievements { display: grid; gap: 10px; margin: 12px 0 16px; }
+.work-achievement { padding: 12px; border: 1px solid #ececec; border-radius: 8px; background: #fcfcfb; }
+.work-achievement h4 { margin: 0 0 6px; font-size: 14px; }
+.work-achievement > .pane-heading { align-items: flex-start; }
+.work-evidence-pointers { display: grid; gap: 6px; margin-top: 10px; font-size: 12px; }
+.work-evidence-pointers details { padding: 7px 9px; border: 1px solid #e5e5e5; border-radius: 6px; background: #fff; }
+.work-evidence-pointers summary { cursor: pointer; color: #50655a; }
+.work-evidence-pointers p { margin: 8px 0 0; }
 .profile-editor { overflow: auto; }
 .profile-editor form { max-width: 760px; }
 .profile-editor .pane-heading { align-items: flex-start; }

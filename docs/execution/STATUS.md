@@ -1,6 +1,6 @@
 # 当前状态
 
-最后整理：2026-09-21（T01–T13 开发冻结；Stage 3 已按绑定身份完成 `LOCAL_ONLY` 正式本机切换；Stage 4A.1 已完成源码收口）。本文顶部只维护当前源码/运行身份、阶段状态、阻断项、下一动作和证据位置；历史批次的过程和证据留在下方既有章节及各自文档。
+最后整理：2026-09-21（T01–T14 开发冻结；Stage 3 已按绑定身份完成 `LOCAL_ONLY` 正式本机切换；Stage 4A.1 已完成源码收口）。本文顶部只维护当前源码/运行身份、阶段状态、阻断项、下一动作和证据位置；历史批次的过程和证据留在下方既有章节及各自文档。
 
 ## 当前生产切换阶段
 
@@ -27,6 +27,7 @@
 - T12：`CODE_VERIFIED`；完成类型边界、状态文档、R01–R18 回归映射、浏览器回归入口、最小 CI、依赖/秘密/文档检查。浏览器入口本机因 Chromium 下载阻塞未取得运行证据，未标 `BROWSER_VERIFIED`；`ACCEPTED` 留待最终用户验收。
 - T12.1：`CODE_VERIFIED`；5 个可安全升级的包已按最小修复版本更新，2 条实际 Starlette 边界已加应用层防护；`pip-audit` 仍保留 Starlette 的 14 条重复/别名记录，逐项分类与接受理由见下方 T12.1 章节，未伪造为通过。
 - T13：开发已冻结；`tests/test_t13_release_readiness.py` 专项与阶段 0/1 隔离验收已通过或已明确列为未验，仍不等同 `ACCEPTED` 或 `DEPLOYED_VERIFIED`。
+- T14：`CODE_VERIFIED + BROWSER_VERIFIED`，完成最小职业成果回流链。新增接口复用现有 personal `wiki_entry`：用户从任职成果查看 Evidence 后，编辑/脱敏并明确批准，Resume 只读取批准表达；`fact_status=confirmed` 与 `reuse_status=approved|revoked` 分离，Evidence 仅以指针/hash 进入 provenance；撤销只影响未来选材，冻结版本不变。专项 `tests/test_t14_reuse.py` 为 `11 passed`；全量 `pytest -q` 为 `296 passed`；前端 typecheck/build、pip check、npm ls、secret scan、review_checks、git diff --check 均 exit `0`。隔离虚构数据 Computer Use 已完成任职→证据→批准→Resume 选材/保存→冻结 A→撤销→新简历不可选，未访问正式数据、Keychain 或 Provider。
 - Stage 4A.1：`SOURCE_CONSOLIDATED`；review commit `920d08b645db14d272bc524103e969a2f504f1fb` 从原 `main` 基线 `82af33dfe4d572e6ab04f36f3757b13a28049037` fast-forward 合并。A 类 tracked 修改与 C 类 17 个源码/测试/文档文件均纳入 review 历史；未发现 review 之外的合法源码修改；D 类本机资料仍在原处且未进入 Git。主项目门禁重新通过：`pytest 282 passed`、前端 typecheck/build、pip check、npm ls、secret scan、review_checks、git diff --check 均 exit `0`。主项目 90 个源文件和 12 个静态文件按 Stage 3 冻结清单重算，与授权 fingerprint 一致；正式 Career PID `39300` 健康运行且 `LOCAL_ONLY`，正式 DB 与 Stage 3 最终 inventory 的 hash 一致。
 - Stage 1.5：`CODE_VERIFIED`；`CAREER_AI_MODE=LOCAL_ONLY` 在 SecretStore、Provider、ModelGateway、Research web search 与启动器边界 fail closed。生产样式 `ModelConfig`/`secret_ref`、假 API Key、注入 TestProvider、四条 AI 路径和网络 trap 专项通过；不等同阶段 2 或正式切换授权。
 - Stage 2：`PASS`（Candidate-only rehearsal）+ `BLOCKED`（正式切换/Stage 3）；固定 Python 3.12.14、正式数据一致性备份、全新隔离恢复、schema v6/inventory/restore verify、Candidate App/8865、Chrome 只读链、PDF 文本层和 LOCAL_ONLY 证据已完成。正式源 DB hash 未改变，正式 PID `79422` 未停止。没有执行 migration apply、Keychain、真实 Provider 或正式切换。
@@ -46,7 +47,7 @@
 
 ## 下一动作
 
-- 等待用户对 `DEPLOYED_VERIFIED (LOCAL_ONLY)` 与 `SOURCE_CONSOLIDATED` 结果做最终确认。不得自动进入后续产品开发，不得删除 Worktree、安全分支、旧版本或恢复点，不得访问 Keychain、调用 Provider、push 或清理本机资料。
+- 等待用户确认 T14 结果；不得进入 T15 或其它产品开发，不得删除 Worktree、安全分支、旧版本或恢复点，不得访问 Keychain、调用 Provider、push 或清理本机资料。
 
 ## Stage 2 Candidate-only rehearsal：2026-09-20
 

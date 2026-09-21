@@ -73,7 +73,7 @@ Skill统一通过`ContextCompiler.prepare(task_type, target_object, user_request
 | Interview复盘 | 本轮当前Transcript、real/simulation来源及目标轮次、相关背景 | 模拟AI面试官的虚构信息不具备现实事实资格；用户自述可提个人Patch；真实面试官信息可提机会研究Patch |
 | Offer | 当前条件、指定原件、相关个人约束及谈薪沟通 | 不扩展到多Offer Comparison，不自动建Employment |
 
-Opportunity / Resume / Interview经Career Context Interface取得获准职业资料，不查询未来Employment/Project内部schema。任职私聊、他人档案不因同一窗口或同一用户而进入求职Context；须先显式整理可复用个人事实。Feedback与Career Wiki、Research、Resume、Interview完全隔离。
+Opportunity / Resume / Interview经Career Context Interface取得获准职业资料，不查询未来Employment/Project内部schema。任职私聊、他人档案不因同一窗口或同一用户而进入求职Context；成果必须先由用户查看证据、编辑/脱敏并明确批准为可复用个人事实，Resume/Context 只读取批准表达，Evidence 只保留指针/hash。Feedback与Career Wiki、Research、Resume、Interview完全隔离。
 
 ## 每次请求、确认与并发
 
