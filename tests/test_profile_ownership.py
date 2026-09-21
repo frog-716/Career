@@ -10,7 +10,9 @@ def post(c,path,b):
  return c.post(c.editor_path+path[len('/editor'):] if path.startswith('/editor') else '/api'+path,json=b,headers=H)
 
 def test_explicit_organization_archives_old_text_and_pending_is_not_context(tmp_path):
- c=editor_client(Store(tmp_path,TestProvider()))
+ store=Store(tmp_path,TestProvider());c=editor_client(store)
+ calls=[];original=store.provider.complete
+ store.provider.complete=lambda payload:(calls.append(payload) or original(payload))
  old=post(c,'/profile',dict(content='旧混合文本：林澄；接受出差；审批经历',expected_revision=0)).json()
  basics=dict(name='林澄',email='test@example.invalid',phone='')
  assert post(c,'/profile/basics',dict(basics=basics,expected_revision=old['revision'])).status_code==409
@@ -26,11 +28,15 @@ def test_explicit_organization_archives_old_text_and_pending_is_not_context(tmp_
  assert knowledge['sources'][0]['origin']['revision']==old['revision']
  candidate=knowledge['candidates'][0];assert candidate['status']=='pending'
  j=post(c,'/jobs',dict(company='虚构甲',title='产品',jd='JD',idempotency_key='profile-fixture-job')).json()
- before=post(c,'/analysis',dict(job_id=j['id'],kind='job',idempotency_key='before')).json()
- assert '不接受出差哨兵' not in str(before['payload']) and '旧混合文本' not in str(before['payload'])
+ before_seed=dict(job_id=j['id'],kind='job',idempotency_key='before')
+ before_info=post(c,'/analysis',before_seed).json()
+ before=post(c,'/analysis',dict(before_seed,prepared_id=before_info['prepared_id'],payload_hash=before_info['payload_hash'],confirm_outbound=True)).json()
+ assert '不接受出差哨兵' not in str(calls[-1]) and '旧混合文本' not in str(calls[-1])
  post(c,'/knowledge/candidates/'+candidate['id']+'/resolve',dict(decision='confirm',expected_revision=candidate['revision'],idempotency_key='confirm'))
- after=post(c,'/analysis',dict(job_id=j['id'],kind='job',idempotency_key='after')).json()
- assert '不接受出差哨兵' in str(after['payload']) and '旧混合文本' not in str(after['payload'])
+ after_seed=dict(job_id=j['id'],kind='job',idempotency_key='after')
+ after_info=post(c,'/analysis',after_seed).json()
+ after=post(c,'/analysis',dict(after_seed,prepared_id=after_info['prepared_id'],payload_hash=after_info['payload_hash'],confirm_outbound=True)).json()
+ assert '不接受出差哨兵' in str(calls[-1]) and '旧混合文本' not in str(calls[-1])
  assert post(c,'/profile',dict(content='重新混入目标',expected_revision=p['revision'])).status_code==422
  assert post(c,'/profile/basics',dict(basics=basics,expected_revision=0)).status_code==409
 

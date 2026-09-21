@@ -5,7 +5,7 @@ from . import opportunity as op
 from . import resume_artifacts as files
 from .resume_documents import (strict,revision,get_document,for_opportunity,create_document,
                                copy_source,material_transaction,insert_version)
-from .editor import _pdf, _document
+from .resume_pdf import render_pdf
 
 
 def record_submitted(store,oid,body):
@@ -13,10 +13,21 @@ def record_submitted(store,oid,body):
     selected=body.get('resume')
     if not isinstance(selected,dict):raise Invalid('请选择当前稿/固定版本/本次无简历')
     mode=selected.get('mode')
-    fields={'none':{'mode'},'draft':{'mode','document_id','expected_document_revision','document','pdf_base64'},'version':{'mode','source_version_id','source_document_hash','source_artifact_hash'}}
+    fields={'none':{'mode'},'draft':{'mode','document_id','expected_document_revision'},'version':{'mode','source_version_id','source_document_hash','source_artifact_hash'}}
     if mode not in fields:raise Invalid('投递材料模式不合法')
     strict(selected,fields[mode])
-    raw=_pdf(selected.get('pdf_base64')) if mode=='draft' else None
+    rendered=None
+    if mode=='draft':
+        with store.connect(False) as c:
+            opportunity=op.resolve(store,c,oid)
+            replay,_,_=op.request(store,c,'record_submitted',opportunity['id'],body)
+            if replay is not None:return replay
+            draft=get_document(store,c,selected.get('document_id'))
+            if draft['opportunity_id']!=opportunity['id']:
+                raise Conflict('不能投递另一个机会的当前稿')
+            if revision(selected.get('expected_document_revision'))!=draft['revision']:
+                raise Conflict('当前稿已变化，请重新核对')
+            rendered=render_pdf(draft['document'])
     with material_transaction(store) as c:
         o=op.writable(store,c,oid)
         replay,key,fp=op.request(store,c,'record_submitted',o['id'],body)
@@ -28,7 +39,7 @@ def record_submitted(store,oid,body):
         if mode=='draft':
             d=get_document(store,c,selected.get('document_id'))
             if d['opportunity_id']!=o['id']:raise Conflict('不能投递另一个机会的当前稿')
-            if revision(selected.get('expected_document_revision'))!=d['revision'] or _document(selected.get('document'))!=d['document']:raise Conflict('当前稿已变化，请重新核对')
+            if revision(selected.get('expected_document_revision'))!=d['revision'] or rendered is None or rendered.document_hash!=digest(d['document']):raise Conflict('当前稿已变化，请重新核对')
             doc=d['document']
         elif mode=='version':
             source=store._get(c,selected.get('source_version_id'),'editor_version',True)
@@ -41,7 +52,8 @@ def record_submitted(store,oid,body):
                 copied,provenance=copy_source(store,c,dict(kind='version',source_version_id=source['id'],source_document_hash=digest(doc)))
                 d=create_document(store,c,o['id'],copied,provenance)
         if mode!='none':
-            v,a=insert_version(store,c,d,doc,raw,'submission',o['company']+' · '+o['title']+' · 投递版本 · '+day,body['idempotency_key'],sid,source['id'] if source else None)
+            raw=files.checked_bytes(store.data_dir,a) if mode=='version' else rendered.data
+            v,a=insert_version(store,c,d,doc,raw,'submission',o['company']+' · '+o['title']+' · 投递版本 · '+day,body['idempotency_key'],sid,source['id'] if source else None,rendered=rendered)
         greeting=dict(state='not_used') if o.get('greeting') is None else dict(state='captured',content=o['greeting'])
         event=dict(id=sid,submission_format=3,opportunity_id=o['id'],job_id=o.get('legacy_job_id') or o['id'].split(':',1)[1],submitted_on=day,recorded_at=stamp,applied_at=stamp,
                    submitted_greeting_snapshot=greeting,version_id=v['id'] if v else None,artifact_id=a['id'] if a else None,

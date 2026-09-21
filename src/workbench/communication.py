@@ -114,6 +114,11 @@ def _owned(store, c, opportunity_id, communication_id, include_archived=False, r
     return opportunity, raw, event
 
 
+def owned(store, c, opportunity_id, communication_id, include_archived=False, require_writable=False):
+    """Resolve a communication through its public Opportunity boundary."""
+    return _owned(store, c, opportunity_id, communication_id, include_archived, require_writable)
+
+
 def list_communications(store, c, opportunity_id, include_archived=False):
     opportunity = resolve(store, c, opportunity_id)
     events = []

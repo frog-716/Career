@@ -8,6 +8,8 @@ npm run typecheck
 npm run build
 ```
 
+T12 的隔离质量入口是项目根目录的 `python scripts/review_checks.py`；它只使用当前 worktree、测试数据和本地依赖。浏览器回归使用 `python scripts/browser_regression.py`，默认创建临时 `TestProvider` 服务并读取 `tests/fixtures/t12_browser_fixture.json`，不会自动连接生产端口；也可以显式传入 loopback 的隔离服务 `--base-url`。失败时仅保留不含业务正文的截图和短日志。
+
 当前正式 frontend dist 已从最终通过 review 的 Batch F worktree 构建，并随 `0.7.0-batch-f` / schema v6 部署在 `/Users/frog/Projects/Career`。生产部署、数据迁移与浏览器 smoke 证据见 [Batch F §23](../docs/execution/OPPORTUNITY-BATCH-F.md#23-opportunity-mvp-production-cutover2026-09-18)。不要直接打开 index.html；Vite dev 模式不包含后端代理，本地运行以构建后的同源服务为准。
 
 ## 界面结构
@@ -36,7 +38,7 @@ C已将`editor-main`改为显式只读来源；工作稿按document_id进入统�
 
 纸面内容直接编辑；选中分区/条目显示原版操作按钮。草稿自动保存且可手动重试，冲突比较两份内容后人工选择。正式版本保存同时生成实际 PDF，历史可下载/恢复；恢复前当前稿进入独立恢复点。命名使用页面内对话框，兼容不支持 prompt 的内置浏览器。JSON/MD 可导出，JSON 导入尚未提供。
 
-PDF 延用原版 html2canvas/jsPDF 图片式渲染，不具备可选中文字；不会将此路径称为可检索文本 PDF 验收通过。渲染时锁定编辑并冻结文档，失败可使用原请求重试。界面正文不存 localStorage；未保存时关页有提示。API与验收范围见 `docs/execution/RESUME-WORKBENCH.md`。
+PDF 由服务端从结构化简历生成受控 HTML，并使用锁定版本的本地 Chromium/Playwright 打印为 A4 文字 PDF；中文字体内嵌，支持分页和普通文本提取。缺少渲染器时明确失败，不回退为图片 PDF。渲染时锁定编辑并冻结文档，失败可使用原请求重试。界面正文不存 localStorage；未保存时关页有提示。API与验收范围见 `docs/execution/RESUME-WORKBENCH.md`。
 
 ## 历史 v1 冷启动整改（v2 新投递暂停）
 

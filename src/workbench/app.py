@@ -1,6 +1,8 @@
 """HTTP transport: browser calls services, never SQLite or arbitrary filesystem."""
 import json
 import os
+import signal
+import threading
 from pathlib import Path
 from urllib.parse import urlsplit
 from fastapi import FastAPI, Request
@@ -26,23 +28,80 @@ from .offer import router as offer_router
 from .ai_config import create as create_ai_config, update as update_ai_config, delete as delete_ai_config, set_default as set_ai_default, clear_default as clear_ai_default, settings as ai_settings, test_ephemeral as test_ai_ephemeral
 from .model_gateway import ModelGateway
 from .research import router as research_router
+from .local_session import LocalSessionManager, DEFAULT_BUILD_ID
 
 
-def create_app(store=None, frontend_dir=None):
+def create_app(store=None, frontend_dir=None, *, require_local_session=None, runtime_dir=None):
     app=FastAPI(title='Career',docs_url=None,redoc_url=None,openapi_url=None)
     s=store or Store();app.state.store=s
+    if require_local_session is None:
+        require_local_session = os.environ.get('CAREER_TEST_MODE') != '1'
+    runtime_root = Path(runtime_dir or os.environ.get('CAREER_RUNTIME_DIR') or (s.data_dir / '.runtime'))
+    app.state.local_session = LocalSessionManager(
+        runtime_root,
+        data_dir=s.data_dir,
+        build_id=os.environ.get('CAREER_BUILD_ID', DEFAULT_BUILD_ID),
+        schema_version=6,
+    )
+    app.state.require_local_session = bool(require_local_session)
 
     @app.middleware('http')
     async def local_only(request:Request,call_next):
         host=request.headers.get('host','')
-        hostname=urlsplit('http://'+host).hostname
-        if hostname not in ('localhost','127.0.0.1','testserver'):
+        try:
+            parsed_host = urlsplit('http://' + host)
+            # Starlette versions before 1.0.1 could let malformed Host values
+            # change request.url.path.  Reject such values before using any
+            # host/path security decision, and validate the port eagerly.
+            parsed_host.port
+            hostname=parsed_host.hostname
+        except ValueError:
+            return JSONResponse({'detail':'不允许的本地 Host'},403)
+        if (
+            not host
+            or any(char.isspace() for char in host)
+            or parsed_host.username
+            or parsed_host.password
+            or parsed_host.path
+            or parsed_host.query
+            or parsed_host.fragment
+        ):
+            return JSONResponse({'detail':'不允许的本地 Host'},403)
+        test_host = hostname == 'testserver' and os.environ.get('CAREER_TEST_MODE') == '1' and not require_local_session
+        if hostname not in ('localhost','127.0.0.1') and not test_host:
             return JSONResponse({'detail':'仅允许本地访问'},403)
         origin=request.headers.get('origin')
         if origin and origin not in ('http://'+host,'https://'+host):
             return JSONResponse({'detail':'不允许跨站访问本地资料'},403)
         if request.headers.get('sec-fetch-site')=='cross-site':
             return JSONResponse({'detail':'不允许跨站访问本地资料'},403)
+        # Use the ASGI scope path rather than request.url.path so a malformed
+        # Host header cannot rewrite the path used by the auth gate.
+        path = request.scope.get('path') or '/'
+        public = (
+            path == '/healthz'
+            or path == '/api/pair'
+            or (request.method in ('GET', 'HEAD') and not path.startswith('/api'))
+        )
+        control_authorized = path in ('/api/local/stop', '/api/local/healthz') and app.state.local_session.authorize_control(
+            request.headers.get('x-career-control')
+        )
+        if require_local_session and not public and not control_authorized:
+            authorization = request.headers.get('authorization', '')
+            token = authorization[7:].strip() if authorization.lower().startswith('bearer ') else None
+            session = app.state.local_session.authenticate(token)
+            if session is None:
+                return JSONResponse(
+                    {'detail':'需要本地配对会话', 'code':'pairing_required'},
+                    status_code=401,
+                    headers={'Cache-Control':'no-store'},
+                )
+            request.state.local_session = session
+            request.state.local_session_token = token
+        # Career does not need resumable local downloads.  Reject Range before
+        # Starlette FileResponse/StaticFiles can enter their range parser.
+        if request.headers.get('range'):
+            return Response(status_code=416, headers={'Accept-Ranges':'none'})
         if request.method not in ('GET','HEAD'):
             if request.headers.get('x-career-request')!='1':return JSONResponse({'detail':'缺少同源请求标识'},403)
             if request.headers.get('content-type','').split(';')[0]!='application/json':return JSONResponse({'detail':'仅支持 JSON 请求'},415)
@@ -53,15 +112,56 @@ def create_app(store=None, frontend_dir=None):
                 chunks.append(chunk)
             request._body=b''.join(chunks)
         response=await call_next(request)
-        response.headers.update({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"})
+        response.headers.update({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Career-Build-Id':app.state.local_session.build_id,'Content-Security-Policy':"default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"})
         return response
 
     for cls,code in [(Invalid,422),(Conflict,409),(Missing,404),(ProviderError,503),(ArtifactError,422)]:
-        async def handle(request,exc,status=code):return JSONResponse({'detail':str(exc)},status_code=status)
+        async def handle(request,exc,status=code):
+            body = {'detail':str(exc)}
+            if getattr(exc, 'code', None):
+                body['code'] = exc.code
+            return JSONResponse(body,status_code=status)
         app.add_exception_handler(cls,handle)
 
+    @app.get('/healthz')
+    def healthz():
+        return {'status':'ok','build_id':app.state.local_session.build_id}
+
+    @app.post('/api/pair')
+    def pair(b:dict):
+        result = app.state.local_session.pair(b.get('code'))
+        if result is None:
+            return JSONResponse({'detail':'配对码无效、已过期或已使用','code':'pairing_failed'}, status_code=401)
+        return result
+
+    @app.post('/api/logout')
+    def logout(request:Request):
+        app.state.local_session.revoke(getattr(request.state, 'local_session_token', None))
+        return {'ok':True}
+
+    @app.post('/api/local/stop')
+    def local_stop(request:Request):
+        if not app.state.local_session.authorize_control(request.headers.get('x-career-control')):
+            return JSONResponse({'detail':'本实例控制凭据无效'}, status_code=403)
+        threading.Timer(0.05, lambda: os.kill(os.getpid(), signal.SIGTERM)).start()
+        return {'ok':True,'status':'stopping'}
+
+    @app.get('/api/local/healthz')
+    def local_healthz(request:Request):
+        if not app.state.local_session.authenticate(getattr(request.state, 'local_session_token', None)) and not app.state.local_session.authorize_control(request.headers.get('x-career-control')):
+            return JSONResponse({'detail':'本实例控制凭据无效'}, status_code=403)
+        return app.state.local_session.diagnostics()
+
     @app.get('/api/state')
-    def state():return s.state()
+    def state(view: str = 'full', job_id: str | None = None):
+        if view not in {'full', 'summary', 'profile', 'resume', 'feedback', 'opportunity'}:
+            raise Invalid('state view 不合法')
+        result = s.state(view, job_id)
+        diagnostics = result.get('diagnostics', {})
+        diagnostics.pop('data_dir', None)
+        diagnostics.update(app.state.local_session.diagnostics())
+        result['diagnostics'] = diagnostics
+        return result
     @app.get('/api/ai/models')
     def ai_models():
         with s.connect(False) as c:return ai_settings(s, c)
@@ -90,7 +190,18 @@ def create_app(store=None, frontend_dir=None):
     @app.post('/api/analysis')
     def analyze(b:dict):
         if b.get('kind')=='resume':raise Invalid('旧文字简历提案已停止写入，请在结构化简历工作台中编辑')
-        return s.analyze(b.get('job_id'),b.get('kind'),b.get('instruction',''),b.get('expected_epoch'),required(b.get('idempotency_key'),'请求标识',100),b.get('wiki_ids'))
+        key = required(b.get('idempotency_key'), '请求标识', 100)
+        if not b.get('prepared_id') or b.get('confirm_outbound') is not True:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(s.prepare_analysis(
+                b.get('job_id'), b.get('kind'), b.get('instruction', ''),
+                b.get('expected_epoch'), key, b.get('wiki_ids'), b.get('model_config_id'),
+            ), status_code=409)
+        return s.analyze(
+            b.get('job_id'), b.get('kind'), b.get('instruction', ''),
+            b.get('expected_epoch'), key, b.get('wiki_ids'),
+            b.get('prepared_id'), b.get('payload_hash'), True, b.get('model_config_id'),
+        )
     @app.post('/api/resumes')
     def resume(b:dict):
         job_id=required(b.get('job_id'),'机会',500)

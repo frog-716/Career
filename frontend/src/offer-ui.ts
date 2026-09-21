@@ -1,6 +1,6 @@
 /** Offer belongs to one Opportunity; terms are current-only and user-confirmed. */
 type Row = Record<string, any>;
-type Actions = {api:(path:string,body?:Row,method?:string)=>Promise<any>;refresh:()=>Promise<void>;go:(id:string,filter?:string)=>void};
+type Actions = {api:<T = Row>(path:string,body?:Row,method?:string)=>Promise<T>;refresh:()=>Promise<void>;go:(id:string,filter?:string)=>void};
 const esc=(value:unknown)=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 const localDay=()=>{const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');};
 const emptyComp=()=>({guaranteed_cash:'',variable_cash:'',equity:'',one_time:'',notes:''});

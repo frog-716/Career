@@ -1,5 +1,5 @@
+import json
 from batch_c_helpers import editor_client
-import base64
 from copy import deepcopy
 from fastapi.testclient import TestClient
 from workbench.app import create_app
@@ -26,9 +26,9 @@ def test_selected_fact_provenance_freezes_through_version_and_submission(tmp_pat
  assert ref['source_id']==e['id'] and ref['revision']==e['revision']
  assert post(c,'/editor/select-facts',body).json()==d
  assert post(c,'/editor/select-facts',dict(body,idempotency_key='duplicate',expected_revision=d['revision'])).status_code==409
- v=post(c,'/editor/versions',dict(document=d['document'],expected_revision=d['revision'],name='事实版',pdf_base64=base64.b64encode(b'%PDF-1.7\nfixture\n%%EOF').decode(),idempotency_key='v')).json()
+ v=post(c,'/editor/versions',dict(expected_revision=d['revision'],name='事实版',idempotency_key='v')).json()
  post(c,'/domain/resume-uses',dict(version_id=v['id'],scope_type='job',scope_id=j['id'],idempotency_key='use'))
- a=post(c,'/opportunities/'+c.editor_op['id']+'/submitted',dict(expected_revision=c.editor_op['revision'],idempotency_key='apply',resume=dict(mode='draft',document_id=c.editor_id,expected_document_revision=d['revision'],document=d['document'],pdf_base64=base64.b64encode(b'%PDF-1.7\nfixture\n%%EOF').decode()))).json()['submission']
+ a=post(c,'/opportunities/'+c.editor_op['id']+'/submitted',dict(expected_revision=c.editor_op['revision'],idempotency_key='apply',resume=dict(mode='draft',document_id=c.editor_id,expected_document_revision=d['revision']))).json()['submission']
  post(c,'/knowledge/entries/'+e['id'],dict(e,content='更正后的审批事实',expected_revision=e['revision']))
  assert c.get(c.editor_path+'/sources').json()['sources'][0]['status']=='updated'
  assert c.get(c.editor_path+'/versions/'+v['id']).json()['document']==d['document']
@@ -79,8 +79,11 @@ def test_record_candidate_confirmation_controls_real_context_payload(tmp_path):
  assert '查证经验' not in str(pending)
  confirmed=post(c,'/knowledge/candidates/'+cand['id']+'/resolve',dict(expected_revision=1,decision='confirm',idempotency_key='confirm')).json()
  packet=post(c,'/context',dict(job_id=j['id'],kind='job',wiki_ids=[confirmed['entry_id']])).json()
- run=post(c,'/analysis',dict(job_id=j['id'],kind='job',wiki_ids=[confirmed['entry_id']],expected_epoch=packet['epoch'],idempotency_key='run')).json()
+ prepared=post(c,'/analysis',dict(job_id=j['id'],kind='job',wiki_ids=[confirmed['entry_id']],expected_epoch=packet['epoch'],idempotency_key='run')).json()
+ run=post(c,'/analysis',dict(job_id=j['id'],kind='job',wiki_ids=[confirmed['entry_id']],expected_epoch=packet['epoch'],idempotency_key='run',prepared_id=prepared['prepared_id'],payload_hash=prepared['payload_hash'],confirm_outbound=True)).json()
  assert run['status']=='succeeded'
- payload=str(c.get('/api/state').json()['runs'][0]['payload'])
- assert '可以复用的查证经验' in payload
- assert '内部完整原话哨兵' not in payload and '仅限任务的纠正原话哨兵' not in payload
+ saved_run=c.get('/api/state').json()['runs'][0]
+ assert 'payload' not in saved_run
+ assert saved_run['payload_meta']['payload_hash']
+ assert '内部完整原话哨兵' not in json.dumps(saved_run['payload_meta'],ensure_ascii=False)
+ assert '仅限任务的纠正原话哨兵' not in json.dumps(saved_run['payload_meta'],ensure_ascii=False)

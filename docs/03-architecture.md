@@ -9,7 +9,7 @@
 以下先记录 2026-09-18 Production Cutover 后的现役实现；2026-09-17 的旧 v1 事实仍可在 [AS-IS](audit/AS-IS-system-map.md)追溯，但不再代表当前 runtime。
 
 - Python/FastAPI + Uvicorn单进程本地服务；前端为**Vanilla TypeScript/JavaScript + Vite**，模板字符串/DOM和hash路由，没有React。
-- 主入口`frontend/index.html → src/main.ts → workspace.ts`；独立纸面编辑器`editor.html → editor/legacy-entry.ts → legacy-app.js`。复用结构化分区、格式、撤销及html2canvas/jsPDF单页图片式PDF；不能承诺可选文字或ATS解析质量。
+- 主入口`frontend/index.html → src/main.ts → workspace.ts`；独立纸面编辑器`editor.html → editor/legacy-entry.ts → legacy-app.js`。编辑器继续复用结构化分区、格式和撤销；正式 PDF 由服务端用锁定版本的本地 Chromium/Playwright 从结构化数据生成可提取文字的 A4 文档。不能承诺任意 ATS 的解析质量。
 - Python sqlite3直接访问一个SQLite数据库；`meta/current/revisions/records/applications`存JSON与少量索引/约束。没有独立ORM、Repository层、向量库或图数据库。大多数业务引用由服务验证，不都有FK。
 - `current`保存可变当前对象；通用保存追加`revisions`。`records`包括版本、原件、run等，但通用_record是upsert，不能将整表视为数据库级不可变。
 - 正式 runtime 为 `0.7.0-batch-f`，SQLite schema v6。已有库必须精确为 v6，旧 v1–v5 在任何业务写入前拒绝；版本升级使用独立、显式、hash-bound 的 v1→v6 migration chain，不在启动时隐式迁移。

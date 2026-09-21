@@ -1,0 +1,42 @@
+name: Career quality
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked dependencies
+        run: |
+          python -m pip install -r requirements.lock
+          npm --prefix frontend ci
+      - name: Backend regression
+        run: python -B -m pytest -q
+      - name: Key schema, AI, session, PDF and recovery regression
+        run: python -B -m pytest -q tests/test_ai_operations.py tests/test_resume_pdf.py tests/test_t09_local_session.py tests/test_t10_backup.py tests/test_t11_pages.py
+      - name: Frontend typecheck and build
+        run: |
+          npm --prefix frontend run typecheck
+          npm --prefix frontend run build
+      - name: Isolated browser regression
+        run: |
+          python -m playwright install chromium --with-deps
+          python scripts/browser_regression.py
+      - name: Dependency and whitespace checks
+        run: |
+          python -m pip check
+          npm --prefix frontend ls --depth=0
+          python scripts/secret_scan.py
+          python scripts/review_checks.py --docs-only
+          git diff --check

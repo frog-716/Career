@@ -12,6 +12,7 @@ import re
 import uuid
 
 from .artifacts import ArtifactError, read_artifact
+from .attachment_lock import attachment_lifecycle_lock
 
 _FINAL = re.compile(r'c-resume-[0-9a-f-]{36}-[0-9a-f]{64}\.pdf$')
 
@@ -42,6 +43,11 @@ def checked_bytes(root, artifact):
 
 
 def recover(c, root):
+    with attachment_lifecycle_lock(root):
+        return _recover_locked(c, root)
+
+
+def _recover_locked(c, root):
     refs={}
     for row in c.execute("SELECT body FROM records WHERE kind='artifact'"):
         a=json.loads(row[0]);checked_bytes(root,a);refs[a['path']]=a['sha256']
@@ -62,17 +68,20 @@ def recover(c, root):
     return moved
 
 
-def stage_pdf(root, aid, vid, raw, created):
-    stage=directory(root,'resume-staging');final=directory(root,'artifacts')
-    sha=hashlib.sha256(raw).hexdigest()
-    pending=stage/(aid+'.pdf')
-    with pending.open('xb') as f:
-        f.write(raw);f.flush();os.fsync(f.fileno())
-    sync_dir(stage);fault('after_stage')
-    target=final/('c-resume-'+aid+'-'+sha+'.pdf')
-    if target.exists():raise ArtifactError('附件目标已存在')
-    os.replace(pending,target);sync_dir(stage);sync_dir(final);fault('after_rename')
-    a=dict(id=aid,version_id=vid,path='artifacts/'+target.name,sha256=sha,
-           media_type='application/pdf',size=len(raw),created_at=created)
-    checked_bytes(root,a)
-    return a
+def stage_pdf(root, aid, vid, raw, created, metadata=None):
+    with attachment_lifecycle_lock(root):
+        stage=directory(root,'resume-staging');final=directory(root,'artifacts')
+        sha=hashlib.sha256(raw).hexdigest()
+        pending=stage/(aid+'.pdf')
+        with pending.open('xb') as f:
+            f.write(raw);f.flush();os.fsync(f.fileno())
+        sync_dir(stage);fault('after_stage')
+        target=final/('c-resume-'+aid+'-'+sha+'.pdf')
+        if target.exists():raise ArtifactError('附件目标已存在')
+        os.replace(pending,target);sync_dir(stage);sync_dir(final);fault('after_rename')
+        a=dict(id=aid,version_id=vid,path='artifacts/'+target.name,sha256=sha,
+               media_type='application/pdf',size=len(raw),created_at=created)
+        if metadata:
+            a.update(metadata)
+        checked_bytes(root,a)
+        return a

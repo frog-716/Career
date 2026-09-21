@@ -10,6 +10,9 @@ import tempfile
 from pathlib import Path
 
 
+DEFAULT_PORT = 8765
+
+
 def build_icon(project_root: Path, resources_dir: Path) -> None:
     source = project_root / "macos" / "career-icon.png"
     if not source.exists():
@@ -27,7 +30,30 @@ def build_icon(project_root: Path, resources_dir: Path) -> None:
         subprocess.run(["/usr/bin/iconutil", "-c", "icns", str(iconset), "-o", str(resources_dir / "Career.icns")], check=True)
 
 
-def build(destination: Path, project_root: Path) -> Path:
+def launcher_source(project_root: Path, port: int = DEFAULT_PORT, ai_mode: str | None = None) -> str:
+    if ai_mode not in (None, "LOCAL_ONLY", "AI_ENABLED"):
+        raise ValueError("ai_mode 必须是 LOCAL_ONLY、AI_ENABLED 或 None")
+    root = str(project_root.resolve()).replace("\\", "\\\\").replace('"', '\\"')
+    mode_setup = f'    setenv("CAREER_AI_MODE", "{ai_mode}", 1);\n' if ai_mode else ""
+    return f'''#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {{
+    const char *root = "{root}";
+{mode_setup}
+    char python[4096];
+    char script[4096];
+    snprintf(python, sizeof(python), "%s/.venv/bin/python", root);
+    snprintf(script, sizeof(script), "%s/scripts/macos_app.py", root);
+    execl(python, python, script, "start", "--project-root", root, "--port", "{int(port)}", (char *)0);
+    perror("Career launcher");
+    return 1;
+}}
+'''
+
+
+def build(destination: Path, project_root: Path, port: int = DEFAULT_PORT, ai_mode: str | None = None) -> Path:
     app = destination / "Career.app"
     legacy_app = destination / "Career OS.app"
     if legacy_app.exists():
@@ -51,21 +77,7 @@ def build(destination: Path, project_root: Path) -> Path:
         "NSHighResolutionCapable": True,
     }
     (contents / "Info.plist").write_bytes(plistlib.dumps(plist))
-    root = str(project_root.resolve()).replace("\\", "\\\\").replace('"', '\\"')
-    source = f'''#include <unistd.h>
-#include <stdio.h>
-
-int main(void) {{
-    const char *root = "{root}";
-    char python[4096];
-    char script[4096];
-    snprintf(python, sizeof(python), "%s/.venv/bin/python", root);
-    snprintf(script, sizeof(script), "%s/scripts/macos_app.py", root);
-    execl(python, python, script, "start", "--project-root", root, (char *)0);
-    perror("Career launcher");
-    return 1;
-}}
-'''
+    source = launcher_source(project_root, port, ai_mode)
     with tempfile.TemporaryDirectory(prefix="career-launcher-") as temp_dir:
         source_path = Path(temp_dir) / "launcher.c"
         source_path.write_text(source, encoding="utf-8")
@@ -81,8 +93,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--destination", type=Path, default=Path(__file__).resolve().parents[1] / "macos")
     parser.add_argument("--project-root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--ai-mode", choices=("LOCAL_ONLY", "AI_ENABLED"), default=None,
+                        help="将显式运行模式嵌入 App；省略时 Finder 启动会 fail closed")
     args = parser.parse_args()
-    app = build(args.destination, args.project_root)
+    app = build(args.destination, args.project_root, args.port, args.ai_mode)
     print(f"已生成：{app}")
     print("双击该 App 会启动或复用本地服务，并打开用户设置的默认首页。")
     return 0

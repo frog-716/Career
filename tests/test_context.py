@@ -33,12 +33,18 @@ def test_context_v2_is_stable_and_keeps_legacy_fields(tmp_path):
     assert all({"id", "revision", "hash", "purpose", "selected_content"} <= set(source)
                for source in preview["sources"])
 
-    run = store.analyze(job["id"], "job", "请分析", preview["epoch"], "stable-run")
+    calls=[]; original=store.provider.complete
+    store.provider.complete=lambda payload: (calls.append(payload) or original(payload))
+    prepared = store.analyze(job["id"], "job", "请分析", preview["epoch"], "stable-run")
+    run = store.analyze(job["id"], "job", "请分析", preview["epoch"], "stable-run",
+                        prepared_id=prepared["prepared_id"], payload_hash=prepared["payload_hash"],
+                        confirm_outbound=True)
     packet = run["packet"]
     assert [(s["id"], s["revision"], s["hash"]) for s in packet["sources"]] == [
         (s["id"], s["revision"], s["hash"]) for s in preview["sources"]
     ]
-    assert json.dumps(run["payload"], ensure_ascii=False)
+    assert json.dumps(calls[-1], ensure_ascii=False)
+    assert run["payload_meta"]["payload_hash"]
 
 
 def test_context_v2_excludes_feedback_and_unrelated_journey(tmp_path):
@@ -73,7 +79,10 @@ def test_opportunity_relation_change_invalidates_preview_and_run(tmp_path):
     }, headers=headers).json()
     preview = store.context(job["id"], "job")
     assert any(source["purpose"] == "company_identity" for source in preview["sources"])
-    run = store.analyze(job["id"], "job", expected_epoch=preview["epoch"], idempotency_key="run")
+    prepared = store.analyze(job["id"], "job", expected_epoch=preview["epoch"], idempotency_key="run")
+    run = store.analyze(job["id"], "job", expected_epoch=preview["epoch"], idempotency_key="run",
+                        prepared_id=prepared["prepared_id"], payload_hash=prepared["payload_hash"],
+                        confirm_outbound=True)
     client.post("/api/domain/opportunities/" + job["id"], json={
         "company_id": company["id"], "expected_revision": relation["revision"], "idempotency_key": "assign-again",
     }, headers=headers)
