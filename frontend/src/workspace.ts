@@ -8,6 +8,14 @@ import {
 import { profilePanel } from "./profile-ui";
 import { aiSettingsView } from "./ai-config-ui";
 import { resumeWorkspaceHTML } from "./resume-workspace";
+import {
+  applySidebarPin,
+  isSidebarModuleId,
+  normalizeSidebarOrder,
+  persistSidebarPreferences,
+  resolveSidebarHome,
+  type SidebarModuleId,
+} from "./sidebar-model";
 type Row = Record<string, any>;
 export const ui = {
   sidebar: !window.matchMedia("(max-width: 760px)").matches,
@@ -85,36 +93,48 @@ export const SIDEBAR_MODULES: [string, string][] = [
 const sidebarStorageKey = "career.sidebar.module-order.v1";
 const sidebarHomeStorageKey = "career.sidebar.home.v1";
 function savedSidebarHome(): string | null {
-  const ids = new Set(SIDEBAR_MODULES.map(([id]) => id));
   try {
     const saved = localStorage.getItem(sidebarHomeStorageKey);
-    return saved && ids.has(saved) ? saved : null;
+    return isSidebarModuleId(saved) ? saved : null;
   } catch { return null; }
 }
 function sidebarOrder(): [string, string][] {
-  const ids = SIDEBAR_MODULES.map(([id]) => id);
   let saved: unknown = [];
   try { saved = JSON.parse(localStorage.getItem(sidebarStorageKey) || "[]"); } catch { saved = []; }
-  const ordered = Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string" && ids.includes(id)) : [];
-  ids.forEach((id) => { if (!ordered.includes(id)) ordered.push(id); });
-  const pinned = savedSidebarHome();
-  const result = pinned
-    ? [pinned, ...ordered.filter((id) => id !== pinned)]
-    : ordered;
+  const result = applySidebarPin(saved, savedSidebarHome());
   return result.map((id) => SIDEBAR_MODULES.find(([candidate]) => candidate === id)!);
 }
 export function sidebarHome(): string {
-  return savedSidebarHome() || sidebarOrder()[0]?.[0] || SIDEBAR_MODULES[0][0];
+  let saved: unknown = [];
+  try { saved = JSON.parse(localStorage.getItem(sidebarStorageKey) || "[]"); } catch { saved = []; }
+  return resolveSidebarHome(savedSidebarHome(), saved);
 }
-function saveSidebarHome(id: string | null) {
+function navOrder(nav: HTMLElement): SidebarModuleId[] {
+  return normalizeSidebarOrder(
+    [...nav.querySelectorAll<HTMLElement>("[data-sidebar-module]")].map((el) => el.dataset.sidebarModule),
+  );
+}
+function restoreSidebarOrder(nav: HTMLElement, order: readonly SidebarModuleId[]) {
+  const items = new Map(
+    [...nav.querySelectorAll<HTMLElement>("[data-sidebar-module]")].map((item) => [item.dataset.sidebarModule, item]),
+  );
+  for (const id of order) {
+    const item = items.get(id);
+    if (item) nav.appendChild(item);
+  }
+}
+function writeSidebarPreferences(home: string | null, order: readonly SidebarModuleId[]): boolean {
   try {
-    if (id) localStorage.setItem(sidebarHomeStorageKey, id);
-    else localStorage.removeItem(sidebarHomeStorageKey);
-  } catch { /* local preference is best effort */ }
-}
-function saveSidebarOrder(nav: HTMLElement) {
-  const order = [...nav.querySelectorAll<HTMLElement>("[data-sidebar-module]")].map((el) => el.dataset.sidebarModule!);
-  try { localStorage.setItem(sidebarStorageKey, JSON.stringify(order)); } catch { /* local preference is best effort */ }
+    return persistSidebarPreferences(
+      localStorage,
+      sidebarHomeStorageKey,
+      sidebarStorageKey,
+      home,
+      order,
+    );
+  } catch {
+    return false;
+  }
 }
 export function bindSidebarOrder() {
   const nav = document.querySelector<HTMLElement>("#sidebar-nav");
@@ -131,6 +151,9 @@ export function bindSidebarOrder() {
   let moveFrame: number | undefined;
   let pendingMove: {x: number; y: number} | null = null;
   let suppressClick = false;
+  let contextTrigger: HTMLElement | null = null;
+  let dragStartOrder: SidebarModuleId[] = [];
+  let dragStartHome: string | null = null;
   const updateHomeMarkers = () => {
     const pinned = savedSidebarHome();
     nav.querySelectorAll<HTMLElement>("[data-sidebar-module]").forEach((item) => {
@@ -141,22 +164,30 @@ export function bindSidebarOrder() {
       if (!isPinned) marker?.remove();
     });
   };
-  const closeContextMenu = () => {
+  const closeContextMenu = (restoreFocus = false) => {
     if (!contextMenu) return;
+    const trigger = contextTrigger;
+    contextTrigger = null;
     contextMenu.hidden = true;
     contextMenu.replaceChildren();
+    if (restoreFocus && trigger?.isConnected) trigger.focus();
   };
-  const openContextMenu = (item: HTMLElement, event: MouseEvent) => {
+  const openContextMenu = (item: HTMLElement, event: MouseEvent | KeyboardEvent) => {
     if (!contextMenu) return;
     const id = item.dataset.sidebarModule;
     if (!id) return;
     const isPinned = savedSidebarHome() === id;
-    contextMenu.innerHTML = `<button type="button" role="menuitem" data-sidebar-home="${e(id)}">${isPinned ? "取消置顶" : "置顶"}</button>`;
+    contextTrigger = item;
+    contextMenu.innerHTML = `<span class="sidebar-context-hint" role="note">置顶后成为启动首页；取消后保留当前顺序</span><button type="button" role="menuitem" data-sidebar-home="${e(id)}">${isPinned ? "取消置顶" : "置顶"}</button>`;
     contextMenu.hidden = false;
     const menuWidth = 150;
-    const menuHeight = 44;
-    contextMenu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8))}px`;
-    contextMenu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8))}px`;
+    const menuHeight = 70;
+    const rect = item.getBoundingClientRect();
+    const clientX = "clientX" in event && event.clientX ? event.clientX : rect.left + rect.width;
+    const clientY = "clientY" in event && event.clientY ? event.clientY : rect.bottom;
+    contextMenu.style.left = `${Math.max(8, Math.min(clientX, window.innerWidth - menuWidth - 8))}px`;
+    contextMenu.style.top = `${Math.max(8, Math.min(clientY, window.innerHeight - menuHeight - 8))}px`;
+    contextMenu.querySelector<HTMLElement>("[data-sidebar-home]")?.focus();
   };
   const resetDraggedItem = () => {
     if (!dragging) return;
@@ -183,6 +214,8 @@ export function bindSidebarOrder() {
     dragging = null;
     pointerId = null;
     dragActive = false;
+    dragStartOrder = [];
+    dragStartHome = null;
   };
   const beginDrag = () => {
     if (!dragging || dragActive) return;
@@ -239,21 +272,40 @@ export function bindSidebarOrder() {
     event.stopPropagation();
     openContextMenu(item, event);
   });
+  nav.addEventListener("keydown", (event) => {
+    const item = (event.target as HTMLElement).closest<HTMLElement>("[data-sidebar-module]");
+    if (!item || !(event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openContextMenu(item, event);
+  });
+  contextMenu?.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeContextMenu(true);
+  });
   contextMenu?.addEventListener("click", (event) => {
     const action = (event.target as HTMLElement).closest<HTMLElement>("[data-sidebar-home]");
     if (!action) return;
     const id = action.dataset.sidebarHome;
     if (!id) return;
     const item = nav.querySelector<HTMLElement>(`[data-sidebar-module="${CSS.escape(id)}"]`);
-    if (savedSidebarHome() === id) {
-      saveSidebarHome(null);
-    } else {
-      saveSidebarHome(id);
-      if (item && nav.firstElementChild !== item) nav.insertBefore(item, nav.firstElementChild);
+    const beforeOrder = navOrder(nav);
+    const beforeHome = savedSidebarHome();
+    const nextHome = beforeHome === id ? null : id;
+    const nextOrder = nextHome && item
+      ? [id as SidebarModuleId, ...beforeOrder.filter((candidate) => candidate !== id)]
+      : beforeOrder;
+    if (!writeSidebarPreferences(nextHome, nextOrder)) {
+      restoreSidebarOrder(nav, beforeOrder);
+      updateHomeMarkers();
+      closeContextMenu(true);
+      return;
     }
-    saveSidebarOrder(nav);
+    restoreSidebarOrder(nav, nextOrder);
     updateHomeMarkers();
-    closeContextMenu();
+    closeContextMenu(true);
   });
   nav.addEventListener("pointerdown", () => closeContextMenu(), true);
   nav.addEventListener("pointerdown", (event) => {
@@ -262,6 +314,8 @@ export function bindSidebarOrder() {
     if (!item) return;
     if (item.dataset.sidebarModule === savedSidebarHome()) return;
     dragging = item;
+    dragStartOrder = navOrder(nav);
+    dragStartHome = savedSidebarHome();
     pointerId = event.pointerId;
     pointerStartX = event.clientX;
     pointerStartY = event.clientY;
@@ -292,8 +346,14 @@ export function bindSidebarOrder() {
       placeholder.remove();
       placeholder = null;
       resetDraggedItem();
-      saveSidebarOrder(nav);
-      if (nav.firstElementChild === dragging) saveSidebarHome(dragging.dataset.sidebarModule || null);
+      const droppedId = dragging.dataset.sidebarModule;
+      const nextOrder = navOrder(nav);
+      const nextHome = nav.firstElementChild === dragging && isSidebarModuleId(droppedId)
+        ? droppedId
+        : dragStartHome;
+      if (!writeSidebarPreferences(nextHome, nextOrder)) {
+        restoreSidebarOrder(nav, dragStartOrder);
+      }
       updateHomeMarkers();
       suppressClick = true;
     }
@@ -356,7 +416,7 @@ export function shell(
       </g>
     </svg></span>`;
   const pinnedHome = savedSidebarHome();
-  return `<div class="workspace ${ui.sidebar ? "" : "sidebar-hidden"}"><aside class="sidebar" ${ui.sidebar ? "" : "inert"}><div class="brand">Career</div><nav id="sidebar-nav" aria-label="主导航">${items.map(([id, text]) => `<button class="nav ${active === id ? "active" : ""}" data-page="${id}" data-sidebar-module="${id}" draggable="true" aria-grabbed="false" title="${pinnedHome === id ? "置顶首页" : ""}">${icon(id)}<span>${text}</span>${pinnedHome === id ? `<span class="sidebar-home-mark" aria-label="首页" title="首页">${icon("home")}</span>` : ""}</button>`).join("")}</nav><div class="sidebar-bottom"><details class="account-menu"><summary aria-label="蒸🐮🐸，账户菜单">${accountAvatar}<span class="account-name"><span>蒸</span><span class="account-emoji">🐮</span><span class="account-emoji">🐸</span></span><span class="more">···</span></summary><div class="account-popover"><button data-page="profile">${icon("resume")}个人资料</button><button data-page="directory">${icon("jobs")}公司与方向</button><button data-page="diagnostics">${icon("settings")}设置</button><button data-page="feedback">${icon("feedback")}反馈记录</button></div></details></div></aside><main><header class="topbar"><div class="actions"><button class="icon-button" id="toggle-sidebar" aria-label="${ui.sidebar ? "收起" : "展开"}侧栏" aria-expanded="${ui.sidebar}">${icon("panel")}</button><h1>${label}</h1>${test ? '<span class="test-badge">测试空间</span>' : ""}</div><button class="quiet" id="capture-feedback">${icon("feedback")}反馈</button></header><div id="notice" class="notice toast" role="status" ${notice ? "" : "hidden"}>${e(notice)}</div><div class="workspace-content">${content}</div></main><div id="sidebar-context-menu" class="sidebar-context-menu" role="menu" hidden></div></div>`;
+  return `<div class="workspace ${ui.sidebar ? "" : "sidebar-hidden"}"><aside class="sidebar" ${ui.sidebar ? "" : "inert"}><div class="brand">Career</div><nav id="sidebar-nav" aria-label="主导航">${items.map(([id, text]) => `<button class="nav ${active === id ? "active" : ""}" data-page="${id}" data-sidebar-module="${id}" draggable="true" aria-grabbed="false" aria-haspopup="menu" title="${pinnedHome === id ? "置顶首页" : ""}">${icon(id)}<span>${text}</span>${pinnedHome === id ? `<span class="sidebar-home-mark" aria-label="首页" title="首页">${icon("home")}</span>` : ""}</button>`).join("")}</nav><div class="sidebar-bottom"><details class="account-menu"><summary aria-label="蒸🐮🐸，账户菜单">${accountAvatar}<span class="account-name"><span>蒸</span><span class="account-emoji">🐮</span><span class="account-emoji">🐸</span></span><span class="more">···</span></summary><div class="account-popover"><button data-page="profile">${icon("resume")}个人资料</button><button data-page="directory">${icon("jobs")}公司与方向</button><button data-page="diagnostics">${icon("settings")}设置</button><button data-page="feedback">${icon("feedback")}反馈记录</button></div></details></div></aside><main><header class="topbar"><div class="actions"><button class="icon-button" id="toggle-sidebar" aria-label="${ui.sidebar ? "收起" : "展开"}侧栏" aria-expanded="${ui.sidebar}">${icon("panel")}</button><h1>${label}</h1>${test ? '<span class="test-badge">测试空间</span>' : ""}</div><button class="quiet" id="capture-feedback">${icon("feedback")}反馈</button></header><div id="notice" class="notice toast" role="status" ${notice ? "" : "hidden"}>${e(notice)}</div><div class="workspace-content">${content}</div></main><div id="sidebar-context-menu" class="sidebar-context-menu" role="menu" hidden></div></div>`;
 }
 export function view(page: string, d: Row, h: Row): string {
   const {

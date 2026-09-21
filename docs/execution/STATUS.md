@@ -1,6 +1,6 @@
 # 当前状态
 
-最后整理：2026-09-21（T01–T14 开发冻结；Stage 3 已按绑定身份完成 `LOCAL_ONLY` 正式本机切换；Stage 4A.1 已完成源码收口）。本文顶部只维护当前源码/运行身份、阶段状态、阻断项、下一动作和证据位置；历史批次的过程和证据留在下方既有章节及各自文档。
+最后整理：2026-09-21（T00–T15 implementation tasks = `COMPLETE`；Review stabilization / implementation program = `CLOSED`）。本文顶部只维护当前源码/运行身份、阶段状态、阻断项、下一动作和证据位置；历史批次的过程和证据留在下方既有章节及各自文档。
 
 ## 当前生产切换阶段
 
@@ -8,46 +8,50 @@
 - Stage 3 执行门已通过；[RELEASE-GATE](RELEASE-GATE.md) 保留的是执行前重分类历史。`AI_ENABLED`、真实 Keychain/Provider 和收费调用没有包含在本次发布授权内。
 - 真实 Provider 未调用，真实 Keychain 未读取、修改或删除；本次通过仅适用于 `LOCAL_ONLY`。
 - 当前计划身份：`plan_id=career-cutover-20260920-stage25-resume-template-e2dcd25c`，`plan_hash=a4dc6c46fab037bb17303439773285d2709bfc379839549aed0f5c5548a0a26e`，`release_id=career-0.7.0-batch-f-stage25-resume-template-20260920`。
-- 当前冻结身份：`HEAD=920d08b645db14d272bc524103e969a2f504f1fb`，`source_fingerprint=e2dcd25c1479f895f4c540ea19812a08e7bdacdde2d91747d367f5fdeb440d0d`，`static_fingerprint=2daf9f5aaddf62d94cd3d555555d0f734057b42a6a9132ccde927fd921568ede`，backend/frontend build=`career-0.7.0-batch-f`。Stage 2.5 修改了服务端 PDF 模板映射，以上 source/static fingerprint 与 Stage 3 有效发布对象一致。
+- 当前冻结身份：T14 Git 收口后的基线为 `main`/`origin/main`=`ebf528446e4b5d07d92165b5a1fbf0ac3ba10fb3`；T15 已完成收口并以本轮提交后的 local/remote HEAD 核验为准。Stage 3 的 source/static fingerprint 和 `career-0.7.0-batch-f` 仍仅代表其历史发布对象。
 - 旧正式 PID `79422` 已在完整身份核验后优雅停止；原正式数据、旧 App、旧 Python 环境和旧 runtime 均保留。当前正式 PID=`39300`、Python=`3.12.14`、build=`career-0.7.0-batch-f`、data instance=`42ff565e28a08e31414442521540ac3e`、端口=`127.0.0.1:8765`、模式=`LOCAL_ONLY`。LaunchAgent plist 和正式周任务未修改或触发。
 
 ## 当前源码/运行身份
 
-- 隔离 worktree：`/Users/frog/Projects/Career-worktrees/review-t00-t01-20260919`；正式目录 `/Users/frog/Projects/Career` 已按批准发布对象完成本机源码收口，未 push，review worktree、review branch 和安全分支均保留。
+- 当前开发目录：`/Users/frog/Projects/Career` 的 `main`；T14、T15 均已按批次范围收口到 `origin/main`。历史 review worktree、review branch、安全分支及本机资料均未纳入 T15。
 - 当前基线：`main` 已 fast-forward 到 review commit `920d08b645db14d272bc524103e969a2f504f1fb`，其后仅增加本状态记录提交。主项目原有本机资料未进入 Git；保护提交为 `d8c25f7b0ff321a256b2376909986d8f76845ecd`，安全分支为 `safety/pre-stage4a-main-20260921`。
 - 测试身份：自动测试继续使用虚构数据、`TestProvider` 和隔离临时目录；Stage 3 仅通过一致性备份读取正式源并在恢复副本上验收，未读取真实 Keychain、未调用收费模型。
 - 最终交付身份：正式 Python 已切到固定 `3.12.14` 环境；source/static fingerprint 与授权值一致。Stage 3 没有源码修复、提交、Git 合并或 push。
 
 ## 当前阶段任务状态
 
-- Final Acceptance / Stage 3：`PASS — DEPLOYED_VERIFIED (LOCAL_ONLY)`；`ACCEPTED` 留待用户确认。即时恢复点、显式 schema 准备、固定 Python/App/data/runtime、macOS/Chrome/PDF、LOCAL_ONLY 和回滚对象见 [PRODUCTION-CUTOVER](PRODUCTION-CUTOVER.md)。
+- Final Acceptance / Stage 3：`PASS — DEPLOYED_VERIFIED (LOCAL_ONLY)`；T14/T15 用户验收已记录，T00–T15 implementation tasks 完成。即时恢复点、显式 schema 准备、固定 Python/App/data/runtime、macOS/Chrome/PDF、LOCAL_ONLY 和回滚对象见 [PRODUCTION-CUTOVER](PRODUCTION-CUTOVER.md)。
 - Stage 3 最新质量门禁：`scripts/review_checks.py` exit `0`，内含 `pytest -q` `282 passed`、frontend typecheck/build、pip check、npm ls、secret scan、Markdown links、git diff check；LOCAL_ONLY+Range/Host 专项 `7 passed`。最新 `pip-audit` exit `1`，仅 Starlette `14` 条记录、`7` 个唯一 advisory，未隐藏。
 - Stage 3 未修改源码。切换中发现并显式处理恢复点缺少 T03 内部表的问题：只在恢复副本上 inventory → dry-run → apply → verify，原有业务 row hash、冻结材料和附件逐项不变。
 
-- T12：`CODE_VERIFIED`；完成类型边界、状态文档、R01–R18 回归映射、浏览器回归入口、最小 CI、依赖/秘密/文档检查。浏览器入口本机因 Chromium 下载阻塞未取得运行证据，未标 `BROWSER_VERIFIED`；`ACCEPTED` 留待最终用户验收。
+- T12：`CODE_VERIFIED`；完成类型边界、状态文档、R01–R18 回归映射、浏览器回归入口、最小 CI、依赖/秘密/文档检查。浏览器入口本机因 Chromium 下载阻塞未取得运行证据；该历史平台项不阻断本轮实现收口。
 - T12.1：`CODE_VERIFIED`；5 个可安全升级的包已按最小修复版本更新，2 条实际 Starlette 边界已加应用层防护；`pip-audit` 仍保留 Starlette 的 14 条重复/别名记录，逐项分类与接受理由见下方 T12.1 章节，未伪造为通过。
-- T13：开发已冻结；`tests/test_t13_release_readiness.py` 专项与阶段 0/1 隔离验收已通过或已明确列为未验，仍不等同 `ACCEPTED` 或 `DEPLOYED_VERIFIED`。
+- T13：`CODE_VERIFIED`；实现任务已完成。`tests/test_t13_release_readiness.py` 专项与阶段 0/1 隔离验收记录保留在历史证据，不重新打开已完成的实现批次。
 - T14：`CODE_VERIFIED + BROWSER_VERIFIED`，完成最小职业成果回流链。新增接口复用现有 personal `wiki_entry`：用户从任职成果查看 Evidence 后，编辑/脱敏并明确批准，Resume 只读取批准表达；`fact_status=confirmed` 与 `reuse_status=approved|revoked` 分离，Evidence 仅以指针/hash 进入 provenance；撤销只影响未来选材，冻结版本不变。专项 `tests/test_t14_reuse.py` 为 `11 passed`；全量 `pytest -q` 为 `296 passed`；前端 typecheck/build、pip check、npm ls、secret scan、review_checks、git diff --check 均 exit `0`。隔离虚构数据 Computer Use 已完成任职→证据→批准→Resume 选材/保存→冻结 A→撤销→新简历不可选，未访问正式数据、Keychain 或 Provider。
+- T14 Git 收口：commit=`ebf528446e4b5d07d92165b5a1fbf0ac3ba10fb3`，message=`Add approved career achievement reuse flow`；已 push `main`→`origin/main`，两者 HEAD 一致。提交范围仅含 T14 成果复用、授权/撤销、provenance/Evidence pointer、Resume 最小 UI/过滤、T14 测试与对应文档；App binary、`.venv`、runtime、`Career-review/`、数据/附件/备份和其他 C 类本机资料未纳入。
+- T15：`CODE_VERIFIED + BROWSER_VERIFIED（IAB）`；修正重复模块去重、键盘 ContextMenu/Shift+F10 菜单、Escape 与触发项焦点回归、pin/order 原子写入失败回滚及轻量语义提示。IAB 隔离假数据完成根路径、显式深链刷新、A→B、排序、取消 pin、重启持久化、正常/窄窗口和零 console error/warning；Chrome loopback = `TOOL_BLOCKED / UNVERIFIED`，原因是本机扩展返回 `ERR_BLOCKED_BY_CLIENT`，失败标签已关闭，不将其写成 Chrome 通过。
+- T00–T15 implementation tasks：`COMPLETE`；原 Review stabilization / implementation program：`CLOSED`。未开启新功能、`AI_ENABLED` 或 Starlette/FastAPI 升级。
 - Stage 4A.1：`SOURCE_CONSOLIDATED`；review commit `920d08b645db14d272bc524103e969a2f504f1fb` 从原 `main` 基线 `82af33dfe4d572e6ab04f36f3757b13a28049037` fast-forward 合并。A 类 tracked 修改与 C 类 17 个源码/测试/文档文件均纳入 review 历史；未发现 review 之外的合法源码修改；D 类本机资料仍在原处且未进入 Git。主项目门禁重新通过：`pytest 282 passed`、前端 typecheck/build、pip check、npm ls、secret scan、review_checks、git diff --check 均 exit `0`。主项目 90 个源文件和 12 个静态文件按 Stage 3 冻结清单重算，与授权 fingerprint 一致；正式 Career PID `39300` 健康运行且 `LOCAL_ONLY`，正式 DB 与 Stage 3 最终 inventory 的 hash 一致。
 - Stage 1.5：`CODE_VERIFIED`；`CAREER_AI_MODE=LOCAL_ONLY` 在 SecretStore、Provider、ModelGateway、Research web search 与启动器边界 fail closed。生产样式 `ModelConfig`/`secret_ref`、假 API Key、注入 TestProvider、四条 AI 路径和网络 trap 专项通过；不等同阶段 2 或正式切换授权。
-- Stage 2：`PASS`（Candidate-only rehearsal）+ `BLOCKED`（正式切换/Stage 3）；固定 Python 3.12.14、正式数据一致性备份、全新隔离恢复、schema v6/inventory/restore verify、Candidate App/8865、Chrome 只读链、PDF 文本层和 LOCAL_ONLY 证据已完成。正式源 DB hash 未改变，正式 PID `79422` 未停止。没有执行 migration apply、Keychain、真实 Provider 或正式切换。
+- Stage 2 / Stage 3 历史证据：Candidate-only rehearsal = `PASS`；当时记录的正式切换 gate 已由后续 Stage 3 `DEPLOYED_VERIFIED (LOCAL_ONLY)` 完成，不作为当前阻断。固定 Python 3.12.14、正式数据一致性备份、全新隔离恢复、schema v6/inventory/restore verify、Candidate App/8865、Chrome 只读链、PDF 文本层和 LOCAL_ONLY 证据已完成。
 - Stage 2 follow-up：`CODE_VERIFIED`；新增 `CAREER_TEST_MODE=1` + `CAREER_AI_MODE=LOCAL_ONLY` + `CAREER_ALLOW_UNPAIRED_FAKE_DATA=1` + 临时目录 `.career-fake-data` 标记的免配对模式。四重条件齐全时真实 `scripts/run.py` 的业务 API 无需配对；缺少显式开关仍返回 `401 pairing_required`。正式数据和恢复正式副本不满足临时目录约束，继续要求配对。
 - Stage 2.5：`CODE_VERIFIED`；仅修改 `src/workbench/resume_pdf.py`，将结构化 Chromium PDF 的纸面布局映射回 T04 前 `legacy.css`/`legacy-app.js` 的既有模板：9mm 页边距、居中姓名与联系方式图标、深灰标题块+横线、三列经历/项目表头、圆点 bullet 和教育背景位置；真实文字层、中文字体、分页、冻结一致性与 hash/renderer 元数据保持。历史基准为 `docs/archive/reviews/2026-09-15-novice/2026-09-15-novice-assets/03-empty-editor.png`；同一虚构简历的旧编辑器截图与新版 PDF 已逐项对照。此前锁屏阻断已解除：Preview 选择/⌘C/TextEdit 粘贴实际通过，证据已写入 [RELEASE-GATE](RELEASE-GATE.md)。
-- T01–T11：按用户确认保留既有状态；T11 为 `CODE_VERIFIED + BROWSER_VERIFIED`，`ACCEPTED` 留待最终用户验收。
+- T01–T11：按用户确认保留既有状态，实现任务均已完成；历史 acceptance/platform 记录不影响当前关闭状态。T11 为 `CODE_VERIFIED + BROWSER_VERIFIED`。
 - 证据：T12 专项为 `tests/test_t12_quality.py`；本地质量入口为 `scripts/review_checks.py`；浏览器入口为 `scripts/browser_regression.py`；R 映射为 [REGRESSION-MATRIX](REGRESSION-MATRIX.md)。
 
 ## 阻断项与最终验收保留项
 
-- `LOCAL_ONLY` Stage 3 没有剩余硬阻断；正式 App、Python 3.12、恢复点、显式 schema 准备、回滚对象、Chrome/PDF 和 LOCAL_ONLY 边界均已取得真实证据。`ACCEPTED` 仍由用户确认。
-- `AI_ENABLED` 继续阻断：真实 Keychain、真实 Provider、收费调用和真实网页 Research 未授权、未执行；不得把本次 `LOCAL_ONLY` 通过外推为 AI 发布通过。
-- 供应链残余：`starlette==0.46.2` 的 7 个唯一 advisory 仍存在，`pip-audit` exit `1`。Range/Host 两项由直接前置拒绝测试覆盖，其余按 T12.1 分类；完整消除至少需要升级到允许 Starlette `1.3.1` 的 FastAPI `0.133.0+` 运行线，须作为独立栈升级验证，不在本次切换中盲升。
+- 当前没有 T00–T15 implementation task 硬阻断；`LOCAL_ONLY`、正式 App/恢复点/回滚对象及本轮代码门禁均以最新证据为准。
+- Chrome loopback 保留为 `TOOL_BLOCKED / UNVERIFIED`，不阻塞 T15 收口，也不继续修改产品代码。
+- `AI_ENABLED`、真实 Keychain、真实 Provider、收费调用和真实网页 Research 未授权、未执行；这是未启用范围，不是本轮实现阻断。
+- 供应链残余：`starlette==0.46.2` 的 7 个唯一 advisory 仍存在，`pip-audit` exit `1`；该项按 T12.1 既有分类保留为非阻断观察，不在本轮升级 Starlette/FastAPI。
 - 非阻断观察：LOCAL_ONLY 设置页仍按数据库配置显示“真实 AI”；旧 demo 机会曾显示 `Research owner 不合法`；退出后同进程不会重新生成一次性配对码，需要重启服务再配对；PDF 复制的加粗字段边界在 TextEdit 表现为 `**`。后端安全边界、真实机会读取和中文文字层均已独立通过。
 - T11 规模数据仍只用于事实报告：1000 条虚构机会 summary `1,292,277` bytes/`0.074188s`，all opportunities `749,781` bytes/`0.022617s`；Chrome 显示总数和页面切换，未见分页按钮，不据此给出性能好坏结论。
 - 正式周任务 plist 未改且未运行；它不是本次 Stage 3 的新增阻断。旧数据/App/Python/runtime、即时恢复点和失败候选副本均保留，任何清理或 Stage 4 行为需另行授权。
 
 ## 下一动作
 
-- 等待用户确认 T14 结果；不得进入 T15 或其它产品开发，不得删除 Worktree、安全分支、旧版本或恢复点，不得访问 Keychain、调用 Provider、push 或清理本机资料。
+- T00–T15 及原 Review stabilization / implementation program 已 `CLOSED`；完成后停止。不得进入其他产品任务，不得删除 Worktree、安全分支、旧版本、恢复点或本机资料，不得访问 Keychain、调用 Provider。
 
 ## Stage 2 Candidate-only rehearsal：2026-09-20
 
