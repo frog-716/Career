@@ -14,7 +14,7 @@
 ## 当前源码/运行身份
 
 - 隔离 worktree：`/Users/frog/Projects/Career-worktrees/review-t00-t01-20260919`；正式目录 `/Users/frog/Projects/Career` 已按批准发布对象完成本机源码收口，未 push，review worktree、review branch 和安全分支均保留。
-- 当前基线：`main`=`920d08b645db14d272bc524103e969a2f504f1fb`；Stage 4A.1 由 review commit fast-forward 合并完成。主项目原有本机资料未进入 Git；保护提交为 `d8c25f7b0ff321a256b2376909986d8f76845ecd`，安全分支为 `safety/pre-stage4a-main-20260921`。
+- 当前基线：`main` 已 fast-forward 到 review commit `920d08b645db14d272bc524103e969a2f504f1fb`，其后仅增加本状态记录提交。主项目原有本机资料未进入 Git；保护提交为 `d8c25f7b0ff321a256b2376909986d8f76845ecd`，安全分支为 `safety/pre-stage4a-main-20260921`。
 - 测试身份：自动测试继续使用虚构数据、`TestProvider` 和隔离临时目录；Stage 3 仅通过一致性备份读取正式源并在恢复副本上验收，未读取真实 Keychain、未调用收费模型。
 - 最终交付身份：正式 Python 已切到固定 `3.12.14` 环境；source/static fingerprint 与授权值一致。Stage 3 没有源码修复、提交、Git 合并或 push。
 
