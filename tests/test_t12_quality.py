@@ -1,5 +1,6 @@
 """T12 quality gates; these assertions are deliberately about repository contracts."""
 
+import re
 from pathlib import Path
 
 
@@ -55,5 +56,12 @@ def test_t12_touched_domains_use_public_cross_module_helpers():
 
 def test_t12_status_has_current_summary_before_historical_batches():
     status = (ROOT / "docs" / "execution" / "STATUS.md").read_text(encoding="utf-8")
-    assert status.index("## 当前源码/运行身份") < status.index("## Career Review 稳定化：T00")
-    assert "T12" in status[:2000]
+    history_start = status.index("## Career Review 稳定化：T00")
+    summary = status[:history_start]
+    assert summary.index("## 当前生产切换阶段") < summary.index("## 当前源码/运行身份")
+    assert "## 当前阶段任务状态" in summary
+    assert "## 阻断项与最终验收保留项" in summary
+    assert "## 下一动作" in summary
+    assert re.search(r"backend/frontend build=`[^`]+`", summary)
+    assert "LOCAL_ONLY" in summary
+    assert any(token in summary for token in ("RELEASE_GATE=PASS_LOCAL_ONLY", "SOURCE_CONSOLIDATION=SOURCE_CONSOLIDATED"))
