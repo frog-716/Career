@@ -167,7 +167,7 @@ export function bindOpportunity(ctx:Context,actions:Actions) {
  }
  async function resumeStart(o:Row) {
   const current=await actions.api('/opportunities/'+encodeURIComponent(o.id)+'/resume');
-  if(current.document_id){location.href='/editor.html?document_id='+encodeURIComponent(current.document_id);return;}
+  if(current.document_id){location.href='/#resume?document_id='+encodeURIComponent(current.document_id);return;}
   const versions=(await actions.api('/editor/versions')).versions;
   const legacy=await actions.api('/editor');
   const d=dialog('开始制作本机会简历',`<form><p>${escape(o.company)} · ${escape(o.title)}</p><label>复制来源<select name="source"><option value="blank">空白创建</option>${legacy.revision?'<option value="legacy_draft">明确复制历史 editor-main</option>':''}${versions.map((v:Row)=>`<option value="${escape(v.id)}">复制版本：${escape(versionLabel(ctx,v))}</option>`).join('')}</select></label><p>只复制内容，来源版本和用途保持不变。</p><button class="primary" type="submit">创建独立工作稿</button></form>`);
@@ -177,7 +177,7 @@ export function bindOpportunity(ctx:Context,actions:Actions) {
     if(choice==='legacy_draft')source={kind:choice,source_revision:legacy.revision,source_hash:legacy.document_hash};
     else if(choice!=='blank'){const v=await actions.api('/editor/versions/'+encodeURIComponent(choice));source={kind:'version',source_version_id:v.id,source_document_hash:v.document_hash};}
     const next=JSON.stringify(source);if(!pending||signature!==next){signature=next;pending={expected_opportunity_revision:o.revision,idempotency_key:crypto.randomUUID(),source};}
-    const result=await actions.api('/opportunities/'+encodeURIComponent(o.id)+'/resume/start',pending);d.close();location.href='/editor.html?document_id='+encodeURIComponent(result.document_id);
+    const result=await actions.api('/opportunities/'+encodeURIComponent(o.id)+'/resume/start',pending);d.close();location.href='/#resume?document_id='+encodeURIComponent(result.document_id);
    }catch(error){failure(d,error);}finally{button.disabled=false;}};
  }
  function greeting(o:Row) {
@@ -196,7 +196,7 @@ export function bindOpportunity(ctx:Context,actions:Actions) {
   const f=d.querySelector('form')!;let pending:Row|undefined;let choiceKey='';let revision=o.revision;
   f.onsubmit=async e=>{e.preventDefault();const b=f.querySelector<HTMLButtonElement>('button')!;b.disabled=true;
    try {const choice=String(new FormData(f).get('resume'));
-    if(choice==='draft'){d.close();location.href='/editor.html?document_id='+encodeURIComponent(draft.document_id)+'&submit=1';return;}
+    if(choice==='draft'){d.close();location.href='/#resume?document_id='+encodeURIComponent(draft.document_id)+'&submit=1';return;}
     if(!pending||choice!==choiceKey){let resume:Row={mode:'none'};
      if(choice!=='none'){const v=await actions.api('/editor/versions/'+encodeURIComponent(choice));resume={mode:'version',source_version_id:v.id,source_document_hash:v.document_hash,source_artifact_hash:v.artifact_hash};}
      pending={expected_revision:revision,idempotency_key:crypto.randomUUID(),resume};choiceKey=choice;

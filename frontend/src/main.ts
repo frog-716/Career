@@ -9,6 +9,7 @@ import { bindAiSettings } from "./ai-config-ui";
 import { closeDialogIfAllowed, guardOpenDialog } from "./edit-session";
 import { logoutLocalSession, requestWithSession } from "./local-session";
 import { isJsonObject, parseInterviewSessions, parseJsonEnvelope, parseResearchView, parseResumeDocuments } from "./contracts";
+import { mountResumeWorkspaceEditor, type ResumeEditorController } from "./resume-workspace";
 
 type Obj = Record<string, any>;
 type Page =
@@ -55,15 +56,17 @@ let opportunityLoadToken = 0;
 const planBuffers = new Map<string, Obj>();
 let page: Page = sidebarHome() as Page;
 let jobId = "";
+let resumeDocumentId = "";
+let resumeLegacy = false;
+let resumeSubmit = false;
+let resumeEditorController: ResumeEditorController | null = null;
+let resumeEditorMountSequence = 0;
 let notice = "";
 let navigationSequence = 0;
 let opportunityView = "all";
 let opportunityAnchor = "";
 let profileBuffer: Obj | null = null;
 const jobBuffers = new Map<string, Obj>();
-const resumeBuffers = new Map<string, Obj>();
-let saveTimer: ReturnType<typeof setTimeout> | undefined;
-let saving: Promise<boolean> | null = null;
 type LoadPhase = "idle" | "loading" | "ready" | "error";
 const pageLoads: Record<Page, {phase: LoadPhase; error?: string}> = Object.fromEntries(
   PAGE_IDS.map((name) => [name, {phase: "idle"}]),
@@ -110,7 +113,6 @@ const $ = <T extends HTMLElement = HTMLElement>(selector: string) =>
     ?.querySelector<T>(selector) || document.querySelector<T>(selector);
 const activeJobs = () => state.jobs.filter((j: Obj) => j.status === "active");
 const currentJob = () => state.jobs.find((j: Obj) => j.id === jobId);
-const currentResume = () => state.resumes.find((r: Obj) => r.job_id === jobId);
 const modeText = () => {
   if (state.diagnostics?.provider?.mode === "test") return "测试模式 · 非真实 AI";
   const ai = state.ai;
@@ -321,12 +323,66 @@ function failure(error: unknown) {
 }
 function isDirty() {
   return (
+    Boolean(resumeEditorController?.hasUnsavedChanges()) ||
     !!document.querySelector("dialog[open][data-dirty=true]") ||
     !!profileBuffer || hasUnsavedProfile() ||
     jobBuffers.size > 0 ||
-    planBuffers.size > 0 ||
-    [...resumeBuffers.values()].some((b) => b.dirty)
+    planBuffers.size > 0
   );
+}
+
+async function releaseResumeEditor(confirm = true): Promise<boolean> {
+  if (!resumeEditorController) return true;
+  if (confirm && !(await resumeEditorController.requestClose())) return false;
+  resumeEditorController.destroy();
+  resumeEditorController = null;
+  resumeEditorMountSequence += 1;
+  return true;
+}
+
+async function mountCurrentResumeEditor(): Promise<void> {
+  const host = document.querySelector<HTMLElement>("[data-resume-editor-host]");
+  if (page !== "resume" || !host || (!resumeDocumentId && !resumeLegacy)) {
+    await releaseResumeEditor(false);
+    return;
+  }
+  await releaseResumeEditor(false);
+  const sequence = ++resumeEditorMountSequence;
+  try {
+    const controller = await mountResumeWorkspaceEditor({
+      documentId: resumeDocumentId,
+      legacy: resumeLegacy,
+      submit: resumeSubmit,
+    });
+    if (sequence !== resumeEditorMountSequence || page !== "resume") {
+      controller.destroy();
+      return;
+    }
+    resumeEditorController = controller;
+    if (resumeSubmit) {
+      resumeSubmit = false;
+      history.replaceState(null, "", `#resume?document_id=${encodeURIComponent(resumeDocumentId)}`);
+    }
+  } catch (error) {
+    inform(error instanceof Error ? error.message : "简历编辑器载入失败");
+  }
+}
+
+async function selectResumeDocument(documentId: string, legacy = false, submit = false): Promise<void> {
+  if (!(await releaseResumeEditor(true))) {
+    const selector = document.querySelector<HTMLSelectElement>("#resumeDocumentSelector");
+    if (selector) selector.value = resumeLegacy ? "legacy" : resumeDocumentId;
+    return;
+  }
+  resumeDocumentId = legacy ? "" : documentId;
+  resumeLegacy = legacy;
+  resumeSubmit = submit;
+  const params = new URLSearchParams();
+  if (resumeDocumentId) params.set("document_id", resumeDocumentId);
+  if (resumeLegacy) params.set("legacy", "1");
+  if (resumeSubmit) params.set("submit", "1");
+  history.replaceState(null, "", `#resume${params.size ? `?${params.toString()}` : ""}`);
+  render();
 }
 window.addEventListener("beforeunload", (event) => {
   if (isDirty()) {
@@ -406,32 +462,6 @@ function comparison(
 }
 function jobForm(j: Obj, prefix: string) {
   return `<label>公司<input id="${prefix}-company" name="company" required maxlength="500" value="${esc(j.company)}"></label><label>岗位名称<input id="${prefix}-title" name="title" required maxlength="500" value="${esc(j.title)}"></label><label>JD 正文<textarea id="${prefix}-jd" name="jd" required>${esc(j.jd)}</textarea></label><label>原始链接（可选）<input id="${prefix}-url" name="url" type="url" value="${esc(j.url)}" placeholder="https://..."></label>`;
-}
-function bufferFor(r: Obj): Obj {
-  if (!resumeBuffers.has(r.id))
-    resumeBuffers.set(r.id, {
-      content: r.content,
-      revision: r.revision,
-      dirty: false,
-    });
-  return resumeBuffers.get(r.id)!;
-}
-function legacyResumePage() {
-  const r = currentResume();
-  const b = r ? bufferFor(r) : null;
-  return `<div class="page-title"><div><h2>早期文字稿与投递</h2></div><label>目标岗位<select id="resume-job"><option value="">请选择岗位</option>${state.jobs.map((j: Obj) => `<option value="${j.id}" ${j.id === jobId ? "selected" : ""}>${esc(j.title)} · ${esc(j.company)}${j.status !== "active" ? "（已归档）" : ""}</option>`).join("")}</select></label></div>${!r ? '<div class="empty">请先添加或选择一个岗位，再开始编辑。</div><button class="primary" data-page="jobs">前往目标岗位</button>' : `<div class="resume-grid"><section class="editor-card"><div class="editor-label"><span>当前工作稿</span><small id="draft-version">版本 ${b!.revision}</small></div><label for="resume-text">简历正文</label><textarea id="resume-text" placeholder="可直接手动填写简历，无需先运行 AI。">${esc(b!.content)}</textarea><div class="form-actions"><span class="muted" id="autosave">${b!.dirty ? "有未保存修改" : "已保存；输入后自动保存"}</span><button class="secondary" id="save-resume">保存手改</button></div><button class="primary full" id="save-version">保存正式版本</button></section><section class="side-card"><h3>AI 简历适配</h3><p class="muted">每轮使用当前职业资料、目标 JD 与本轮指令。当前手改草稿不自动发送；可用新的指令重新生成提案。</p><button class="primary full" id="analyze-resume" ${currentJob()?.status !== "active" ? "disabled" : ""}>生成简历提案</button><h3>正式版本与 PDF</h3>${versionsHtml(r.id)}</section></div>${runsHtml("resume", jobId)}<section class="side-card applications"><h2>实际投递记录</h2><p class="muted">这里只登记已经发生的投递，不会对外发送任何材料。</p>${applicationsHtml(jobId)}</section>`}`;
-}
-function versionsHtml(resumeId: string) {
-  return (
-    state.versions
-      .filter((v: Obj) => v.resume_id === resumeId)
-      .map((v: Obj, i: number) => {
-        const a = state.artifacts.find((a: Obj) => a.version_id === v.id);
-        return `<div class="version"><div><b>${date(v.created_at)}</b><small>工作稿版本 ${v.draft_revision}</small><details><summary>查看保存的正文</summary><pre>${esc(v.content)}</pre></details></div><div>${a ? `<button type="button" data-protected-artifact="${a.id}" data-protected-mode="preview" class="text-btn">预览 PDF</button><button type="button" data-protected-artifact="${a.id}" data-protected-mode="download" data-filename="resume.pdf" class="text-btn">下载 PDF</button>` : `<button class="text-btn" data-pdf="${v.id}">生成 PDF</button>`}<button class="secondary" data-application="${v.id}" ${a ? "" : "disabled"}>记录投递</button></div></div>`;
-      })
-      .join("") ||
-    '<p class="muted">先保存正式版本，再生成 PDF。保存版本不会自动记录投递。</p>'
-  );
 }
 function frozenResumeText(v: Obj): string {
   if (!v.document) return v.content || "";
@@ -536,16 +566,19 @@ function render() {
         profileBuffer,
         jobBuffers,
         planBuffers,
+        resumeDocumentId,
+        resumeLegacy,
       },
-      { runsHtml, legacyResumePage, modeText, applicationsHtml },
+      { runsHtml, modeText, applicationsHtml },
     ),
     notice,
     state.diagnostics?.provider?.mode === "test",
   );
   bind();
+  void mountCurrentResumeEditor();
 }
 async function navigate(next: Page, id = jobId) {
-  if (!(await flushResume())) return;
+  if (page === "resume" && resumeEditorController && !(await releaseResumeEditor(true))) return;
   const navigation = ++navigationSequence;
   page = next;
   jobId = id;
@@ -553,7 +586,6 @@ async function navigate(next: Page, id = jobId) {
   if (page === "profile") knowledgeUI.tab = "profile";
   await load();
   if (navigation !== navigationSequence || page !== next || jobId !== id) return;
-  if (page === "resume" && ui.materialTab === "legacy" && jobId) await ensureResume();
   history.replaceState(
     null,
     "",
@@ -563,21 +595,12 @@ async function navigate(next: Page, id = jobId) {
         ? "/" + jobId
         : page === "work" && ui.episodeId
           ? "/" + ui.episodeId
-          : ""),
+          : "") +
+      (page === "resume" && (resumeDocumentId || resumeLegacy)
+        ? `?${resumeLegacy ? "legacy=1" : `document_id=${encodeURIComponent(resumeDocumentId)}`}`
+        : ""),
   );
   render();
-}
-async function ensureResume() {
-  const r = await api("/resumes", { job_id: jobId });
-  const index = state.resumes.findIndex((x: Obj) => x.id === r.id);
-  if (index < 0) state.resumes.push(r);
-  else state.resumes[index] = r;
-  if (!resumeBuffers.get(r.id)?.dirty)
-    resumeBuffers.set(r.id, {
-      content: r.content,
-      revision: r.revision,
-      dirty: false,
-    });
 }
 async function saveProfile() {
   const b = profileBuffer || { ...state.profile };
@@ -1018,84 +1041,7 @@ async function changeJobStatus(status: string) {
     failure(e);
   }
 }
-async function flushResume(): Promise<boolean> {
-  clearTimeout(saveTimer);
-  if (saving) {
-    const ok = await saving;
-    return ok ? flushResume() : false;
-  }
-  const r = currentResume();
-  if (!r) return true;
-  const b = bufferFor(r);
-  if (!b.dirty) return true;
-  if (b.conflict) {
-    await load();
-    const latest = state.resumes.find((x: Obj) => x.id === r.id);
-    comparison("简历存在新版本", b.content, latest.content, () => {
-      b.revision = latest.revision;
-      b.conflict = false;
-    });
-    return false;
-  }
-  const text = b.content;
-  const revision = b.revision;
-  saving = (async () => {
-    try {
-      const saved = await api("/resumes/" + r.id, {
-        content: text,
-        expected_revision: revision,
-      });
-      b.revision = saved.revision;
-      b.dirty = b.content !== text;
-      Object.assign(r, saved);
-      const label = $("#autosave");
-      if (label) label.textContent = b.dirty ? "继续保存新修改…" : "已自动保存";
-      const revLabel = $("#draft-version");
-      if (revLabel) revLabel.textContent = "版本 " + b.revision;
-      return true;
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 409) {
-        b.conflict = true;
-        await load();
-        const latest = state.resumes.find((x: Obj) => x.id === r.id);
-        comparison("简历存在新版本", b.content, latest.content, () => {
-          b.revision = latest.revision;
-          b.conflict = false;
-        });
-      } else failure(e);
-      return false;
-    }
-  })();
-  const ok = await saving;
-  saving = null;
-  return ok && b.dirty ? flushResume() : ok;
-}
-async function saveVersion() {
-  if (!(await flushResume())) return;
-  const r = currentResume();
-  try {
-    await api("/resumes/" + r.id + "/versions", {
-      expected_revision: bufferFor(r).revision,
-    });
-    await load();
-    render();
-    inform("正式版本已保存，可生成 PDF。");
-  } catch (e) {
-    failure(e);
-  }
-}
-async function createPdf(id: string) {
-  try {
-    await api("/versions/" + id + "/pdf", {});
-    await load();
-    render();
-    inform("PDF 已生成并关联此版本。");
-  } catch (e) {
-    failure(e);
-  }
-}
 async function prepareAnalysis(kind: "job" | "resume") {
-  if (!(await flushResume())) return;
   if (profileBuffer || hasUnsavedProfile() || jobBuffers.has(jobId)) {
     inform("请先保存个人资料和当前岗位修改，再预览分析。");
     return;
@@ -1211,24 +1157,6 @@ async function prepareAnalysis(kind: "job" | "resume") {
       };
     },
   );
-}
-async function applyProposal(id: string) {
-  if (!(await flushResume())) return;
-  try {
-    const result = await api("/proposals/" + id + "/apply", {});
-    resumeBuffers.set(result.id, {
-      content: result.content,
-      revision: result.revision,
-      dirty: false,
-    });
-    await load();
-    render();
-    inform("已确认应用到简历工作稿，个人资料正本未改动。");
-  } catch (e) {
-    await load();
-    render();
-    failure(e);
-  }
 }
 function recordApplication(versionId: string, opportunityId?: string) {
   const v = editorVersions.find((v: Obj) => v.id === versionId) || state.versions.find((v: Obj) => v.id === versionId);
@@ -1388,10 +1316,6 @@ function bind() {
       else if (action === "plan") editPlan();
     };
   });
-  $("#show-legacy")?.addEventListener("click", () => {
-    ui.materialTab = "legacy";
-    void navigate("resume").catch(failure);
-  });
   document.querySelectorAll<HTMLElement>("[data-tab-group]").forEach(
     (el) =>
       (el.onclick = () => {
@@ -1401,11 +1325,9 @@ function bind() {
           | "materialTab"
           | "jobFilter";
         void (async () => {
-          if (!(await flushResume())) return;
           ui[group] = el.dataset.tab!;
           if (group === "materialTab") {
             page = "resume";
-            if (ui.materialTab === "legacy" && jobId) await ensureResume();
           }
           if (group === "jobFilter") {
             const xs = state.jobs.filter((x: Obj) =>
@@ -1458,6 +1380,19 @@ function bind() {
         render();
       }),
   );
+  document.querySelectorAll<HTMLElement>("[data-resume-document]").forEach(
+    (element) =>
+      (element.onclick = () => {
+        void selectResumeDocument(element.dataset.resumeDocument || "");
+      }),
+  );
+  document.querySelector<HTMLElement>("[data-resume-legacy]")?.addEventListener("click", () => {
+    void selectResumeDocument("", true);
+  });
+  document.querySelector<HTMLSelectElement>("#resumeDocumentSelector")?.addEventListener("change", (event) => {
+    const value = (event.target as HTMLSelectElement).value;
+    void selectResumeDocument(value === "legacy" ? "" : value, value === "legacy");
+  });
   document.querySelectorAll<HTMLElement>("[data-page]").forEach(
     (el) =>
       (el.onclick = () => {
@@ -1543,51 +1478,9 @@ function bind() {
   $("#open-resume")?.addEventListener("click", () => {
     void navigate("resume").catch(failure);
   });
-  $("#resume-job")?.addEventListener("change", (event) => {
-    void navigate("resume", (event.target as HTMLSelectElement).value).catch(
-      failure,
-    );
-  });
-  $("#resume-text")?.addEventListener("input", (event) => {
-    const b = bufferFor(currentResume());
-    b.content = (event.target as HTMLTextAreaElement).value;
-    b.dirty = true;
-    $("#autosave")!.textContent = "等待保存…";
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      void flushResume();
-    }, 700);
-  });
-  $("#save-resume")?.addEventListener("click", () => {
-    void flushResume()
-      .then(async (ok) => {
-        if (ok) {
-          await load();
-          render();
-          inform("简历手改已保存。");
-        }
-      })
-      .catch(failure);
-  });
-  $("#save-version")?.addEventListener("click", saveVersion);
   $("#analyze-job")?.addEventListener("click", () => {
     void prepareAnalysis("job");
   });
-  $("#analyze-resume")?.addEventListener("click", () => {
-    void prepareAnalysis("resume");
-  });
-  document.querySelectorAll<HTMLElement>("[data-pdf]").forEach(
-    (el) =>
-      (el.onclick = () => {
-        void createPdf(el.dataset.pdf!);
-      }),
-  );
-  document.querySelectorAll<HTMLElement>("[data-proposal]").forEach(
-    (el) =>
-      (el.onclick = () => {
-        void applyProposal(el.dataset.proposal!);
-      }),
-  );
   document
     .querySelectorAll<HTMLElement>("[data-application]")
     .forEach(
@@ -1608,6 +1501,11 @@ function routeSelection(p: string, id: string, params: URLSearchParams) {
   if(p==='jobs'||p==='progress') {opportunityView=params.get('view')||opportunityView;opportunityAnchor=params.get('tab')||'';}
   if (p === "jobs" && ["jd","analysis","resume",...Object.keys(noteNames)].includes(params.get("tab") || "")) ui.jobTab = params.get("tab")!;
   if (p === "wiki" && id) {knowledgeUI.tab = "entries";knowledgeUI.scope = "all";knowledgeUI.category = "all";knowledgeUI.selected = id;}
+  if (p === "resume") {
+    resumeDocumentId = params.get("document_id") || "";
+    resumeLegacy = params.get("legacy") === "1";
+    resumeSubmit = params.get("submit") === "1";
+  }
 }
 async function start() {
   try {
@@ -1638,8 +1536,15 @@ window.addEventListener("hashchange", () => {
     const {p: rawRequested,id,params} = readRoute();
     const requested = rawRequested === "home" || !rawRequested ? sidebarHome() : rawRequested;
     if (!isPage(requested)) return;
+    const requestedResumeId = requested === "resume" ? params.get("document_id") || "" : "";
+    const requestedResumeLegacy = requested === "resume" && params.get("legacy") === "1";
+    const resumeTargetChanged = page === "resume" && (
+      requested !== "resume" ||
+      requestedResumeId !== resumeDocumentId ||
+      requestedResumeLegacy !== resumeLegacy
+    );
     // Modal inputs stay in their owning task until the user closes the dialog.
-    if (!guardOpenDialog() || !(await flushResume())) {
+    if (!guardOpenDialog() || (resumeTargetChanged && !(await releaseResumeEditor(true)))) {
       history.replaceState(
         null,
         "",
@@ -1649,7 +1554,10 @@ window.addEventListener("hashchange", () => {
             ? "/" + jobId
             : page === "work" && ui.episodeId
               ? "/" + ui.episodeId
-              : ""),
+              : "") +
+          (page === "resume" && (resumeDocumentId || resumeLegacy)
+            ? `?${resumeLegacy ? "legacy=1" : `document_id=${encodeURIComponent(resumeDocumentId)}`}`
+            : ""),
       );
       inform("请先完成或关闭当前编辑，再切换链接。");
       return;

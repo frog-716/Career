@@ -9,7 +9,7 @@
 以下先记录 2026-09-18 Production Cutover 后的现役实现；2026-09-17 的旧 v1 事实仍可在 [AS-IS](audit/AS-IS-system-map.md)追溯，但不再代表当前 runtime。
 
 - Python/FastAPI + Uvicorn单进程本地服务；前端为**Vanilla TypeScript/JavaScript + Vite**，模板字符串/DOM和hash路由，没有React。
-- 主入口`frontend/index.html → src/main.ts → workspace.ts`；独立纸面编辑器`editor.html → editor/legacy-entry.ts → legacy-app.js`。编辑器继续复用结构化分区、格式和撤销；正式 PDF 由服务端用锁定版本的本地 Chromium/Playwright 从结构化数据生成可提取文字的 A4 文档。不能承诺任意 ATS 的解析质量。
+- 唯一主入口为`frontend/index.html → src/main.ts → workspace.ts`。Resume Workspace 在`#resume?document_id=...`内挂载同一份`editor/legacy-app.js`纸面编辑模块，Workspace 只持有当前`ResumeDocument`选择与模块生命周期，编辑状态、revision/CAS、AI 建议、版本、PDF 和投递冻结均由该模块及既有后端合同维护。编辑器外围使用独立的`resume-canvas`命名空间，避免与应用壳层`.workspace`网格规则冲突；固定A4纸面不参与父容器收缩，宽桌面居中，窄桌面由画布与分组工具区独立滚动。`editor.html`仅保留到 Workspace 的薄兼容跳转，不承载第二套编辑器状态。正式 PDF 由服务端用锁定版本的本地 Chromium/Playwright 从结构化数据生成可提取文字的 A4 文档；不能承诺任意 ATS 的解析质量。
 - Python sqlite3直接访问一个SQLite数据库；`meta/current/revisions/records/applications`存JSON与少量索引/约束。没有独立ORM、Repository层、向量库或图数据库。大多数业务引用由服务验证，不都有FK。
 - `current`保存可变当前对象；通用保存追加`revisions`。`records`包括版本、原件、run等，但通用_record是upsert，不能将整表视为数据库级不可变。
 - 正式 runtime 为 `0.7.0-batch-f`，SQLite schema v6。已有库必须精确为 v6，旧 v1–v5 在任何业务写入前拒绝；版本升级使用独立、显式、hash-bound 的 v1→v6 migration chain，不在启动时隐式迁移。

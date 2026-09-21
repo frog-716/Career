@@ -1395,4 +1395,39 @@ blockquote {
 .op-current-greeting{margin-top:12px;padding:10px 0}.op-current-greeting summary,.op-rounds summary{cursor:pointer;color:#405e4c}
 .op-interview-entry{display:grid;gap:14px;margin-top:18px}.op-current-interview{padding:18px;background:#fff;border:1px solid #ccdcd1;border-radius:10px}.op-current-interview h4{margin:0 0 8px;font-size:17px}.op-current-interview p{margin:0}.op-interview-summary>span{font-size:12px;color:#657168;background:#edf3ef;padding:6px 9px;border-radius:14px;white-space:nowrap}.op-current-interview>.actions{margin:18px 0 8px;flex-wrap:wrap}.op-rounds{padding:10px 0}.op-rounds .op-recent{margin-top:8px}
 .interview-dialog section{padding:18px 0;border-top:1px solid #e2e8e3}.interview-dialog section:first-of-type{margin-top:16px}.interview-dialog section h3{margin:0 0 12px}.interview-dialog [data-simulation-result]{margin-top:12px}
+
+.resume-catalogue {
+  height: 100%;
+  overflow: auto;
+  padding: 24px 32px 48px;
+}
+.resume-workspace-page {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.resume-document-list {
+  display: grid;
+  gap: 10px;
+  margin: 22px 0;
+}
+.resume-document-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  width: 100%;
+  padding: 18px 20px;
+  border: 1px solid #dce4df;
+  border-radius: 10px;
+  background: #fff;
+  text-align: left;
+}
+.resume-document-card span { display: grid; gap: 6px; }
+.resume-document-card small { color: #6d776f; }
+.resume-document-card strong { color: #315943; }
+@media (max-width: 760px) {
+  .resume-catalogue { padding-inline: 14px; }
+}
 @media(max-width:760px){.op-next-action{align-items:flex-start;flex-direction:column}.op-next-action .actions{width:100%}.op-phase-strip{overflow:auto}.op-phase-strip li{min-width:82px}.op-interview-summary{flex-direction:column}.op-offer-actions button{flex:1 1 140px}}

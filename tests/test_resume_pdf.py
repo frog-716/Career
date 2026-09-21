@@ -105,6 +105,9 @@ def test_current_export_is_real_text_pdf_with_chinese_pagination_and_order(tmp_p
     assert order == sorted(order)
     assert response.headers["x-resume-document-hash"]
     assert response.headers["x-resume-renderer-version"].startswith("playwright-1.51.0-chrome-")
+    assert response.headers["content-disposition"].startswith("attachment;")
+    assert "frame-src 'self' blob:" in response.headers["content-security-policy"]
+    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
 
 
 def test_submission_pdf_and_material_remain_a_after_current_draft_becomes_b(tmp_path):

@@ -1,9 +1,12 @@
 "use strict";
 
+export async function mountResumeEditor(options = {}) {
 if (location.protocol === "file:") {
   location.replace("http://127.0.0.1:8765/");
 }
 
+const editorRoot = options.root || document;
+const lifecycle = new AbortController();
 const paper = document.getElementById("paper");
 const pageStatus = document.getElementById("pageStatus");
 const undoButton = document.getElementById("undo");
@@ -18,9 +21,9 @@ const materialsList = document.getElementById("materialsList");
 const sourcesDialog = document.getElementById("sourcesDialog");
 const sourcesList = document.getElementById("sourcesList");
 const openAiProposalsButton = document.getElementById("openAiProposals");
-let editorJobId = new URLSearchParams(location.search).get("job_id") || "";
+let editorJobId = options.jobId || new URLSearchParams(location.search).get("job_id") || "";
 
-const documentId = new URLSearchParams(location.search).get("document_id") || "";
+const documentId = options.documentId || new URLSearchParams(location.search).get("document_id") || "";
 const editorBase = "/api/resume-documents/" + encodeURIComponent(documentId);
 let opportunityId = "";
 let pendingSubmission = null;
@@ -184,8 +187,9 @@ function setStatus(message, state = "saved") {
 function lockEditor(locked) {
   editorLocked = locked;
   paper.inert = locked;
-  document.querySelector(".app-bar").inert = locked;
+  editorRoot.querySelector(".app-bar").inert = locked;
   document.getElementById("saveVersion").disabled = Boolean(pendingVersion);
+  document.getElementById("previewPdf").disabled = Boolean(pendingVersion);
   document.getElementById("exportPdf").disabled = Boolean(pendingVersion);
 }
 
@@ -195,7 +199,7 @@ function askInPage(message, withName = false) {
   dialog.querySelector('h2').textContent = message;
   const input = dialog.querySelector('input');
   dialog.querySelector('label').hidden = !withName; input.required = withName;
-  document.body.append(dialog); dialog.showModal();
+  editorRoot.append(dialog); dialog.showModal();
   if (withName) input.focus();
   return new Promise(resolve => {
     let result = null;
@@ -237,7 +241,7 @@ function showConflict() {
   dialog.innerHTML = '<div class="dialog-head"><h2>保存冲突</h2><button type="button" data-close>关闭</button></div><p>当前输入已保留，请比较两边后选择。</p><div class="diff"><section><h3>当前输入</h3><pre data-mine></pre></section><section><h3>服务器版本</h3><pre data-server></pre></section></div><div class="restore-actions"><button data-reload type="button">重新载入服务器版本</button><button data-keep type="button">保存当前输入</button></div>';
   dialog.querySelector('[data-mine]').textContent = documentText(resume);
   dialog.querySelector('[data-server]').textContent = documentText(compared.server);
-  document.body.append(dialog); dialog.showModal();
+  editorRoot.append(dialog); dialog.showModal();
   dialog.querySelector('[data-close]').onclick = () => dialog.close();
   dialog.addEventListener('close', () => { dialog.remove(); conflictDialog = null; });
   dialog.querySelector('[data-reload]').onclick = () => {
@@ -260,7 +264,7 @@ async function requestBackend(url, {method = "GET", data, cache} = {}) {
     return window.__backendRequest__(url, {method, data});
   }
 
-  const request = window.__careerSessionRequest__ || fetch;
+  const request = options.request || window.__careerSessionRequest__ || fetch;
   const response = await request(url, {
     method,
     headers: {"Content-Type": "application/json", "X-Career-Request": "1"},
@@ -837,7 +841,7 @@ function downloadBlob(fileName, blob) {
 }
 
 async function fetchPdf(url, data) {
-  const request = window.__careerSessionRequest__ || fetch;
+  const request = options.request || window.__careerSessionRequest__ || fetch;
   const response = await request(url, {
     method: "POST",
     headers: {"Content-Type": "application/json", "X-Career-Request": "1"},
@@ -853,7 +857,7 @@ async function fetchPdf(url, data) {
 }
 
 async function fetchArtifact(artifactId) {
-  const request = window.__careerSessionRequest__ || fetch;
+  const request = options.request || window.__careerSessionRequest__ || fetch;
   const response = await request(`/api/artifacts/${encodeURIComponent(artifactId)}?download=true`, {cache: "no-store"});
   if (!response.ok) throw new Error(`PDF 下载失败：HTTP ${response.status}`);
   return response.blob();
@@ -987,7 +991,7 @@ async function getHistoricalVersion(id) {
 async function downloadHistoricalPdf(id) {
   try {
     const version = await getHistoricalVersion(id);
-    const request = window.__careerSessionRequest__ || fetch;
+    const request = options.request || window.__careerSessionRequest__ || fetch;
     const response = await request(`/api/artifacts/${version.artifact_id}?download=true`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     downloadBlob(`简历-${version.name}.pdf`, await response.blob());
@@ -1296,7 +1300,7 @@ function openResumeAiProposal(proposal) {
     dialog.querySelector('[role="alert"]').textContent = `此建议已过期：${proposal.stale_reason || "资料或工作稿已变化"}；可拒绝，但不能应用。`;
     dialog.querySelector('[data-accept]').disabled = true;
   }
-  document.body.append(dialog); dialog.showModal();
+  editorRoot.append(dialog); dialog.showModal();
   dialog.querySelector('[data-close]').onclick = () => dialog.close();
   dialog.addEventListener('close', () => dialog.remove());
   const resolve = async decision => {
@@ -1327,7 +1331,7 @@ async function aiOptimize() {
     const dialog = document.createElement("dialog"); dialog.className = "restore-dialog";
     dialog.innerHTML = '<div class="dialog-head"><div><h2>确认发送简历资料</h2><p>以下是去除认证信息后的最终请求预览；确认后才会产生一次 Provider 调用。</p></div><button data-close>关闭</button></div><pre data-preview></pre><p role="alert"></p><div class="restore-actions"><button data-cancel type="button">取消</button><button data-confirm class="primary" type="button">确认发送给 Provider</button></div>';
     dialog.querySelector('[data-preview]').textContent = JSON.stringify(preparation.payload_preview, null, 2);
-    document.body.append(dialog); dialog.showModal();
+    editorRoot.append(dialog); dialog.showModal();
     dialog.querySelector('[data-close]').onclick = () => dialog.close();
     dialog.querySelector('[data-cancel]').onclick = () => dialog.close();
     dialog.addEventListener('close', () => dialog.remove());
@@ -1385,20 +1389,6 @@ function wireToolbar() {
   document.getElementById("aiOptimize").onclick = () => { aiOptimize().catch(error => showToast(error.message)); };
   document.getElementById("retryVersion").onclick = () => { commitPendingVersion().catch(() => {}); };
   document.getElementById("cancelVersion").onclick = () => { pendingVersion = null; document.getElementById("versionRetry").hidden = true; lockEditor(false); };
-  document.getElementById("captureFeedback").addEventListener("click", () => {
-    const dialog = document.createElement("dialog"); dialog.className = "feedback-dialog";
-    dialog.innerHTML = '<form><h2>记录反馈</h2><label>你的反馈<textarea required></textarea></label><p role="status"></p><button type="button">取消</button><button type="submit">保存反馈</button></form>';
-    document.body.append(dialog); dialog.showModal();
-    dialog.querySelector('[type="button"]').onclick = () => dialog.close();
-    dialog.addEventListener('close', () => dialog.remove());
-    dialog.querySelector('form').onsubmit = async event => {
-      event.preventDefault(); const text = dialog.querySelector('textarea').value;
-      if (!text.trim()) return;
-      const submit = dialog.querySelector('[type="submit"]'); submit.disabled = true;
-      try { await requestBackend('/api/feedback', {method: 'POST', data: {text, current_page: 'editor', entity_id: documentId}}); dialog.close(); showToast('反馈已保存'); }
-      catch (error) { dialog.querySelector('[role="status"]').textContent = error.message; submit.disabled = false; }
-    };
-  });
   document.getElementById("saveVersion").addEventListener("click", async () => {
     const name = await askInPage("给当前版本起一个名称", true);
     if (!name) return;
@@ -1408,16 +1398,38 @@ function wireToolbar() {
     versionDialog.showModal();
     await refreshVersions();
   });
+  document.getElementById("previewPdf").addEventListener("click", async () => {
+    if (editorLocked || pendingVersion || pendingSubmission) { showToast("请先处理当前保存"); return; }
+    lockEditor(true);
+    try {
+      await flushSave();
+      const previewUrl = URL.createObjectURL(
+        await fetchPdf(`${editorBase}/pdf`, {expected_revision: revision}),
+      );
+      const dialog = document.createElement("dialog");
+      dialog.className = "pdf-preview-dialog";
+      dialog.innerHTML = '<div class="dialog-head"><div><h2>PDF 预览</h2><p>此预览与导出使用同一个服务端文字 PDF 渲染器。</p></div><button type="button" data-close>关闭</button></div><iframe title="简历 PDF 预览"></iframe>';
+      dialog.querySelector("iframe").src = previewUrl;
+      editorRoot.append(dialog);
+      dialog.showModal();
+      dialog.querySelector("[data-close]").onclick = () => dialog.close();
+      dialog.addEventListener("close", () => {
+        URL.revokeObjectURL(previewUrl);
+        dialog.remove();
+      }, {once: true});
+    } catch (error) { showToast(error.message); }
+    finally { lockEditor(false); }
+  });
   document.getElementById("exportPdf").addEventListener("click", async () => {
     if (editorLocked || pendingVersion || pendingSubmission) { showToast("请先处理当前保存"); return; }
     lockEditor(true);
-    try {await flushSave();downloadBlob(`简历-${new Date().toISOString().slice(0, 10)}.pdf`, await fetchPdf(`${editorBase}/pdf`, {expected_revision: revision}));}
+    try {await flushSave();downloadBlob(`简历-${new Date().toISOString().slice(0, 10)}.pdf`, await fetchPdf(`${editorBase}/pdf`, {expected_revision: revision}));showToast("PDF 已生成，下载已开始");}
     catch(error){showToast(error.message);}finally{lockEditor(false);}
   });
   document.addEventListener("selectionchange", () => {
     const selection = window.getSelection();
     if (selection?.rangeCount && paper.contains(selection.anchorNode)) rememberSelection();
-  });
+  }, {signal: lifecycle.signal});
   paper.addEventListener("click", (event) => {
     if (event.target.closest(".item-tools")) return;
     paper.querySelectorAll(".item-tools.is-open").forEach((element) => element.classList.remove("is-open"));
@@ -1427,7 +1439,7 @@ function wireToolbar() {
   document.addEventListener("click", (event) => {
     if (paper.contains(event.target)) return;
     paper.querySelectorAll(".is-selected").forEach((element) => element.classList.remove("is-selected"));
-  });
+  }, {signal: lifecycle.signal});
   document.addEventListener("keydown", (event) => {
     if (editorLocked) { event.preventDefault(); return; }
     if (event.metaKey && !event.altKey && !event.shiftKey) {
@@ -1446,15 +1458,14 @@ function wireToolbar() {
     if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") return;
     event.preventDefault();
     if (event.shiftKey) redo(); else undo();
-  });
-  window.addEventListener("resize", updatePageStatus);
+  }, {signal: lifecycle.signal});
+  window.addEventListener("resize", updatePageStatus, {signal: lifecycle.signal});
 
 }
 
 function registerWebMCP() {
   const context = document.modelContext;
   if (!context?.registerTool) return;
-  const lifecycle = new AbortController();
   const register = (tool) => Promise.resolve(context.registerTool(tool, {signal: lifecycle.signal})).catch(() => {});
   register({
     name: "read_resume_document",
@@ -1474,7 +1485,7 @@ async function confirmSubmission() {
   dialog.innerHTML='<div class="dialog-head"><h2>记录已投递 · 当前工作稿</h2><button data-close>关闭</button></div><p data-owner></p><p data-greeting></p><p>确认现实中已发送这份简历。系统冻结当前纸面内容和PDF，日期自动记录。</p><p role="alert"></p><button class="primary" data-submit>确认记录已投递</button>';
   dialog.querySelector('[data-owner]').textContent=o.company+' · '+o.title;
   dialog.querySelector('[data-greeting]').textContent='本次打招呼语：'+(o.greeting??'本次未使用');
-  document.body.append(dialog);dialog.showModal();
+  editorRoot.append(dialog);dialog.showModal();
   dialog.querySelector('[data-close]').onclick=()=>dialog.close();
   dialog.addEventListener('close',()=>dialog.remove());
   dialog.querySelector('[data-submit]').onclick=async()=>{
@@ -1493,37 +1504,61 @@ async function confirmSubmission() {
 }
 
 async function start() {
-  const backLink=document.querySelector('.back-link');
   try {
     if(!documentId){
       if(editorJobId){location.replace('/#opportunities/'+encodeURIComponent(editorJobId));return;}
-      if(new URLSearchParams(location.search).get('legacy')==='1'){
+      if(options.legacy || new URLSearchParams(location.search).get('legacy')==='1'){
         const {data:legacy}=await requestBackend('/api/editor');resume=normalizeDocument(legacy.document);revision=legacy.revision;
         editorLocked=true;render();paper.querySelectorAll('[contenteditable]').forEach(el=>el.contentEditable='false');
-        document.querySelectorAll('button').forEach(el=>el.disabled=true);setStatus('历史 editor-main · 只读复制来源');return;
+        editorRoot.querySelectorAll('button').forEach(el=>el.disabled=true);setStatus('历史 editor-main · 只读复制来源');return;
       }
       const {data:catalogue}=await requestBackend('/api/resume-documents');
       paper.replaceChildren();const title=document.createElement('h2');title.textContent='选择当前文档，继续编辑';paper.append(title);
-      for(const d of catalogue.documents){const link=document.createElement('a');link.href='/editor.html?document_id='+encodeURIComponent(d.document_id);link.textContent=d.company+' · '+d.title+' · '+d.saved_at;const row=document.createElement('p');row.append(link);paper.append(row);}
+      for(const d of catalogue.documents){const link=document.createElement('a');link.href='/#resume?document_id='+encodeURIComponent(d.document_id);link.textContent=d.company+' · '+d.title+' · '+d.saved_at;const row=document.createElement('p');row.append(link);paper.append(row);}
       const begin=document.createElement('a');begin.href='/#opportunities';begin.textContent='从机会开始新简历';paper.append(begin);
-      const legacy=document.createElement('a');legacy.href='/editor.html?legacy=1';legacy.textContent='查看历史 editor-main（只读）';paper.append(legacy);
-      document.querySelectorAll('button').forEach(el=>el.disabled=true);setStatus('请先选择机会');return;
+      const legacy=document.createElement('a');legacy.href='/#resume?legacy=1';legacy.textContent='查看历史 editor-main（只读）';paper.append(legacy);
+      editorRoot.querySelectorAll('button').forEach(el=>el.disabled=true);setStatus('请先选择机会');return;
     }
     const {data:payload}=await requestBackend(editorBase,{cache:'no-store'});
     opportunityId=payload.opportunity_id;editorJobId=opportunityId.replace(/^opportunity:/,'');
-    if(backLink)backLink.href='/#opportunities/'+encodeURIComponent(opportunityId);
     resume=normalizeDocument(payload.document);revision=payload.revision;savedSnapshot=snapshot();lastCloudSavedAt=payload.savedAt;
     wireToolbar();render();setStatus('已保存 · 本机会独立稿');updateHistoryButtons();refreshSources().catch(()=>{});refreshAiProposals().catch(()=>{});registerWebMCP();
     document.getElementById('recordSubmitted').onclick=()=>confirmSubmission().catch(e=>showToast(e.message));
     const {data:o}=await requestBackend('/api/opportunities/'+encodeURIComponent(opportunityId));
-    document.querySelector('.brand strong').textContent=o.company+' · '+o.title+' · 简历';
     document.getElementById('recordSubmitted').hidden=o.phase!=='resume'||o.result!=='active';
-    if(new URLSearchParams(location.search).get('submit')==='1')await confirmSubmission();
+    if(options.submit || new URLSearchParams(location.search).get('submit')==='1')await confirmSubmission();
   }catch(error){setStatus('载入失败：'+error.message,'error');paper.textContent='此工作稿无法载入；不会切换到其他稿。';}
 }
 
-if (location.protocol !== "file:") start();
-
-window.addEventListener("beforeunload", (event) => {
+const hasUnsavedChanges = () => Boolean(localChangePending || conflictState || editorLocked || pendingVersion || pendingSubmission);
+const beforeUnload = (event) => {
   if (localChangePending || conflictState || editorLocked || pendingVersion || pendingSubmission) { event.preventDefault(); event.returnValue = "当前内容尚未保存"; }
-});
+};
+window.addEventListener("beforeunload", beforeUnload, {signal: lifecycle.signal});
+if (location.protocol !== "file:") await start();
+return {
+  documentId,
+  hasUnsavedChanges,
+  async requestClose() {
+    if (!hasUnsavedChanges()) return true;
+    const dialog = document.createElement("dialog");
+    dialog.className = "restore-dialog";
+    dialog.innerHTML = '<div class="dialog-head"><div><h2>当前简历尚未保存</h2><p>切换简历或离开会放弃当前输入；你也可以留在这里继续处理。</p></div></div><div class="restore-actions"><button data-stay type="button">留在当前简历</button><button data-leave class="danger" type="button">放弃未保存内容并离开</button></div>';
+    editorRoot.append(dialog);
+    dialog.showModal();
+    return new Promise((resolve) => {
+      let leave = false;
+      dialog.querySelector("[data-stay]").onclick = () => dialog.close();
+      dialog.querySelector("[data-leave]").onclick = () => { leave = true; dialog.close(); };
+      dialog.addEventListener("cancel", (event) => { event.preventDefault(); dialog.close(); });
+      dialog.addEventListener("close", () => { dialog.remove(); resolve(leave); }, {once: true});
+    });
+  },
+  destroy() {
+    clearTimeout(saveTimer);
+    clearTimeout(toastTimer);
+    lifecycle.abort();
+    editorRoot.querySelectorAll("dialog[open]").forEach((dialog) => dialog.close());
+  },
+};
+}

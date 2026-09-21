@@ -34,7 +34,7 @@ C已将`editor-main`改为显式只读来源；工作稿按document_id进入统�
 
 ## 既有简历工作台本地化
 
-入口 `/editor.html?document_id=...`，使用当前隔离服务端口。源码来自 app_17dspw78s10 发布分支 main 的 `cc4f247a6556bb7369e5a24cbf2539e0fd3679a8`，实际入口 legacy-app.js / legacy.css；保留原纸面编辑、分区条目排序、富文本快捷键和撤销重做。字体及许可证随源码保留在 public/assets/fonts。没有复制线上简历样例、平台 SDK 或 .env。
+正式入口是主站内的 `#resume?document_id=...`。`src/resume-workspace.ts`提供文档选择和工作台上下文，并在同页挂载唯一的`editor/legacy-app.js`编辑模块；`editor.html`与`editor/legacy-entry.ts`只保留薄兼容跳转，不再创建独立编辑状态。当前简历、状态、机会关系和简历级动作收敛为一层控制区，动作按编辑/AI/版本/PDF/投递分组，低频导出与选材收入“更多”。编辑画布使用`resume-canvas`而不是应用壳层的`.workspace`类；A4固定为`210mm × 297mm`且不收缩，宽桌面居中，窄桌面允许画布及工具区分别滚动。源码来自 app_17dspw78s10 发布分支 main 的 `cc4f247a6556bb7369e5a24cbf2539e0fd3679a8`；继续保留原纸面编辑、分区条目排序、富文本快捷键和撤销重做。字体及许可证随源码保留在 public/assets/fonts。没有复制线上简历样例、平台 SDK 或 .env。
 
 纸面内容直接编辑；选中分区/条目显示原版操作按钮。草稿自动保存且可手动重试，冲突比较两份内容后人工选择。正式版本保存同时生成实际 PDF，历史可下载/恢复；恢复前当前稿进入独立恢复点。命名使用页面内对话框，兼容不支持 prompt 的内置浏览器。JSON/MD 可导出，JSON 导入尚未提供。
 
@@ -51,7 +51,7 @@ PDF 由服务端从结构化简历生成受控 HTML，并使用锁定版本的�
 
 `profile-ui.ts` 管理基础字段表单、旧文本整理与CAS；`record-ui.ts` 为机会、工作卡及聚合记录复用更正/历史/选段候选操作。`legacy-app.js` 提供明确选材和来源提示，保存工作稿成功后再发选材CAS；不确定响应复用同一请求。撤销/重做保留服务端来源历史，恢复正式版本采用冻结来源。
 
-机会编辑器URL携带document_id，由服务端确认所属opportunity_id，返回来源Opportunity Workspace；来源可深链当前Wiki条目或基础资料。普通面试/足迹空状态只指向创建所属的机会或工作卡。分析预览先展示可读正文，允许返回调整，完整JSON收在技术详情中。验收详见 [事实闭环](../docs/execution/FACT-LOOP.md)。
+机会进入简历工作台的URL携带document_id，由服务端确认所属opportunity_id，返回来源Opportunity Workspace；来源可深链当前Wiki条目或基础资料。普通面试/足迹空状态只指向创建所属的机会或工作卡。分析预览先展示可读正文，允许返回调整，完整JSON收在技术详情中。验收详见 [事实闭环](../docs/execution/FACT-LOOP.md)。
 
 
 
@@ -60,7 +60,7 @@ PDF 由服务端从结构化简历生成受控 HTML，并使用锁定版本的�
 
 ## Batch C Resume Workspace
 
-左侧只有一个“简历工作台”，列出当前ResumeDocument与最近编辑时间，用户明确选择后进入同一`editor.html?document_id=...`。机会中的“编辑简历”使用相同入口，后端由did核对owner，返回链接回所属Opportunity。无owner不自动选首稿；旧job_id链接先回对应机会，legacy=1仅供只读查看。
+左侧只有一个“简历工作台”，列出当前ResumeDocument与最近编辑时间；用户明确选择后，在当前`#resume?document_id=...`页面直接进入完整纸面编辑状态。机会中的“编辑简历”使用相同Workspace入口，后端由did核对owner，返回链接回所属Opportunity。无owner不自动选首稿；旧job_id链接先回对应机会，`editor.html`兼容链接薄跳转回Workspace，legacy=1仅供只读查看。
 
 沿用现有legacy-app纸面编辑、排版和PDF；autosave仅更新工作稿，导出不生成普通版本。普通版本由“保存版本”产生，RecordSubmitted产生带🔒、机会与日期的投递版本；版本管理只在工作台，机会材料面板展示已冻结实际投递。Profile刷新必须显式选入当前稿。请求固定幂等key；冲突保留输入并显示服务器值，响应未知时原请求重试。
 
