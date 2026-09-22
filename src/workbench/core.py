@@ -133,6 +133,9 @@ class Store:
             recover_secret_operations(self)
         os.chmod(self.db,0o600)
 
+    def shutdown(self):
+        self.secret_store.shutdown()
+
     @contextmanager
     def connect(self, write=True):
         with (attachment_lifecycle_lock(self.data_dir) if write else nullcontext()):
