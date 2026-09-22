@@ -97,3 +97,15 @@ def test_t11_frontend_does_not_fake_work_domain_failure_or_hide_interview_entrie
     assert "生成复盘建议" in interview
     assert "提议研究补丁" in interview
     assert "simulation" in interview
+
+
+def test_profile_wiki_tab_does_not_query_invalid_knowledge_tab():
+    main = open("frontend/src/main.ts", encoding="utf-8").read()
+    wiki_branch = main.split('} else if (targetPage === "wiki") {', 1)[1].split(
+        '} else if (targetPage === "directory") {', 1
+    )[0]
+    assert 'if (knowledgeUI.tab === "profile") {' in wiki_branch
+    profile_branch = wiki_branch.split('if (knowledgeUI.tab === "profile") {', 1)[1].split(
+        '} else {', 1
+    )[0]
+    assert 'api("/knowledge?" + params.toString())' not in profile_branch
