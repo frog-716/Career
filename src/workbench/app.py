@@ -34,6 +34,11 @@ from .local_session import LocalSessionManager, DEFAULT_BUILD_ID
 def create_app(store=None, frontend_dir=None, *, require_local_session=None, runtime_dir=None):
     app=FastAPI(title='Career',docs_url=None,redoc_url=None,openapi_url=None)
     s=store or Store();app.state.store=s
+
+    def shutdown_store():
+        s.shutdown()
+    app.add_event_handler('shutdown', shutdown_store)
+
     if require_local_session is None:
         require_local_session = os.environ.get('CAREER_TEST_MODE') != '1'
     runtime_root = Path(runtime_dir or os.environ.get('CAREER_RUNTIME_DIR') or (s.data_dir / '.runtime'))
