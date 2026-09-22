@@ -254,10 +254,13 @@ def test_resume_output_contract_is_explicit_for_json_only_deepseek_mode():
     system = payload["messages"][0]["content"]
 
     assert payload["response_format"] == {"type": "json_object"}
+    assert payload["max_tokens"] == 4096
     assert "只能输出一个 JSON 对象" in system
     assert "禁止 Markdown code fence" in system
     assert "禁止前后解释文字" in system
     assert "禁止输出合同未列出的字段" in system
+    assert "最小完整 JSON 示例" in system
+    assert "虚构示例" in system
     for field in ("change_id", "item_id", "field", "before_hash", "proposed_text", "source_refs", "reason", "requires_fact_check"):
         assert field in system
     schema = _resume_output_schema()
