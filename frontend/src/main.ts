@@ -241,21 +241,25 @@ async function load() {
       journey = journeyResult;
       workDomain = workResult;
     } else if (targetPage === "wiki") {
-      const params = new URLSearchParams({
-        scope: knowledgeUI.scope,
-        tab: knowledgeUI.tab,
-        category: knowledgeUI.category,
-        limit: "50",
-      });
-      if (knowledgeUI.cursor) params.set("cursor", knowledgeUI.cursor);
-      const [journeyResult, knowledgeResult] = await Promise.all([
-        api("/journey?summary=true"),
-        api("/knowledge?" + params.toString()),
-      ]);
-      if (!current()) return;
-      journey = journeyResult;
-      knowledge = {...knowledge, [knowledgeUI.tab]: knowledgeResult.items || knowledgeResult[knowledgeUI.tab] || [], page_scope: knowledgeResult.scope};
-      knowledgeUI.nextCursor = knowledgeResult.next_cursor || "";
+      if (knowledgeUI.tab === "profile") {
+        knowledgeUI.nextCursor = "";
+      } else {
+        const params = new URLSearchParams({
+          scope: knowledgeUI.scope,
+          tab: knowledgeUI.tab,
+          category: knowledgeUI.category,
+          limit: "50",
+        });
+        if (knowledgeUI.cursor) params.set("cursor", knowledgeUI.cursor);
+        const [journeyResult, knowledgeResult] = await Promise.all([
+          api("/journey?summary=true"),
+          api("/knowledge?" + params.toString()),
+        ]);
+        if (!current()) return;
+        journey = journeyResult;
+        knowledge = {...knowledge, [knowledgeUI.tab]: knowledgeResult.items || knowledgeResult[knowledgeUI.tab] || [], page_scope: knowledgeResult.scope};
+        knowledgeUI.nextCursor = knowledgeResult.next_cursor || "";
+      }
     } else if (targetPage === "directory") {
       domain = await api("/domain");
     } else if (targetPage === "resume") {
