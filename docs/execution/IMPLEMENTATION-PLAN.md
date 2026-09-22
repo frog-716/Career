@@ -580,16 +580,16 @@ POST /api/ai/execute
 
 威胁边界：防止未配对本机客户端和其他系统用户经 HTTP 读写资料/用 Key；不声称能防御已完全控制同一系统账号的恶意进程。继续默认 loopback 监听、Host/Origin/CSP 检查。
 
-本计划采用**一次性本地配对 + 浏览器 sessionStorage 中的短期 Bearer 会话**，避免依赖只按 host、不按端口隔离的 Cookie。sessionStorage 也不能防 XSS，因此 CSP、富文本清洗和禁止任意脚本仍是必要条件。
+本计划采用**一次性本地配对 + 浏览器 sessionStorage 中的短期 Bearer 会话 + 同源本机恢复凭据**，避免依赖只按 host、不按端口隔离的 Cookie。恢复凭据只是高熵 opaque handle：浏览器可持久保存它，服务端只保存其 digest；Bearer 仍只在进程内和 sessionStorage 中有效。sessionStorage/localStorage 都不能防 XSS，因此 CSP、富文本清洗和禁止任意脚本仍是必要条件。
 
 明确实施顺序：
 
 1. 明确匿名路径白名单：静态无用户数据页面、最小健康状态、配对提交。API docs、state、artifact、配置、读写业务和模型接口不得漏出。
 2. 启动时为本实例创建随机配对码，至少 128 bit 熵，有效期 5 分钟，一次消费；通过仅文件所有者可读的本地配对文件/受保护 IPC 交付。不能有匿名接口返回配对码。
 3. 第一版允许用户通过明确的本地终端/原生提示读取并输入配对码；不要求复杂无感配对。只在用户主动的交互式 TTY 显示，不写日志，不把码放进 URL、argv、环境变量或静态 HTML。
-4. 配对成功发放随机会话令牌，至少 256 bit 熵，默认 8 小时有效，服务重启失效；保存在页面内存/sessionStorage，禁止放 localStorage。以 Authorization header 发送。
-5. 新独立浏览器标签页/编辑器若没有会话，明确请求重新配对，不通过未鉴权接口偷取令牌。已有同 tab 路由继续可用；可在之后优化同源安全会话转交，但不能绕过配对。
-6. 文件下载通过鉴权 fetch 再创建本地 Blob URL，或同等不泄露 token 的方式；不得为方便下载把 bearer 放 query。退出/到期清掉 sessionStorage，保留用户未保存输入。
+4. 配对成功发放随机会话令牌，至少 256 bit 熵，默认 8 小时有效，服务重启失效；Bearer 保存在页面内存/sessionStorage，以 Authorization header 发送。同时发放只用于本机同源恢复的高熵 opaque handle：前端可放 localStorage，后端只保存 digest，不把 Bearer 或业务资料放入持久化存储。
+5. 新独立浏览器标签页/编辑器若没有会话，先尝试同源恢复凭据；没有恢复凭据时再向已有的同源 Career 标签页请求一次性内存会话转交。转交只通过 `BroadcastChannel` 传递现有 Bearer，绝不写入 URL、日志或跨源 Cookie。恢复凭据和内存转交都失败时，才明确请求重新配对；不能通过未鉴权接口偷取令牌或绕过首次配对。
+6. 文件下载通过鉴权 fetch 再创建本地 Blob URL，或同等不泄露 token 的方式；不得为方便下载把 bearer 放 query。退出同时撤销服务端恢复凭据并清掉 sessionStorage/localStorage，保留用户未保存输入。
 7. 保留 Origin/Host 和请求类型校验；生产配置不允许 testserver。配对有失败次数与短期速率限制，缺少 Origin 的普通本机请求仍须有效会话。
 8. `/healthz` 区分匿名最小健康信息和经授权的诊断信息。后者包含 build_id、schema、data_instance_id、startup_instance_id、静态资源 build_id；不返回原数据目录或秘密。
 9. 每个运行数据实例维护受保护身份、PID、进程启动时间与单实例锁。服务是否可复用必须同时验证应用身份、数据实例和兼容构建。
@@ -597,7 +597,7 @@ POST /api/ai/execute
 11. 新后端对应前端资源带同一 build_id；不匹配提示重载/正确重启，不把任意 app_version 当就绪。
 12. 连续双击和两个启动器并发必须由 OS 级单实例锁协调；健康检查不能通过读取整个 `/api/state` 来判断。
 
-回归必须包含：未配对本地 HTTP、错误 Origin/Host、过期令牌、配对码重放、匿名 artifact/API docs 均被拒绝；合法主页面/编辑器/下载/退出可用；不同端口服务收不到此会话令牌。
+回归必须包含：未配对本地 HTTP、错误 Origin/Host、过期令牌、配对码重放、匿名 artifact/API docs 均被拒绝；合法主页面/编辑器/下载/退出可用；服务重启后恢复凭据可获取新的内存会话；不同端口服务收不到此会话令牌或恢复凭据。
 
 真实 Mac 隔离验收：冷启动、连续双击、端口被无关服务占用、旧构建、PID 重用、启动失败、延迟退出、陈旧静态资源。只操作本次测试进程，不停止正式服务。不能把 IAB 测试记录成 Chrome 的独立验收。
 

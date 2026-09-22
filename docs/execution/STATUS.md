@@ -45,7 +45,7 @@
 - Chrome loopback 保留为 `TOOL_BLOCKED / UNVERIFIED`，不阻塞 T15 收口，也不继续修改产品代码。
 - `AI_ENABLED`、真实 Keychain、真实 Provider、收费调用和真实网页 Research 未授权、未执行；这是未启用范围，不是本轮实现阻断。
 - 供应链残余：`starlette==0.46.2` 的 7 个唯一 advisory 仍存在，`pip-audit` exit `1`；该项按 T12.1 既有分类保留为非阻断观察，不在本轮升级 Starlette/FastAPI。
-- 非阻断观察：LOCAL_ONLY 设置页仍按数据库配置显示“真实 AI”；旧 demo 机会曾显示 `Research owner 不合法`；退出后同进程不会重新生成一次性配对码，需要重启服务再配对；PDF 复制的加粗字段边界在 TextEdit 表现为 `**`。后端安全边界、真实机会读取和中文文字层均已独立通过。
+- 非阻断观察：LOCAL_ONLY 设置页仍按数据库配置显示“真实 AI”；旧 demo 机会曾显示 `Research owner 不合法`；首次本地配对后由同源本机恢复凭据续发短期内存会话，显式退出会撤销恢复凭据；PDF 复制的加粗字段边界在 TextEdit 表现为 `**`。后端安全边界、真实机会读取和中文文字层均已独立通过。
 - T11 规模数据仍只用于事实报告：1000 条虚构机会 summary `1,292,277` bytes/`0.074188s`，all opportunities `749,781` bytes/`0.022617s`；Chrome 显示总数和页面切换，未见分页按钮，不据此给出性能好坏结论。
 - 正式周任务 plist 未改且未运行；它不是本次 Stage 3 的新增阻断。旧数据/App/Python/runtime、即时恢复点和失败候选副本均保留，任何清理或 Stage 4 行为需另行授权。
 
@@ -153,9 +153,9 @@
 
 - T09 开工复核：重新读取 T09 任务卡、`docs/00-authority.md`、Opportunity 工程/Context 合同、当前 `app.py`、`scripts/run.py`、`scripts/macos_app.py`、前端请求适配及 T01–T08 机制。当前代码只有 loopback Host/Origin/写请求头检查：`/api/state`、业务 API、artifact 无 Bearer 会话；启动器只按 PID 文件存活并可直接 `SIGTERM`，没有配对码、重启失效会话或 OS 单实例锁；问题仍存在，未重复建立 T03/T05/T06/T08 已有机制。
 - T09 状态：`CODE_VERIFIED + BROWSER_VERIFIED`；`ACCEPTED` 尚未由用户确认。浏览器证据为隔离 IAB 用户链，不计为 Chrome 独立验收；真实 Mac/Chrome 平台项保留为 `PLATFORM_VERIFICATION_REQUIRED`。主线程完成规格轴/规范轴只读审查；无法核实 Subagent 实际 Luna/High，因此本批主线程串行实施，独立实施/独立审查缺失。
-- T09 实现：新增 `src/workbench/local_session.py`，为每个运行实例生成 128-bit 一次性配对码（5 分钟、一次消费、owner-only 文件）、256-bit Bearer 会话（8 小时、仅进程内、重启失效）、受保护控制凭据、数据实例/启动实例身份和诊断信息。`src/workbench/app.py` 将匿名面收敛为静态无资料页面、最小 `/healthz`、`/api/pair`；业务 API、artifact、配置、state 和诊断均需会话，Origin/Host/写请求头仍保留；提供退出、授权诊断和优雅停止控制路径，健康响应不泄露数据目录或秘密。
+- T09 实现：新增 `src/workbench/local_session.py`，为每个运行实例生成 128-bit 一次性配对码（5 分钟、一次消费、owner-only 文件）、256-bit Bearer 会话（8 小时、仅进程内、重启后失效）和仅保存 digest 的同源本机恢复凭据、受保护控制凭据、数据实例/启动实例身份和诊断信息。`src/workbench/app.py` 将匿名面收敛为静态无资料页面、最小 `/healthz`、`/api/pair` 和仅凭恢复凭据换发新内存会话的 `/api/session/resume`；业务 API、artifact、配置、state 和诊断均需会话，Origin/Host/写请求头仍保留；提供退出、授权诊断和优雅停止控制路径，健康响应不泄露数据目录或秘密。
 - T09 启动器：`scripts/run.py` 使用 OS `flock` 单实例锁，写入 owner-only PID+启动时间+实例身份元数据，锁和元数据在进程退出时清理；`scripts/macos_app.py` 只在 PID、OS 启动时间、实例身份和受保护控制通道均验证后复用/停止，不再按 PID 猜测终止未知进程；健康复用还核对 build/static resource、startup instance 与 data instance。`pair` 子命令只在交互式 TTY 显示配对码，不写日志、URL、argv 或环境变量。
-- T09 前端：新增 `frontend/src/local-session.ts`，所有主站、简历编辑器和敏感下载使用 `Authorization: Bearer`；token 仅进 `sessionStorage`，无 token 时提示配对，IAB 不支持原生 `prompt()` 时使用同页配对输入回退；PDF、截图和反馈导出改为鉴权 fetch + Blob，设置页提供“退出本地会话”，build ID 不匹配提示重载。`tests/conftest.py` 仅为旧 TestClient 设置 `CAREER_TEST_MODE=1`，生产启动器不设置该变量。
+- T09 前端：新增 `frontend/src/local-session.ts`，所有主站、简历编辑器和敏感下载使用 `Authorization: Bearer`；Bearer 仅进 `sessionStorage`，同源本机恢复凭据单独持久保存且只用于换发新的内存 Bearer；无 token 时先尝试恢复，再向同源已有 Career 标签页请求内存会话转交，无可用路径才提示配对，IAB 不支持原生 `prompt()` 时使用同页配对输入回退；PDF、截图和反馈导出改为鉴权 fetch + Blob，设置页提供“退出本地会话”，build ID 不匹配提示重载。`tests/conftest.py` 仅为旧 TestClient 设置 `CAREER_TEST_MODE=1`，生产启动器不设置该变量。
 - T09 关键不变量测试：新增 `tests/test_t09_local_session.py`，覆盖未配对 state/artifact/API docs 拒绝、最小 health、配对码一次消费、token 退出/过期/重启失效、Origin/Host、不同运行实例隔离、授权诊断不泄露路径/配对码、PID+启动身份校验和第二启动器被 OS lock 拒绝；`tests/test_macos_app.py` 更新为验证未知服务不复用、已验证服务才打开页面。专项 `... pytest -q tests/test_t09_local_session.py tests/test_macos_app.py tests/test_http.py`：exit `0`，`13 passed`。
 - T09 浏览器证据：隔离服务 `127.0.0.1:18789`、`CAREER_AI_PROVIDER=test`、`/tmp/career-t09-browser-20260919` 与 `/tmp/career-t09-runtime-20260919`；未配对时业务页面显示本地配对输入，输入虚构实例配对码后主页面可读，重载保持会话，设置页点击“退出本地会话”后立即回到配对页；浏览器 error/warn 日志为 `[]`。IAB 标签已关闭，临时服务已停止。Chrome 隔离会话打开本地地址被客户端 `ERR_BLOCKED_BY_CLIENT`，未将其冒充为 Chrome 验收。
 - T09 全量验证：`PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --no-project --with-requirements requirements.txt pytest -q`：exit `0`，`247 passed`、1 warning；`npm --prefix frontend run typecheck`：exit `0`；`npm --prefix frontend run build`：exit `0`；`uv run --no-project --with-requirements requirements.txt python -m pip check`：exit `0`，无 broken requirements；`npm --prefix frontend ls --depth=0`：exit `0`，仅报告既有 extraneous node_modules 条目；`git diff --check`：exit `0`。

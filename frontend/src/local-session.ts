@@ -1,6 +1,13 @@
 export const CLIENT_BUILD_ID = "career-0.7.0-batch-f";
 const SESSION_KEY = "career.local.session";
-let pairingInFlight: Promise<string> | null = null;
+const RESUME_KEY = "career.local.resume";
+const SESSION_CHANNEL = "career.local.session.v1";
+const SESSION_REQUEST = "career-session-request";
+const SESSION_RESPONSE = "career-session-response";
+const PEER_SESSION_TIMEOUT_MS = 250;
+let sessionInFlight: Promise<string> | null = null;
+let sessionChannel: BroadcastChannel | null = null;
+const pendingPeerSessions = new Map<string, (token: string | null) => void>();
 
 function readToken(): string | null {
   try {
@@ -18,6 +25,31 @@ function saveToken(token: string): void {
   }
 }
 
+function readResumeToken(): string | null {
+  try {
+    return localStorage.getItem(RESUME_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveResumeToken(token: string): void {
+  try {
+    localStorage.setItem(RESUME_KEY, token);
+  } catch {
+    // A browser may disable persistent storage. The current in-memory session
+    // remains usable; the next restart will require explicit pairing again.
+  }
+}
+
+function clearResumeToken(): void {
+  try {
+    localStorage.removeItem(RESUME_KEY);
+  } catch {
+    // Ignore storage failures while clearing the in-memory session.
+  }
+}
+
 export function clearLocalSession(): void {
   try {
     sessionStorage.removeItem(SESSION_KEY);
@@ -26,6 +58,66 @@ export function clearLocalSession(): void {
     // is still invalidated by the explicit logout request when possible.
   }
 }
+
+function sessionRequestId(): string {
+  try {
+    return window.crypto.randomUUID();
+  } catch {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
+function ensureSessionChannel(): BroadcastChannel | null {
+  if (sessionChannel) return sessionChannel;
+  try {
+    if (typeof BroadcastChannel === "undefined") return null;
+    const channel = new BroadcastChannel(SESSION_CHANNEL);
+    channel.addEventListener("message", (event: MessageEvent) => {
+      const message = event.data;
+      if (!message || typeof message !== "object") return;
+      if (message.type === SESSION_REQUEST && typeof message.requestId === "string") {
+        const token = readToken();
+        if (token) {
+          channel.postMessage({ type: SESSION_RESPONSE, requestId: message.requestId, token });
+        }
+        return;
+      }
+      if (message.type !== SESSION_RESPONSE || typeof message.requestId !== "string") return;
+      const resolve = pendingPeerSessions.get(message.requestId);
+      if (!resolve || typeof message.token !== "string" || !message.token) return;
+      pendingPeerSessions.delete(message.requestId);
+      resolve(message.token);
+    });
+    sessionChannel = channel;
+    return channel;
+  } catch {
+    return null;
+  }
+}
+
+function requestPeerSession(): Promise<string | null> {
+  const channel = ensureSessionChannel();
+  if (!channel) return Promise.resolve(null);
+  const requestId = sessionRequestId();
+  return new Promise((resolve) => {
+    const finish = (token: string | null) => {
+      clearTimeout(timeout);
+      pendingPeerSessions.delete(requestId);
+      resolve(token);
+    };
+    const timeout = setTimeout(() => finish(null), PEER_SESSION_TIMEOUT_MS);
+    pendingPeerSessions.set(requestId, finish);
+    try {
+      channel.postMessage({ type: SESSION_REQUEST, requestId });
+    } catch {
+      finish(null);
+    }
+  });
+}
+
+// Register before the first protected request so a paired tab restored from
+// sessionStorage can serve a new tab without first making an API call.
+ensureSessionChannel();
 
 function pairingCodeInput(): Promise<string> {
   try {
@@ -68,18 +160,51 @@ async function pair(): Promise<string> {
     throw new Error(result.detail || "本地配对失败，请确认配对码仍在有效期内");
   }
   saveToken(result.token);
+  if (typeof result.resume_token === "string" && result.resume_token) {
+    saveResumeToken(result.resume_token);
+  }
+  return result.token;
+}
+
+async function resume(): Promise<string | null> {
+  const resumeToken = readResumeToken();
+  if (!resumeToken) return null;
+  const response = await fetch("/api/session/resume", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Career-Request": "1" },
+    body: JSON.stringify({ resume_token: resumeToken }),
+    cache: "no-store",
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || typeof result.token !== "string") {
+    clearResumeToken();
+    return null;
+  }
+  saveToken(result.token);
+  if (typeof result.resume_token === "string" && result.resume_token) {
+    saveResumeToken(result.resume_token);
+  }
   return result.token;
 }
 
 async function ensureToken(): Promise<string> {
   const existing = readToken();
   if (existing) return existing;
-  if (!pairingInFlight) {
-    pairingInFlight = pair().finally(() => {
-      pairingInFlight = null;
+  if (!sessionInFlight) {
+    sessionInFlight = (async () => {
+      const resumedToken = await resume();
+      if (resumedToken) return resumedToken;
+      const peerToken = await requestPeerSession();
+      if (peerToken) {
+        saveToken(peerToken);
+        return peerToken;
+      }
+      return pair();
+    })().finally(() => {
+      sessionInFlight = null;
     });
   }
-  return pairingInFlight;
+  return sessionInFlight;
 }
 
 function sameOrigin(input: RequestInfo | URL): boolean {
@@ -101,6 +226,15 @@ export async function requestWithSession(input: RequestInfo | URL, init: Request
     clearLocalSession();
     token = await ensureToken();
     response = await send(input, init, token);
+    if (response.status === 401) {
+      // A peer may have retained a sessionStorage token after the server
+      // restarted. Try the persistent local resume handle before asking for
+      // the one-time pairing code again.
+      clearLocalSession();
+      clearResumeToken();
+      token = await pair();
+      response = await send(input, init, token);
+    }
   }
   const backendBuildId = response.headers.get("X-Career-Build-Id");
   if (backendBuildId && backendBuildId !== CLIENT_BUILD_ID) {
@@ -115,4 +249,5 @@ export async function logoutLocalSession(): Promise<void> {
     await send("/api/logout", { method: "POST", headers: { "Content-Type": "application/json", "X-Career-Request": "1" }, body: "{}" }, token).catch(() => undefined);
   }
   clearLocalSession();
+  clearResumeToken();
 }
