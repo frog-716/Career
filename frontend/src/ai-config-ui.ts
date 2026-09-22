@@ -5,7 +5,13 @@ type Deps = {state: Row; api: Api; modal: (title:string, body:string, ready?: (d
 
 export function aiSettingsView(state: Row, modeText: string) {
   const ai = state.ai || {configs: [], default_model_config_id: null};
-  const secretLabel = (config: Row) => !config.configured_ref ? '未设置 Key' : config.secret_status === 'ready' ? 'Key 已配置' : config.secret_status === 'not_checked' ? 'Key 未检查（需重新授权/测试）' : `Key 状态：${config.secret_status}`;
+  const secretLabel = (config: Row) => {
+    if (!config.configured_ref) return '未设置 Key';
+    if (config.secret_status === 'ready') return 'Key 已验证可用';
+    if (config.secret_status === 'not_checked') return 'Key 已配置，尚未验证';
+    const labels: Row = {missing: '缺失', denied: '访问被拒绝', locked: 'Keychain 已锁定', interaction_not_allowed: '不允许交互授权', timeout: '验证超时', error: '验证失败'};
+    return `Key 状态：${labels[config.secret_status] || config.secret_status}`;
+  };
   const rows = (ai.configs || []).map((config: Row) => `<article class="ai-config-row"><div><h3>${esc(config.display_name)}</h3><p>${esc(config.provider)} · ${esc(config.model)}</p><small>${esc(config.base_url)} · ${secretLabel(config)}${config.id === ai.default_model_config_id ? ' · 当前使用' : ''}</small></div><div class="actions"><button class="secondary" data-ai-test="${esc(config.id)}">测试</button>${config.id === ai.default_model_config_id ? '<span class="pill">当前使用</span>' : `<button class="quiet" data-ai-default="${esc(config.id)}">设为当前</button>`}<button class="quiet" data-ai-edit="${esc(config.id)}">编辑</button><button class="text-btn" data-ai-delete="${esc(config.id)}">删除</button></div></article>`).join('');
   const current = (ai.configs || []).find((config: Row) => config.id === ai.default_model_config_id);
   return `<section class="settings scroll"><div class="pane-heading"><h2>AI 模型</h2><div class="actions"><button class="primary" id="ai-add">添加模型</button></div></div><p class="muted">API Key 只保存在 macOS Keychain；Career 数据库、备份、日志和浏览器响应都不保存完整密钥。</p><section class="ai-config-list">${rows || '<div class="empty">尚未配置 AI 模型。人工资料、简历和求职记录仍可正常使用。</div>'}</section><div class="setting-row"><span>当前模式</span><b>${esc(modeText)}</b></div><div class="setting-row"><span>默认模型</span><span>${current ? esc(`${current.provider} / ${current.model}`) : '尚未设置，AI 操作会提示进入本页配置模型'}</span></div><button class="text-btn" id="logout-session" type="button">退出本地会话</button><button class="text-btn" data-page="feedback">查看反馈记录 →</button></section>`;

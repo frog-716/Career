@@ -61,7 +61,7 @@ HTTP 路由、错误与并发语义以当前模块实现和对应测试为准，
 
 生产 macOS Keychain 的每次 `get`、`put`、`delete` 都在短生命周期 helper 中执行；Career 主进程以 2 秒 bounded timeout 等待，helper 超时会被 terminate 并确认退出。锁定、拒绝、交互不可用、缺失、崩溃或畸形响应均 fail closed，绝不 fallback 到环境变量或其它 Secret 来源。Secret 只通过进程内匿名 socketpair 传递，不进入 argv、环境变量、标准输出/错误、临时文件或日志；应用 shutdown 也会清理仍在运行的 helper。
 
-配置列表不逐项探测 Keychain；`secret_status` 初始为 `not_checked`，显式测试或正式调用失败后显示 `missing`、`locked` 或 `error`，恢复到新环境后需重新授权或录入。
+配置列表不逐项探测 Keychain。`LOCAL_ONLY` 启动不访问 Keychain，配置存在时运行时 `secret_status` 保持 `not_checked`；`AI_ENABLED` 启动只对当前默认配置的 active `api_key_ref` 做一次 bounded read，成功后本进程状态为 `ready`，失败则显示 `missing`、`denied`、`locked`、`interaction_not_allowed`、`timeout` 或 `error`，并阻止 Gateway 出站。历史持久化 `ready` 不会直接继承为新进程的 runtime readiness。
 
 旧环境变量 Provider 仅为测试和诊断兼容保留，不再作为业务 LLM 的配置或调用入口；旧 `/api/analysis` 也统一经 `ModelGateway`。生产配置请在“设置 → AI 模型”中保存到 macOS Keychain。支持遵循 Chat Completions JSON 对象格式的服务；开发模型配置不代表运行时模型授权。官方请求参考：[Chat Completions](https://platform.openai.com/docs/api-reference/chat/create)。远端请求仅在预览后点击发送，包包括当前基础资料、显式选择的当前 Wiki、该岗位 JD 和本轮指令。API Key 不进入业务包、日志、UI 或浏览器存储；不读宿主登录凭据。
 

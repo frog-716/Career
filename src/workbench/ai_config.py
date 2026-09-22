@@ -9,7 +9,10 @@ from .runtime_mode import require_ai_enabled, require_secret_maintenance
 
 
 SECRET_OPERATION_KIND = "ai_secret_operation"
-SECRET_STATUSES = {"not_checked", "ready", "missing", "locked", "error"}
+SECRET_STATUSES = {
+    "not_checked", "ready", "missing", "denied", "locked",
+    "interaction_not_allowed", "timeout", "error",
+}
 CLEANUP_POLICY_AUTOMATIC = "automatic"
 CLEANUP_POLICY_MANUAL = "manual_cleanup_required"
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
@@ -83,9 +86,9 @@ def _config(store, c, config_id):
     return store._get(c, config_id, "ai_model_config")
 
 
-def _public(config, secret_store=None):
+def _public(config, runtime_status=None):
     ref = config.get("api_key_ref")
-    status = config.get("secret_status")
+    status = runtime_status or config.get("secret_status")
     if status not in SECRET_STATUSES:
         status = "not_checked" if ref else "error"
     return {
@@ -110,7 +113,10 @@ def settings(store, c=None):
         ctx = store.connect(False)
         c = ctx.__enter__()
     try:
-        configs = [_public(x) for x in store._current(c, "ai_model_config")]
+        configs = [
+            _public(x, store.runtime_secret_status(x["id"]))
+            for x in store._current(c, "ai_model_config")
+        ]
         row = c.execute("SELECT body FROM current WHERE id='ai-settings' AND kind='ai_settings'").fetchone()
         value = json.loads(row[0]) if row else {"default_model_config_id": None}
         default = value.get("default_model_config_id")
@@ -347,7 +353,8 @@ def create(store, body):
             c.execute("DELETE FROM current WHERE id=?", (config_id,))
         raise Invalid("模型配置保存失败，未切换当前配置") from exc
     _journal_update(store, operation_id, phase="cleaned", error_code=None)
-    return _public(saved)
+    store.set_runtime_secret_status(saved["id"], "ready")
+    return _public(saved, store.runtime_secret_status(saved["id"]))
 
 
 def _load_update(store, config_id, body):
@@ -389,7 +396,7 @@ def update(store, config_id, body):
                 raise Conflict("模型配置已更新，请重新载入")
             latest.update(updated)
             saved = store._save(c, "ai_model_config", latest, expected)
-        return _public(saved)
+        return _public(saved, store.runtime_secret_status(saved["id"]))
 
     key = _text(new_key, "API Key", 10000)
     new_ref = _new_ref(store)
@@ -449,10 +456,15 @@ def update(store, config_id, body):
                 latest["secret_cleanup_pending"] = True
                 row = c.execute("SELECT revision FROM current WHERE id=?", (config_id,)).fetchone()
                 store._save(c, "ai_model_config", latest, row[0])
-            return _public({**saved, "secret_cleanup_pending": True})
+            store.set_runtime_secret_status(saved["id"], "ready")
+            return _public(
+                {**saved, "secret_cleanup_pending": True},
+                store.runtime_secret_status(saved["id"]),
+            )
     else:
         _journal_update(store, operation_id, phase="cleaned", error_code=None)
-    return _public(saved)
+    store.set_runtime_secret_status(saved["id"], "ready")
+    return _public(saved, store.runtime_secret_status(saved["id"]))
 
 
 def mark_cleanup_hold(store, config_id, body):
@@ -472,7 +484,7 @@ def mark_cleanup_hold(store, config_id, body):
         current["secret_cleanup_pending"] = True
         current["secret_cleanup_state"] = CLEANUP_POLICY_MANUAL
         saved = store._save(c, "ai_model_config", current, expected)
-    return _public(saved)
+    return _public(saved, store.runtime_secret_status(saved["id"]))
 
 
 def delete(store, config_id, confirm=False):
@@ -592,8 +604,9 @@ def secret(store, config):
 
 
 def mark_secret_status(store, config_id, status):
-    if status not in {"missing", "locked", "error"}:
+    if status not in {"missing", "denied", "locked", "interaction_not_allowed", "timeout", "error"}:
         status = "error"
+    store.set_runtime_secret_status(config_id, status)
     try:
         with store.connect() as c:
             config = _config(store, c, config_id)

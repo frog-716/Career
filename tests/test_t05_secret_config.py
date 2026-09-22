@@ -323,7 +323,7 @@ def test_missing_secret_after_restore_is_reported_only_after_explicit_check(tmp_
     client = TestClient(create_app(restarted), headers=HEADERS)
     listed = client.get("/api/ai/models").json()["configs"][0]
     assert listed["configured_ref"] is True
-    assert listed["secret_status"] == "not_checked"
+    assert listed["secret_status"] == "missing"
     checked = client.post(f"/api/ai/models/{created['id']}/test")
     assert checked.status_code == 200
     assert checked.json()["code"] == "secret_missing"
