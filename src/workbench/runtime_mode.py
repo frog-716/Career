@@ -61,3 +61,14 @@ def require_ai_enabled(mode: RuntimeMode | None = None) -> RuntimeMode:
 
         raise LocalOnlyDisabled()
     return current
+
+
+def require_secret_maintenance(mode: RuntimeMode | None = None) -> RuntimeMode:
+    """Allow explicit secret maintenance without enabling any AI outbound."""
+
+    current = mode or resolve_runtime_mode()
+    if not current.valid:
+        from .providers import LocalOnlyDisabled
+
+        raise LocalOnlyDisabled()
+    return current
