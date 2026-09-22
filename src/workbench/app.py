@@ -81,6 +81,7 @@ def create_app(store=None, frontend_dir=None, *, require_local_session=None, run
         public = (
             path == '/healthz'
             or path == '/api/pair'
+            or path == '/api/session/resume'
             or (request.method in ('GET', 'HEAD') and not path.startswith('/api'))
         )
         control_authorized = path in ('/api/local/stop', '/api/local/healthz') and app.state.local_session.authorize_control(
@@ -132,6 +133,13 @@ def create_app(store=None, frontend_dir=None, *, require_local_session=None, run
         result = app.state.local_session.pair(b.get('code'))
         if result is None:
             return JSONResponse({'detail':'配对码无效、已过期或已使用','code':'pairing_failed'}, status_code=401)
+        return result
+
+    @app.post('/api/session/resume')
+    def resume_session(b:dict):
+        result = app.state.local_session.resume(b.get('resume_token'))
+        if result is None:
+            return JSONResponse({'detail':'本地会话恢复凭据无效','code':'resume_failed'}, status_code=401)
         return result
 
     @app.post('/api/logout')

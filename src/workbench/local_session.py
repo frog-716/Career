@@ -1,9 +1,10 @@
-"""Ephemeral local pairing and browser-session credentials.
+"""Local pairing, browser-session credentials, and local session resumption.
 
 The pairing code is a one-time bootstrap credential kept in a protected local
-file.  Bearer sessions live only in memory, so restarting the process
-invalidates every browser session without leaving reusable credentials in the
-database or in URLs.
+file.  Bearer sessions live only in memory.  A separate high-entropy browser
+resume secret is stored only as a digest in the protected runtime directory so
+the same browser can obtain a fresh in-memory Bearer session after a Career
+restart without making business APIs anonymous.
 """
 from __future__ import annotations
 
@@ -168,10 +169,12 @@ class LocalSessionManager:
         self._pairing_retry_after = 0.0
         self._pairing_consumed = False
         self.pairing_path = self.runtime_dir / "pairing.json"
+        self.resume_path = self.runtime_dir / "browser-session.json"
         self.control_path = self.runtime_dir / "control.json"
         self.process_metadata_path = self.runtime_dir / "process.json"
         self._control_token = secrets.token_urlsafe(32)
         self.data_instance_id = self._load_data_instance_id()
+        self._resume_digest = self._load_resume_digest()
         self._pairing_code = secrets.token_hex(16)
         self._pairing_digest = hashlib.sha256(self._pairing_code.encode()).digest()
         self._pairing_expires_at = self._clock() + self.pairing_ttl
@@ -187,6 +190,16 @@ class LocalSessionManager:
             self.control_path,
             json.dumps({"token": self._control_token}, ensure_ascii=False),
         )
+
+    def _load_resume_digest(self) -> Optional[bytes]:
+        try:
+            payload = json.loads(self.resume_path.read_text(encoding="utf-8"))
+            digest = payload.get("digest")
+            if not isinstance(digest, str) or len(digest) != 64:
+                return None
+            return bytes.fromhex(digest)
+        except (FileNotFoundError, OSError, TypeError, ValueError, json.JSONDecodeError):
+            return None
 
     def _load_data_instance_id(self) -> str:
         path = (self.data_dir or self.runtime_dir) / ".career-instance"
@@ -220,12 +233,52 @@ class LocalSessionManager:
             if self._pairing_failures >= 5:
                 self._pairing_retry_after = now + 30
             return None
+        resume_token = secrets.token_urlsafe(32)
+        try:
+            _write_private(
+                self.resume_path,
+                json.dumps(
+                    {"digest": hashlib.sha256(resume_token.encode()).hexdigest()},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            )
+        except OSError:
+            return None
+        self._resume_digest = hashlib.sha256(resume_token.encode()).digest()
         self._pairing_consumed = True
         self.pairing_path.unlink(missing_ok=True)
         token = secrets.token_urlsafe(32)
         expires_at = now + self.session_ttl
         self._sessions[hashlib.sha256(token.encode()).hexdigest()] = expires_at
-        return {"token": token, "expires_at": expires_at, "expires_in": self.session_ttl}
+        return {
+            "token": token,
+            "resume_token": resume_token,
+            "expires_at": expires_at,
+            "expires_in": self.session_ttl,
+        }
+
+    def resume(self, resume_token: str) -> Optional[Dict[str, object]]:
+        if (
+            not isinstance(resume_token, str)
+            or not resume_token
+            or len(resume_token) > 256
+            or self._resume_digest is None
+        ):
+            return None
+        supplied = hashlib.sha256(resume_token.encode()).digest()
+        if not hmac.compare_digest(supplied, self._resume_digest):
+            return None
+        now = self._clock()
+        token = secrets.token_urlsafe(32)
+        expires_at = now + self.session_ttl
+        self._sessions[hashlib.sha256(token.encode()).hexdigest()] = expires_at
+        return {
+            "token": token,
+            "resume_token": resume_token,
+            "expires_at": expires_at,
+            "expires_in": self.session_ttl,
+        }
 
     def authenticate(self, token: Optional[str]) -> Optional[Dict[str, object]]:
         if not isinstance(token, str) or not token or len(token) > 256:
@@ -242,6 +295,8 @@ class LocalSessionManager:
     def revoke(self, token: Optional[str]) -> None:
         if isinstance(token, str):
             self._sessions.pop(hashlib.sha256(token.encode()).hexdigest(), None)
+        self._resume_digest = None
+        self.resume_path.unlink(missing_ok=True)
 
     def authorize_control(self, token: Optional[str]) -> bool:
         return isinstance(token, str) and hmac.compare_digest(token, self._control_token)

@@ -123,6 +123,7 @@ def test_pairing_is_one_time_and_session_is_required_for_business_api(tmp_path):
     first = client.post("/api/pair", json={"code": code})
     assert first.status_code == 200
     token = first.json()["token"]
+    resume_token = first.json()["resume_token"]
     assert first.json()["expires_in"] == 8 * 60 * 60
     assert client.get("/api/state", headers=auth_headers(token)).status_code == 200
 
@@ -133,6 +134,39 @@ def test_pairing_is_one_time_and_session_is_required_for_business_api(tmp_path):
     logged_out = client.post("/api/logout", headers=auth_headers(token), json={})
     assert logged_out.status_code == 200
     assert client.get("/api/state", headers=auth_headers(token)).status_code == 401
+    assert client.post(
+        "/api/session/resume",
+        json={"resume_token": resume_token},
+    ).status_code == 401
+
+
+def test_browser_session_can_resume_after_runtime_restart_without_reusing_pairing_code(tmp_path):
+    client, app = secure_client(tmp_path)
+    first = client.post("/api/pair", json={"code": pairing_code(app)})
+    assert first.status_code == 200
+    resume_token = first.json()["resume_token"]
+
+    restarted_store = Store(tmp_path / "data", TestProvider())
+    restarted_app = create_app(
+        restarted_store,
+        require_local_session=True,
+        runtime_dir=tmp_path / "runtime",
+    )
+    restarted = TestClient(restarted_app, headers=HEADERS)
+    resumed = restarted.post(
+        "/api/session/resume",
+        json={"resume_token": resume_token},
+    )
+
+    assert resumed.status_code == 200
+    assert resumed.json()["token"] != first.json()["token"]
+    assert restarted.get("/api/state", headers=auth_headers(resumed.json()["token"])).status_code == 200
+
+    other_client, _ = secure_client(tmp_path, "runtime-b")
+    assert other_client.post(
+        "/api/session/resume",
+        json={"resume_token": resume_token},
+    ).status_code == 401
 
 
 def test_origin_host_and_missing_bearer_are_rejected_without_data_leak(tmp_path):
