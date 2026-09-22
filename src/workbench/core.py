@@ -11,7 +11,7 @@ from pathlib import Path
 from .providers import get_provider, ProviderError
 from .artifacts import write_pdf, write_screenshot, read_artifact
 from .attachment_lock import attachment_lifecycle_lock
-from .secret_store import KeychainSecretStore, LocalOnlySecretStore
+from .secret_store import KeychainSecretStore, LocalOnlySecretStore, SecretStoreError
 from .runtime_mode import resolve_runtime_mode
 
 APP_VERSION = '0.7.0-batch-f'
@@ -55,6 +55,7 @@ class Store:
         self._secret_store_injected = secret_store is not None
         self.secret_store=secret_store or (LocalOnlySecretStore() if self.runtime_mode.local_only else KeychainSecretStore())
         self._maintenance_secret_store = None
+        self._runtime_secret_status = {}
         with self.connect() as c:
             v=c.execute('PRAGMA user_version').fetchone()[0]
             if v not in (0,6): raise Invalid('数据库版本不匹配')
@@ -119,21 +120,58 @@ class Store:
                 if r['status']=='running':
                     r.update(status='failed',error='上次进程中断，请重新发起；不会自动重试收费调用')
                     self._record(c,'run',r)
-            # A backup contains opaque refs, never Keychain contents. Do not
-            # carry a prior process's "ready" claim into a new process or a
-            # restored data directory; the next explicit test/call can verify
-            # it without probing every item during startup.
-            for config in self._current(c, 'ai_model_config'):
-                if config.get('api_key_ref') and config.get('secret_status') == 'ready':
-                    config['secret_status'] = 'not_checked'
-                    c.execute('UPDATE current SET body=? WHERE id=?', (dump(config), config['id']))
         # Secret-operation recovery intentionally runs after the startup
         # transaction has closed. It reconciles only journal-known opaque refs
         # and never probes every configured Keychain item during boot.
         if self.runtime_mode.ai_enabled or (self.runtime_mode.local_only and self.runtime_mode.valid):
             from .ai_config import recover_secret_operations
             recover_secret_operations(self)
+        self._initialize_runtime_secret_readiness()
         os.chmod(self.db,0o600)
+
+    def _initialize_runtime_secret_readiness(self):
+        """Establish this process's readiness without probing held or inactive refs."""
+
+        with self.connect(False) as c:
+            configs = self._current(c, 'ai_model_config')
+            self._runtime_secret_status = {
+                config['id']: 'not_checked' for config in configs
+            }
+            if not self.runtime_mode.ai_enabled:
+                return
+            row = c.execute(
+                "SELECT body FROM current WHERE id='ai-settings' AND kind='ai_settings'"
+            ).fetchone()
+            settings = json.loads(row[0]) if row else {}
+            default_id = settings.get('default_model_config_id')
+            active = next((config for config in configs if config['id'] == default_id), None)
+
+        if not active or not active.get('enabled') or not active.get('api_key_ref'):
+            return
+        try:
+            value = self.secret_store.get(active['api_key_ref'])
+            status = 'ready' if isinstance(value, str) and value else 'error'
+        except SecretStoreError as exc:
+            status = exc.code if exc.code in {
+                'missing', 'denied', 'locked', 'interaction_not_allowed', 'timeout', 'error'
+            } else 'error'
+        except Exception:
+            status = 'error'
+        self._runtime_secret_status[active['id']] = status
+
+    def runtime_secret_status(self, config_id):
+        """Return this process's secret readiness, never probing Keychain."""
+
+        return self._runtime_secret_status.get(config_id)
+
+    def set_runtime_secret_status(self, config_id, status):
+        """Update in-memory readiness after an explicit maintenance/check."""
+
+        allowed = {
+            'not_checked', 'ready', 'missing', 'denied', 'locked',
+            'interaction_not_allowed', 'timeout', 'error',
+        }
+        self._runtime_secret_status[config_id] = status if status in allowed else 'error'
 
     def shutdown(self):
         self.secret_store.shutdown()

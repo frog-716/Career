@@ -126,9 +126,20 @@ class ModelGateway:
         require_ai_enabled(self.store.runtime_mode)
         config = ai_config.selected(self.store, c, model_config_id)
         if config:
+            readiness = self.store.runtime_secret_status(config["id"])
+            if readiness != "ready":
+                code = readiness if readiness in {
+                    "not_checked", "missing", "denied", "locked",
+                    "interaction_not_allowed", "timeout", "error",
+                } else "error"
+                raise GatewayError(
+                    "secret_" + code,
+                    "模型配置的 API Key 当前不可用，请重新授权或录入",
+                )
             try:
                 secret = ai_config.secret(self.store, config)
             except SecretStoreError as exc:
+                self.store.set_runtime_secret_status(config["id"], exc.code)
                 raise GatewayError("secret_" + exc.code, "模型配置的 API Key 当前不可用，请重新授权或录入") from exc
             return OpenAICompatibleAdapter(config, secret, self.store.runtime_mode), config
         # Keep deterministic isolated tests and local manual flows working.
@@ -213,8 +224,17 @@ class ModelGateway:
         try:
             with self.store.connect(False) as c:
                 config = ai_config.selected(self.store, c, config_id)
+                readiness = self.store.runtime_secret_status(config["id"])
+                if readiness != "ready":
+                    return {
+                        "status": "failed",
+                        "code": "secret_" + (readiness or "error"),
+                        "message": "模型配置的 API Key 当前不可用，请重新授权或录入",
+                        "model": None,
+                    }
                 adapter = OpenAICompatibleAdapter(config, ai_config.secret(self.store, config), self.store.runtime_mode)
         except SecretStoreError as exc:
+            self.store.set_runtime_secret_status(config_id, exc.code)
             ai_config.mark_secret_status(self.store, config_id, exc.code)
             return {"status": "failed", "code": "secret_" + exc.code, "message": "模型配置的 API Key 当前不可用，请重新授权或录入", "model": None}
         target = {"kind": "model_config", "id": config_id}
