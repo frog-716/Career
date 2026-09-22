@@ -243,6 +243,11 @@ def _resume_output_schema():
             "bullets.<bullet_id>.content；不得返回整份 document、身份/组织/职位/日期、"
             "数组结构或新增条目。"
         ),
+        "example": {
+            "changes": [],
+            "suggestions": ["虚构示例：把技能表述改得更清楚。"],
+            "claims": [],
+        },
     }
 
 
