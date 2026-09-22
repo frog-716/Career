@@ -186,7 +186,64 @@ def _resume_client_intent(document_id, body):
 
 
 def _resume_output_schema():
-    return {"version": 2, "required": ["changes"]}
+    return {
+        "version": 2,
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["changes", "suggestions", "claims"],
+        "properties": {
+            "changes": {
+                "type": "array",
+                "maxItems": _MAX_RESUME_CHANGES,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "change_id", "item_id", "field", "before_hash",
+                        "proposed_text", "source_refs", "reason", "requires_fact_check",
+                    ],
+                    "properties": {
+                        "change_id": {"type": "string", "minLength": 1, "maxLength": 160},
+                        "item_id": {"type": "string", "minLength": 1, "maxLength": 160},
+                        "field": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 240,
+                            "description": "只能是 content 或 bullets.<bullet_id>.content；只能引用当前简历已有条目。",
+                        },
+                        "before_hash": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$",
+                        },
+                        "proposed_text": {"type": "string", "maxLength": _MAX_CHANGE_TEXT},
+                        "source_refs": {
+                            "type": "array",
+                            "maxItems": 20,
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["id", "revision"],
+                                "properties": {
+                                    "id": {"type": "string"},
+                                    "revision": {"type": "integer"},
+                                },
+                            },
+                            "description": "只能引用本次资料 manifest 中已有的来源。",
+                        },
+                        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+                        "requires_fact_check": {"type": "boolean"},
+                    },
+                },
+            },
+            "suggestions": {"type": "array", "items": {}},
+            "claims": {"type": "array", "items": {}},
+        },
+        "description": (
+            "只允许修改当前简历的字段级表达：field 只能是 content 或 "
+            "bullets.<bullet_id>.content；不得返回整份 document、身份/组织/职位/日期、"
+            "数组结构或新增条目。"
+        ),
+    }
 
 
 _MAX_RESUME_CHANGES = 50

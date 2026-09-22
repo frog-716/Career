@@ -6,8 +6,10 @@ from fastapi.testclient import TestClient
 
 from workbench.app import create_app
 from workbench.core import Store, digest
+from workbench.model_gateway import OpenAICompatibleAdapter
 from workbench.opportunity import create_opportunity
 from workbench.providers import TestProvider
+from workbench.resume_documents import _resume_output_schema
 
 
 HEADERS = {"X-Career-Request": "1", "Content-Type": "application/json"}
@@ -163,6 +165,40 @@ class LegacyWholeDocumentProvider(TestProvider):
         return {"document": proposed, "suggestions": ["legacy whole document"]}
 
 
+class ObservedDeepSeekShapeProvider(TestProvider):
+    """Redacted fixture for the observed extra-field validation failure."""
+
+    def __init__(self):
+        self.call_count = 0
+
+    def complete(self, payload):
+        self.call_count += 1
+        packet = json.loads(payload["messages"][1]["content"])
+        current = next(
+            source["selected_content"]
+            for source in packet["sources"]
+            if source.get("purpose") == "current_resume_document"
+        )
+        skill = current["sections"][0]["items"][0]["content"]
+        # The retained audit evidence identifies this validator branch, but not
+        # the real provider's extra key. Keep that key explicitly synthetic.
+        return {
+            "changes": [{
+                "change_id": "observed-shape-change",
+                "item_id": "t08-skill",
+                "field": "content",
+                "before_hash": digest(skill),
+                "proposed_text": "虚构的兼容性复现",
+                "source_refs": [],
+                "reason": "脱敏失败形态复现",
+                "requires_fact_check": False,
+                "synthetic_provider_extra_field": "not from retained payload",
+            }],
+            "suggestions": [],
+            "claims": [],
+        }
+
+
 def prepare_request(client, document_id, key):
     seed = {"instruction": "只优化虚构简历表达", "idempotency_key": key}
     prepared = client.post(f"/api/resume-documents/{document_id}/ai-suggest", json=seed)
@@ -190,6 +226,43 @@ def test_legacy_whole_document_output_is_rejected_without_writing(tmp_path):
     assert client.get(f"/api/resume-documents/{before['document_id']}/ai-proposals").json() == []
     with store.connect(False) as connection:
         assert connection.execute("SELECT state,error_code FROM ai_operations").fetchone() == ("failed", "invalid_result")
+
+
+def test_observed_deepseek_extra_field_shape_reproduces_invalid_result(tmp_path):
+    provider = ObservedDeepSeekShapeProvider()
+    client, store, before = resume_fixture(tmp_path, provider)
+    response = client.post(
+        f"/api/resume-documents/{before['document_id']}/ai-suggest",
+        json=prepare_request(client, before["document_id"], "t08-observed-extra-field"),
+    )
+
+    assert response.status_code == 422, response.text
+    assert "unsupported_proposal_format: change 含有未支持字段" in response.text
+    assert provider.call_count == 1
+    assert client.get(f"/api/resume-documents/{before['document_id']}/ai-proposals").json() == []
+    with store.connect(False) as connection:
+        assert connection.execute("SELECT state,error_code FROM ai_operations").fetchone() == ("failed", "invalid_result")
+
+
+def test_resume_output_contract_is_explicit_for_json_only_deepseek_mode():
+    adapter = OpenAICompatibleAdapter({
+        "provider": "deepseek",
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-flash",
+    }, "synthetic-key", runtime_mode="AI_ENABLED")
+    payload = adapter.build_payload({"task_type": "resume_optimization"}, _resume_output_schema())
+    system = payload["messages"][0]["content"]
+
+    assert payload["response_format"] == {"type": "json_object"}
+    assert "只能输出一个 JSON 对象" in system
+    assert "禁止 Markdown code fence" in system
+    assert "禁止前后解释文字" in system
+    assert "禁止输出合同未列出的字段" in system
+    for field in ("change_id", "item_id", "field", "before_hash", "proposed_text", "source_refs", "reason", "requires_fact_check"):
+        assert field in system
+    schema = _resume_output_schema()
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["changes"]["items"]["additionalProperties"] is False
 
 
 def test_field_changes_are_whitelisted_and_selected_atomically(tmp_path):
