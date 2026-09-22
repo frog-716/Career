@@ -52,7 +52,9 @@ class Store:
             # Custom providers using slots remain protected by ModelGateway's
             # Store-level gate; built-in and normal test providers are bound.
             pass
+        self._secret_store_injected = secret_store is not None
         self.secret_store=secret_store or (LocalOnlySecretStore() if self.runtime_mode.local_only else KeychainSecretStore())
+        self._maintenance_secret_store = None
         with self.connect() as c:
             v=c.execute('PRAGMA user_version').fetchone()[0]
             if v not in (0,6): raise Invalid('数据库版本不匹配')
@@ -128,13 +130,24 @@ class Store:
         # Secret-operation recovery intentionally runs after the startup
         # transaction has closed. It reconciles only journal-known opaque refs
         # and never probes every configured Keychain item during boot.
-        if self.runtime_mode.ai_enabled:
+        if self.runtime_mode.ai_enabled or (self.runtime_mode.local_only and self.runtime_mode.valid):
             from .ai_config import recover_secret_operations
             recover_secret_operations(self)
         os.chmod(self.db,0o600)
 
     def shutdown(self):
         self.secret_store.shutdown()
+        if self._maintenance_secret_store is not None and self._maintenance_secret_store is not self.secret_store:
+            self._maintenance_secret_store.shutdown()
+
+    def secret_store_for_maintenance(self):
+        """Return the narrow store used only by explicit AI secret maintenance."""
+
+        if self._secret_store_injected or self.runtime_mode.ai_enabled:
+            return self.secret_store
+        if self._maintenance_secret_store is None:
+            self._maintenance_secret_store = KeychainSecretStore()
+        return self._maintenance_secret_store
 
     @contextmanager
     def connect(self, write=True):

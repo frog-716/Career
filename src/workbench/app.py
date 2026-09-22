@@ -25,7 +25,7 @@ from .communication import router as communication_router
 from .timeline import router as timeline_router
 from .interview import router as interview_router
 from .offer import router as offer_router
-from .ai_config import create as create_ai_config, update as update_ai_config, delete as delete_ai_config, set_default as set_ai_default, clear_default as clear_ai_default, settings as ai_settings, test_ephemeral as test_ai_ephemeral
+from .ai_config import create as create_ai_config, update as update_ai_config, delete as delete_ai_config, mark_cleanup_hold as mark_ai_cleanup_hold, set_default as set_ai_default, clear_default as clear_ai_default, settings as ai_settings, test_ephemeral as test_ai_ephemeral
 from .model_gateway import ModelGateway
 from .research import router as research_router
 from .local_session import LocalSessionManager, DEFAULT_BUILD_ID
@@ -184,6 +184,8 @@ def create_app(store=None, frontend_dir=None, *, require_local_session=None, run
     def ai_test_ephemeral(b:dict):return test_ai_ephemeral(s, b)
     @app.put('/api/ai/models/{config_id}')
     def ai_model_update(config_id:str,b:dict):return update_ai_config(s, config_id, b)
+    @app.post('/api/ai/models/{config_id}/secret-cleanup-hold')
+    def ai_model_cleanup_hold(config_id:str,b:dict):return mark_ai_cleanup_hold(s, config_id, b)
     @app.delete('/api/ai/models/{config_id}')
     def ai_model_delete(config_id:str,b:dict):return delete_ai_config(s, config_id, b.get('confirm') is True)
     @app.post('/api/ai/models/{config_id}/default')

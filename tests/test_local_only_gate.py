@@ -211,17 +211,12 @@ def test_production_shaped_config_blocks_all_ai_routes_without_secret_or_network
         f"/api/opportunities/{submitted_opportunity['id']}/interviews/{interview_id}/generate-final-review",
         json={"communication_ids": [], "wiki_ids": [], "idempotency_key": "local-only-interview-ai"},
     )
-    config_create = client.post("/api/ai/models", json={
-        "display_name": "不应保存", "provider": "OpenAI-compatible",
-        "base_url": "https://provider.invalid/v1", "model": "synthetic",
-        "api_key": "sk-real-looking-but-synthetic", "enabled": True,
-    })
     ephemeral_test = client.post("/api/ai/test-connection", json={
         "provider": "OpenAI-compatible", "base_url": "https://provider.invalid/v1",
         "model": "synthetic", "api_key": "sk-real-looking-but-synthetic",
     })
 
-    for response in (legacy, research, resume, interview_ai, config_create, ephemeral_test):
+    for response in (legacy, research, resume, interview_ai, ephemeral_test):
         assert response.status_code == 503, response.text
         assert response.json()["code"] == "local_only_disabled"
         assert "local_only_disabled" in response.json()["detail"]

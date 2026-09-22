@@ -65,6 +65,8 @@ HTTP 路由、错误与并发语义以当前模块实现和对应测试为准，
 
 旧环境变量 Provider 仅为测试和诊断兼容保留，不再作为业务 LLM 的配置或调用入口；旧 `/api/analysis` 也统一经 `ModelGateway`。生产配置请在“设置 → AI 模型”中保存到 macOS Keychain。支持遵循 Chat Completions JSON 对象格式的服务；开发模型配置不代表运行时模型授权。官方请求参考：[Chat Completions](https://platform.openai.com/docs/api-reference/chat/create)。远端请求仅在预览后点击发送，包包括当前基础资料、显式选择的当前 Wiki、该岗位 JD 和本轮指令。API Key 不进入业务包、日志、UI 或浏览器存储；不读宿主登录凭据。
 
+`LOCAL_ONLY` 下的 AI 设置保存是独立的 Secret maintenance 边界：新 ref 写入后必须用 bounded Keychain read-back 验证，验证成功才按 CAS 切换配置；它不开放 `ModelGateway`、connection test、Research 或任何 AI 业务入口。已知异常旧 ref 可在 journal 中标记 `manual_cleanup_required`；该 ref 只保留 opaque 引用和状态，正常更新、恢复和清理路径均不会自动访问或删除它。
+
 显式测试 Provider 只验证流程，不是真实 AI；它仍受 `CAREER_AI_MODE` 最终门禁约束：
 
 ```sh

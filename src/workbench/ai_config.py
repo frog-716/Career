@@ -5,11 +5,13 @@ from urllib.parse import urlsplit
 
 from .core import Conflict, Invalid, Missing, digest, now, required, uid
 from .secret_store import SecretStoreError
-from .runtime_mode import require_ai_enabled
+from .runtime_mode import require_ai_enabled, require_secret_maintenance
 
 
 SECRET_OPERATION_KIND = "ai_secret_operation"
 SECRET_STATUSES = {"not_checked", "ready", "missing", "locked", "error"}
+CLEANUP_POLICY_AUTOMATIC = "automatic"
+CLEANUP_POLICY_MANUAL = "manual_cleanup_required"
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 DEFAULT_PORTS = {"https": 443, "http": 80}
 
@@ -98,6 +100,7 @@ def _public(config, secret_store=None):
         # the opaque reference itself or probing the Keychain during listing.
         "api_key_set": bool(ref), "api_key_masked": "••••••••" if ref else "",
         "cleanup_pending": bool(config.get("secret_cleanup_pending")),
+        "cleanup_state": config.get("secret_cleanup_state"),
     }
 
 
@@ -128,7 +131,16 @@ def _save_settings(store, c, default_id):
     }, expected)
 
 
-def _journal_body(operation_id, config_id, expected_revision, old_ref, new_ref, phase, error_code=None):
+def _journal_body(
+    operation_id,
+    config_id,
+    expected_revision,
+    old_ref,
+    new_ref,
+    phase,
+    error_code=None,
+    cleanup_policy=CLEANUP_POLICY_AUTOMATIC,
+):
     timestamp = now()
     return {
         "id": "ai-secret-operation:" + operation_id,
@@ -141,6 +153,7 @@ def _journal_body(operation_id, config_id, expected_revision, old_ref, new_ref, 
         "created_at": timestamp,
         "updated_at": timestamp,
         "error_code": error_code,
+        "cleanup_policy": cleanup_policy,
     }
 
 
@@ -164,7 +177,7 @@ def _journal_in(c, store, operation):
 
 
 def _new_ref(store):
-    ref = store.secret_store.allocate_ref()
+    ref = store.secret_store_for_maintenance().allocate_ref()
     if not isinstance(ref, str) or not ref:
         raise Invalid("SecretStore 未返回有效的秘密引用")
     return ref
@@ -174,7 +187,7 @@ def _cleanup_ref(store, ref):
     if not ref:
         return None
     try:
-        store.secret_store.delete(ref)
+        store.secret_store_for_maintenance().delete(ref)
         return None
     except SecretStoreError as exc:
         return exc
@@ -190,15 +203,75 @@ def _ref_is_current(store, ref):
 
 
 def _mark_cleanup(store, operation_id, error):
-    _journal_update(store, operation_id, phase="cleanup_pending", error_code=getattr(error, "code", "error"))
+    changes = {
+        "phase": "cleanup_pending",
+        "error_code": getattr(error, "code", "error"),
+    }
+    if getattr(error, "code", None) == CLEANUP_POLICY_MANUAL:
+        changes["cleanup_state"] = CLEANUP_POLICY_MANUAL
+    _journal_update(store, operation_id, **changes)
+
+
+def _operation_holds_ref(store, operation_id, ref):
+    with store.connect(False) as c:
+        row = c.execute(
+            "SELECT body FROM records WHERE id=? AND kind=?",
+            ("ai-secret-operation:" + operation_id, SECRET_OPERATION_KIND),
+        ).fetchone()
+    if not row:
+        return False
+    operation = json.loads(row[0])
+    return (
+        operation.get("old_ref") == ref
+        and operation.get("cleanup_policy") == CLEANUP_POLICY_MANUAL
+    )
 
 
 def _finish_cleanup(store, operation_id, ref, error_code=None):
+    if _operation_holds_ref(store, operation_id, ref):
+        held = SecretStoreError(
+            CLEANUP_POLICY_MANUAL,
+            "该旧 Secret 引用需要人工清理",
+        )
+        _mark_cleanup(store, operation_id, held)
+        return held
     error = _cleanup_ref(store, ref)
     if error:
         _mark_cleanup(store, operation_id, error)
         return error
     _journal_update(store, operation_id, phase="cleaned", error_code=error_code)
+    return None
+
+
+def _write_and_verify_secret(store, operation_id, new_ref, key):
+    """Write a new ref, then verify it with the bounded SecretStore read path."""
+
+    maintenance_store = store.secret_store_for_maintenance()
+    try:
+        maintenance_store.put(new_ref, key)
+    except SecretStoreError as exc:
+        _journal_update(store, operation_id, phase="write_failed", error_code=exc.code)
+        return exc
+    except Exception:
+        error = SecretStoreError("error", "无法写入模型配置的 API Key")
+        _journal_update(store, operation_id, phase="write_failed", error_code=error.code)
+        return error
+    _journal_update(store, operation_id, phase="secret_written", error_code=None)
+
+    try:
+        read_back = maintenance_store.get(new_ref)
+    except SecretStoreError as exc:
+        _journal_update(store, operation_id, phase="verification_failed", error_code=exc.code)
+        return exc
+    except Exception:
+        error = SecretStoreError("error", "无法验证模型配置的 API Key")
+        _journal_update(store, operation_id, phase="verification_failed", error_code=error.code)
+        return error
+    if read_back != key:
+        error = SecretStoreError("error", "新 API Key 的读取验证失败")
+        _journal_update(store, operation_id, phase="verification_failed", error_code=error.code)
+        return error
+    _journal_update(store, operation_id, phase="secret_verified", error_code=None)
     return None
 
 
@@ -218,7 +291,7 @@ def _save_new_config(store, c, config):
 
 
 def create(store, body):
-    require_ai_enabled(store.runtime_mode)
+    require_secret_maintenance(store.runtime_mode)
     _strict(body, {"display_name", "provider", "base_url", "model", "api_key", "enabled"})
     display, provider, destination, model, enabled = _validated_input(body)
     key = _text(body.get("api_key"), "API Key", 10000)
@@ -235,11 +308,9 @@ def create(store, body):
     with store.connect() as c:
         _save_new_config(store, c, config)
         _journal_in(c, store, operation)
-    try:
-        store.secret_store.put(new_ref, key)
-    except SecretStoreError as exc:
-        _journal_update(store, operation_id, phase="write_failed", error_code=exc.code)
-        cleanup_error = _finish_cleanup(store, operation_id, new_ref, error_code=exc.code)
+    secret_error = _write_and_verify_secret(store, operation_id, new_ref, key)
+    if secret_error:
+        cleanup_error = _finish_cleanup(store, operation_id, new_ref, error_code=secret_error.code)
         with store.connect() as c:
             current = _config(store, c, config_id)
             if cleanup_error:
@@ -247,12 +318,7 @@ def create(store, body):
                 store._save(c, "ai_model_config", current, c.execute("SELECT revision FROM current WHERE id=?", (config_id,)).fetchone()[0])
             else:
                 c.execute("DELETE FROM current WHERE id=?", (config_id,))
-        raise Invalid("无法保存 API Key，请检查秘密存储权限") from exc
-    except Exception as exc:
-        _journal_update(store, operation_id, phase="write_failed", error_code="error")
-        _finish_cleanup(store, operation_id, new_ref, error_code="error")
-        raise Invalid("无法保存 API Key，请检查秘密存储权限") from exc
-    _journal_update(store, operation_id, phase="secret_written", error_code=None)
+        raise Invalid("无法保存 API Key，请检查秘密存储权限") from secret_error
     try:
         with store.connect() as c:
             current = _config(store, c, config_id)
@@ -295,7 +361,7 @@ def _load_update(store, config_id, body):
 
 
 def update(store, config_id, body):
-    require_ai_enabled(store.runtime_mode)
+    require_secret_maintenance(store.runtime_mode)
     _strict(body, {"display_name", "provider", "base_url", "model", "api_key", "enabled", "expected_revision"})
     current, expected = _load_update(store, config_id, body)
     display, provider, destination, model, enabled = _validated_input(body, current)
@@ -328,24 +394,26 @@ def update(store, config_id, body):
     key = _text(new_key, "API Key", 10000)
     new_ref = _new_ref(store)
     operation_id = uid()
-    operation = _journal_body(operation_id, config_id, expected, current.get("api_key_ref"), new_ref, "intent")
+    cleanup_policy = current.get("secret_cleanup_policy", CLEANUP_POLICY_AUTOMATIC)
+    operation = _journal_body(
+        operation_id,
+        config_id,
+        expected,
+        current.get("api_key_ref"),
+        new_ref,
+        "intent",
+        cleanup_policy=cleanup_policy,
+    )
     with store.connect() as c:
         latest = _config(store, c, config_id)
         row = c.execute("SELECT revision FROM current WHERE id=?", (config_id,)).fetchone()
         if not row or row[0] != expected:
             raise Conflict("模型配置已更新，请重新载入")
         _journal_in(c, store, operation)
-    try:
-        store.secret_store.put(new_ref, key)
-    except SecretStoreError as exc:
-        _journal_update(store, operation_id, phase="write_failed", error_code=exc.code)
-        _finish_cleanup(store, operation_id, new_ref, error_code=exc.code)
-        raise Invalid("无法保存 API Key，请检查秘密存储权限") from exc
-    except Exception as exc:
-        _journal_update(store, operation_id, phase="write_failed", error_code="error")
-        _finish_cleanup(store, operation_id, new_ref, error_code="error")
-        raise Invalid("无法保存 API Key，请检查秘密存储权限") from exc
-    _journal_update(store, operation_id, phase="secret_written", error_code=None)
+    secret_error = _write_and_verify_secret(store, operation_id, new_ref, key)
+    if secret_error:
+        _finish_cleanup(store, operation_id, new_ref, error_code=secret_error.code)
+        raise Invalid("无法保存 API Key，请检查秘密存储权限") from secret_error
     try:
         with store.connect() as c:
             latest = _config(store, c, config_id)
@@ -355,7 +423,12 @@ def update(store, config_id, body):
             latest.update(updated)
             latest["api_key_ref"] = new_ref
             latest["secret_status"] = "ready"
-            latest.pop("secret_cleanup_pending", None)
+            latest.pop("secret_cleanup_policy", None)
+            if cleanup_policy == CLEANUP_POLICY_MANUAL:
+                latest["secret_cleanup_pending"] = True
+                latest["secret_cleanup_state"] = CLEANUP_POLICY_MANUAL
+            elif latest.get("secret_cleanup_state") != CLEANUP_POLICY_MANUAL:
+                latest.pop("secret_cleanup_pending", None)
             saved = store._save(c, "ai_model_config", latest, expected)
             _journal_in(c, store, {**operation, "phase": "switched", "updated_at": now()})
     except Exception as exc:
@@ -382,6 +455,26 @@ def update(store, config_id, body):
     return _public(saved)
 
 
+def mark_cleanup_hold(store, config_id, body):
+    """Mark the current opaque ref as manual-only cleanup without touching it."""
+
+    require_secret_maintenance(store.runtime_mode)
+    _strict(body, {"expected_revision"})
+    with store.connect() as c:
+        current = _config(store, c, config_id)
+        row = c.execute("SELECT revision FROM current WHERE id=?", (config_id,)).fetchone()
+        expected = body.get("expected_revision")
+        if type(expected) is not int or not row or expected != row[0]:
+            raise Conflict("模型配置已更新，请重新载入")
+        if not current.get("api_key_ref"):
+            raise Invalid("当前模型没有可保留的 Secret 引用")
+        current["secret_cleanup_policy"] = CLEANUP_POLICY_MANUAL
+        current["secret_cleanup_pending"] = True
+        current["secret_cleanup_state"] = CLEANUP_POLICY_MANUAL
+        saved = store._save(c, "ai_model_config", current, expected)
+    return _public(saved)
+
+
 def delete(store, config_id, confirm=False):
     require_ai_enabled(store.runtime_mode)
     if confirm is not True:
@@ -396,6 +489,7 @@ def delete(store, config_id, confirm=False):
         operation = _journal_body(
             operation_id, config_id, c.execute("SELECT revision FROM current WHERE id=?", (config_id,)).fetchone()[0],
             current.get("api_key_ref"), None, "delete_intent",
+            cleanup_policy=current.get("secret_cleanup_policy", CLEANUP_POLICY_AUTOMATIC),
         )
         c.execute("DELETE FROM current WHERE id=?", (config_id,))
         _journal_in(c, store, operation)
@@ -513,7 +607,10 @@ def mark_secret_status(store, config_id, status):
 
 def recover_secret_operations(store):
     """Reconcile only journal-known refs, outside the startup DB transaction."""
-    if not store.runtime_mode.ai_enabled:
+    if not (
+        store.runtime_mode.ai_enabled
+        or (store.runtime_mode.local_only and store.runtime_mode.valid)
+    ):
         return
     with store.connect(False) as c:
         operations = store._records(c, SECRET_OPERATION_KIND)
@@ -531,6 +628,19 @@ def recover_secret_operations(store):
             target = new_ref or old_ref
         if not target:
             _journal_update(store, operation["operation_id"], phase="cleaned", error_code=None)
+            continue
+        if (
+            target == old_ref
+            and operation.get("cleanup_policy") == CLEANUP_POLICY_MANUAL
+        ):
+            _mark_cleanup(
+                store,
+                operation["operation_id"],
+                SecretStoreError(
+                    CLEANUP_POLICY_MANUAL,
+                    "该旧 Secret 引用需要人工清理",
+                ),
+            )
             continue
         error = _cleanup_ref(store, target)
         if error:
