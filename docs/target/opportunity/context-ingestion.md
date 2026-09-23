@@ -445,6 +445,8 @@ Research Profile 的信息来源可能包括：
 - Offer
 - 用户手动编辑
 
+由本轮 Web Search 生成的 Research proposal 中，每条 `company_item` 和 `opportunity_item` 都必须引用至少一个本轮 SearchResult；引用必须精确对应本轮来源 URL，提供 source ID 时也必须与该 URL 匹配。没有有效来源的条目必须拒绝，不能自动猜测或补造来源。此约束只适用于 Search-backed proposal，不要求手工或其他非 Search 内容提供网页来源。来源引用只保证可追溯，不等于事实已确认；正式 Research 仍须用户确认后写入。
+
 新 Raw 发现 Research 信息：
 
 ```text

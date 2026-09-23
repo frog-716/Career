@@ -17,18 +17,19 @@ PRIVATE_MARKER = "SYNTHETIC_INVALID_MODEL_CONTENT_MUST_NOT_BE_STORED"
 
 
 class FakeSearchProvider:
-    def __init__(self):
+    def __init__(self, results=None):
         self.calls = []
-
-    def search(self, query):
-        self.calls.append(query)
-        return [{
+        self.results = results or [{
             "title": "虚构公开研究来源",
             "url": SOURCE_URL,
             "snippet": "只用于测试的虚构来源摘录。",
             "source": {"provider": "fake-tavily"},
             "retrieved_at": "2026-09-23T00:00:00+00:00",
         }]
+
+    def search(self, query):
+        self.calls.append(query)
+        return list(self.results)
 
 
 class FixedModelProvider(TestProvider):
@@ -166,12 +167,33 @@ def test_full_fake_openai_response_parses_and_creates_sourced_research_proposal(
     assert config.status_code == 200, config.text
     assert config.json()["secret_status"] == "ready"
 
-    response = execute_research(client, opportunity["id"], "synthetic-valid-proposal")
+    path = f"/api/opportunities/{opportunity['id']}/research/update"
+    search_confirmation = client.post(path, json={"idempotency_key": "synthetic-valid-proposal"})
+    assert search_confirmation.status_code == 409
+    prepared_response = client.post(path, json={
+        "idempotency_key": "synthetic-valid-proposal",
+        "search_confirmed": True,
+    })
+    assert prepared_response.status_code == 409, prepared_response.text
+    prepared = prepared_response.json()
+    assert prepared["status"] == "context_confirmation_required"
+    preview_system_prompt = prepared["payload_preview"]["messages"][0]["content"]
+    assert '"minItems":1' in preview_system_prompt
+    assert "至少引用一个本轮" in preview_system_prompt
+
+    response = client.post(path, json={
+        "idempotency_key": "synthetic-valid-proposal",
+        "search_confirmed": True,
+        "prepared_id": prepared["prepared_id"],
+        "payload_hash": prepared["payload_hash"],
+        "confirm_outbound": True,
+    })
 
     assert response.status_code == 200, response.text
     assert len(search.calls) == 1
     assert len(fake_calls) == 1
     request = fake_calls[0]["payload"]
+    assert request["messages"] == prepared["payload_preview"]["messages"]
     assert request["model"] == "deepseek-flash"
     assert request["response_format"] == {"type": "json_object"}
     system_prompt = request["messages"][0]["content"]
@@ -181,12 +203,15 @@ def test_full_fake_openai_response_parses_and_creates_sourced_research_proposal(
     assert '"source_refs"' in system_prompt
     assert "purpose=web_source" in system_prompt
     assert "selected_content.url" in system_prompt
+    assert '"minItems":1' in system_prompt
+    assert "至少引用一个本轮" in system_prompt
     assert "classification" in system_prompt
     assert "company_business" in system_prompt
     assert "禁止 Markdown code fence" in system_prompt
-    assert "虚构星河科技经营虚构的协作产品。" in system_prompt
+    assert "虚构示例：公司提供协作服务。" in system_prompt
 
     proposal = response.json()
+    assert proposal["status"] == "pending"
     assert [item["category"] for item in proposal["company_items"]] == ["company_business"]
     assert [item["category"] for item in proposal["opportunity_items"]] == ["role"]
     for item, expected_scope, expected_owner in (
@@ -219,8 +244,8 @@ def test_invalid_research_content_is_classified_without_persisting_content(
     tmp_path, monkeypatch, group, index, item, expected_code, expected_path, marker,
 ):
     store, client, search, opportunity = setup_client(tmp_path, monkeypatch)
-    values = [valid_item("合成有效条目。", source_refs=[]) for _ in range(index + 1)]
-    values[index] = {"category": "company", "classification": "unknown", "source_refs": [], **item}
+    values = [valid_item("合成有效条目。") for _ in range(index + 1)]
+    values[index] = {"category": "company", "classification": "unknown", **item}
     result = {
         "company_items": [],
         "opportunity_items": [],
@@ -278,15 +303,197 @@ def test_research_provenance_validation_is_fail_closed(tmp_path, monkeypatch, so
     assert len(search.calls) == 1
 
 
+@pytest.mark.parametrize(
+    ("source_refs", "expected_code", "expected_path"),
+    [
+        (None, "source_ref_invalid", "company_items[0].source_refs"),
+        ("not-an-array", "source_ref_invalid", "company_items[0].source_refs"),
+        ({"url": SOURCE_URL}, "source_ref_invalid", "company_items[0].source_refs"),
+        ([None], "source_ref_invalid", "company_items[0].source_refs[0]"),
+    ],
+    ids=["null", "string", "object", "non-object-entry"],
+)
+def test_search_backed_proposal_rejects_malformed_source_refs(
+    tmp_path, monkeypatch, source_refs, expected_code, expected_path,
+):
+    item = {"category": "company", "classification": "unknown", "content": "虚构公司研究。"}
+    if source_refs is not None:
+        item["source_refs"] = source_refs
+    else:
+        item["source_refs"] = None
+    model = FixedModelProvider({"company_items": [item], "opportunity_items": []})
+    store, client, search, opportunity = setup_client(tmp_path, monkeypatch, model)
+
+    response = execute_research(client, opportunity["id"], "synthetic-malformed-source-refs")
+
+    assert response.status_code == 422
+    assert response.json()["code"] == expected_code
+    assert response.json()["detail"] == expected_path
+    assert model.call_count == 1
+    assert len(search.calls) == 1
+
+
+def test_multiple_current_search_sources_map_to_provenance_without_fact_promotion(tmp_path, monkeypatch):
+    store, client, search, opportunity = setup_client(tmp_path, monkeypatch)
+    second_url = "https://example.test/second-research-source"
+    search.results.append({
+        "title": "第二条虚构公开来源", "url": second_url,
+        "snippet": "第二条仅用于测试的虚构摘录。",
+        "source": {"provider": "fake-tavily"},
+        "retrieved_at": "2026-09-23T00:00:00+00:00",
+    })
+    refs = [
+        {"url": SOURCE_URL, "id": "web:" + digest(SOURCE_URL)},
+        {"url": second_url, "id": "web:" + digest(second_url)},
+    ]
+    model = FixedModelProvider({
+        "company_items": [valid_item("虚构公司有两条来源。", category="company_business", source_refs=refs)],
+        "opportunity_items": [valid_item("虚构岗位关联两条来源。", category="role", source_refs=refs)],
+    })
+    store.provider = model
+
+    response = execute_research(client, opportunity["id"], "synthetic-multiple-sources")
+
+    assert response.status_code == 200, response.text
+    proposal = response.json()
+    assert len(search.calls) == 1
+    assert model.call_count == 1
+    for group in ("company_items", "opportunity_items"):
+        item = proposal[group][0]
+        assert {ref["url"] for ref in item["source_refs"]} == {SOURCE_URL, second_url}
+        assert {ref["id"] for ref in item["source_refs"]} == {value["id"] for value in refs}
+        assert item["evidence_status"] == "lead"
+        assert item["verification"]["user_confirmed"] is False
+    assert client.get(f"/api/opportunities/{opportunity['id']}/research-overview").json()["items"] == []
+
+
+def test_source_id_for_another_current_url_is_rejected(tmp_path, monkeypatch):
+    store, client, search, opportunity = setup_client(tmp_path, monkeypatch)
+    second_url = "https://example.test/second-current-source"
+    search.results.append({
+        "title": "第二条虚构公开来源", "url": second_url,
+        "snippet": "第二条测试摘录。", "source": {"provider": "fake-tavily"},
+    })
+    model = FixedModelProvider({
+        "company_items": [{
+            "content": "虚构公司建议。", "source_refs": [{
+                "url": SOURCE_URL, "id": "web:" + digest(second_url),
+            }],
+        }],
+        "opportunity_items": [],
+    })
+    store.provider = model
+
+    response = execute_research(client, opportunity["id"], "synthetic-mismatched-current-source")
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "source_id_mismatch"
+    assert response.json()["detail"] == "company_items[0].source_refs[0].id"
+    assert model.call_count == 1
+    assert len(search.calls) == 1
+    assert client.get(f"/api/opportunities/{opportunity['id']}/research-proposals").json() == []
+
+
+def test_non_search_research_does_not_require_source_refs(tmp_path, monkeypatch):
+    store, client, _search, opportunity = setup_client(tmp_path, monkeypatch)
+    manual = client.post(f"/api/opportunities/{opportunity['id']}/research/items", json={
+        "scope": "opportunity", "category": "role", "classification": "unknown",
+        "content": "虚构的手工研究条目。",
+        "expected_revision": 0, "idempotency_key": "synthetic-manual-no-source",
+    })
+
+    assert manual.status_code == 200, manual.text
+    overview = client.get(f"/api/opportunities/{opportunity['id']}/research-overview").json()
+    assert overview["opportunity"]["items"][0]["source_refs"] == []
+    assert normalise_proposal_output({
+        "company_items": [{"content": "非 Search 合成条目。"}], "opportunity_items": [],
+    })["company_items"][0]["source_refs"] == []
+
+
+@pytest.mark.parametrize(
+    "source_urls",
+    [[{"title": "虚构来源", "url": SOURCE_URL, "snippet": "虚构摘录。"}], []],
+    ids=["known-search-results", "search-results-missing"],
+)
+def test_legacy_search_pending_proposal_without_sources_cannot_be_accepted(tmp_path, monkeypatch, source_urls):
+    store, client, _search, opportunity = setup_client(tmp_path, monkeypatch)
+    proposal = {
+        "id": "research-proposal:synthetic-legacy-no-refs",
+        "opportunity_id": opportunity["id"], "company_id": opportunity["company_id"],
+        "company_items": [{
+            "category": "company_business", "content": "虚构的旧无来源建议。", "source_refs": [],
+        }],
+        "opportunity_items": [{
+            "category": "role", "content": "虚构的旧岗位建议。", "source_refs": [],
+        }],
+        "source_urls": source_urls,
+        "expected_company_revision": 0, "expected_opportunity_revision": 0,
+        "status": "pending", "created_at": "2026-09-23T00:00:00+00:00",
+    }
+    with store.connect() as connection:
+        store._record(connection, "research_proposal", proposal)
+
+    response = client.post(
+        f"/api/opportunities/{opportunity['id']}/research-proposals/{proposal['id']}/resolve",
+        json={"decision": "accept"},
+    )
+
+    assert response.status_code == 409
+    assert "proposal_requires_regeneration" in response.text
+    current = client.get(f"/api/opportunities/{opportunity['id']}/research-overview").json()
+    assert current["items"] == []
+    listed = client.get(f"/api/opportunities/{opportunity['id']}/research-proposals").json()
+    assert listed[0]["status"] == "pending"
+
+
+@pytest.mark.parametrize(
+    ("group", "source_refs", "include_field", "expected_code"),
+    [
+        ("company_items", None, False, "source_refs_missing"),
+        ("company_items", [], True, "source_refs_empty"),
+        ("opportunity_items", None, False, "source_refs_missing"),
+        ("opportunity_items", [], True, "source_refs_empty"),
+    ],
+    ids=["company-missing", "company-empty", "opportunity-missing", "opportunity-empty"],
+)
+def test_search_backed_proposal_requires_a_source_for_every_item(
+    tmp_path, monkeypatch, group, source_refs, include_field, expected_code,
+):
+    item = {"category": "unknown", "classification": "unknown", "content": "虚构的研究建议。"}
+    if include_field:
+        item["source_refs"] = source_refs
+    result = {"company_items": [], "opportunity_items": []}
+    result[group] = [item]
+    model = FixedModelProvider(result)
+    store, client, search, opportunity = setup_client(tmp_path, monkeypatch, model)
+
+    response = execute_research(client, opportunity["id"], "synthetic-source-required")
+
+    assert response.status_code == 422
+    assert response.json()["code"] == expected_code
+    assert response.json()["detail"] == f"{group}[0].source_refs"
+    assert model.call_count == 1
+    assert len(search.calls) == 1
+    assert client.get(f"/api/opportunities/{opportunity['id']}/research-proposals").json() == []
+
+
 def test_schema_example_passes_the_same_local_proposal_validator():
     from workbench.research import _research_output_schema
 
-    schema = _research_output_schema()
+    schema = _research_output_schema([{
+        "id": "web:" + digest(SOURCE_URL),
+        "purpose": "web_source",
+        "selected_content": {"url": SOURCE_URL},
+    }])
     example = schema["example"]
-    normalized = normalise_proposal_output(example)
+    normalized = normalise_proposal_output(example, require_source_refs=True)
 
     assert set(normalized) == {"company_items", "opportunity_items"}
     assert normalized["company_items"][0]["content"]
     assert normalized["opportunity_items"][0]["content"]
-    assert normalized["company_items"][0]["source_refs"] == []
-    assert normalized["opportunity_items"][0]["source_refs"] == []
+    assert normalized["company_items"][0]["source_refs"] == [{"url": SOURCE_URL, "id": "web:" + digest(SOURCE_URL)}]
+    assert normalized["opportunity_items"][0]["source_refs"] == [{"url": SOURCE_URL, "id": "web:" + digest(SOURCE_URL)}]
+    for group in ("company_items", "opportunity_items"):
+        item_schema = schema["properties"][group]["items"]
+        assert "source_refs" in item_schema["required"]
+        assert item_schema["properties"]["source_refs"]["minItems"] == 1

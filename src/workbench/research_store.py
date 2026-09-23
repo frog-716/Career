@@ -30,8 +30,17 @@ class ResearchProposalValidationError(Invalid):
         super().__init__(path)
 
 
-def research_proposal_output_schema():
+def research_proposal_output_schema(*, require_source_refs=False, example_source_ref=None):
     """Describe only the fields accepted from the Research model proposal."""
+    source_refs_description = (
+        "Search-backed Research 中每条建议必填，至少引用一个本轮 packet 中 purpose=web_source 的来源；"
+        "只生成被引用来源实际支持的建议；没有来源支持时省略该建议。"
+        "优先同时提供 Career 给出的稳定 id 和精确 url，不得创造或引用本轮搜索之外的来源。"
+        "url 必须精确匹配本轮 selected_content.url；若提供 id，必须等于该 URL 对应的 packet sources.id。"
+        "必须明确给出 url；若省略 id，Career 只会按这个精确 URL 补充稳定 id 和 provenance 元数据，不会推断或挑选来源。"
+        if require_source_refs else
+        "可省略；若提供，url 必须精确匹配当前请求允许的来源；Career 会补齐来源元数据。"
+    )
     item_properties = {
         "category": {
             "type": "string", "enum": sorted(CATEGORIES), "default": "unknown",
@@ -47,8 +56,8 @@ def research_proposal_output_schema():
             "description": "必填，去除首尾空白后仍须非空，最多 10,000 个字符。",
         },
         "source_refs": {
-            "type": "array", "maxItems": MAX_SOURCE_REFS, "default": [],
-            "description": "可省略；省略时为空数组。url 必须精确匹配本轮 packet 中 purpose=web_source 的 selected_content.url；id 可省略或为 null，若提供字符串必须等于同一来源的 packet sources.id。Career 会补齐 kind、owner_id、scope、revision、hash、retrieved_at 和 date_status。",
+            "type": "array", "maxItems": MAX_SOURCE_REFS,
+            "description": source_refs_description,
             "items": {
                 "type": "object", "required": ["url"], "additionalProperties": False,
                 "properties": {
@@ -61,33 +70,50 @@ def research_proposal_output_schema():
             },
         },
     }
+    if require_source_refs:
+        if not isinstance(example_source_ref, dict):
+            raise ValueError("Search-backed Research schema requires a current SearchResult example")
+        example_refs = [{key: example_source_ref[key] for key in ("id", "url")}]
+        item_properties["source_refs"]["minItems"] = 1
+    else:
+        item_properties["source_refs"]["default"] = []
+        example_refs = []
+
+    item_required = ["content"]
+    if require_source_refs:
+        item_required.append("source_refs")
     example = {
         "company_items": [{
             "category": "company_business", "classification": "unknown",
-            "content": "虚构星河科技经营虚构的协作产品。", "source_refs": [],
+            "content": "虚构示例：公司提供协作服务。", "source_refs": example_refs,
         }],
         "opportunity_items": [{
             "category": "role", "classification": "unknown",
-            "content": "虚构岗位负责虚构产品的需求整理。", "source_refs": [],
+            "content": "虚构示例：岗位负责整理产品需求。", "source_refs": example_refs,
         }],
     }
     return {
         "version": 1,
         "type": "object",
+        "description": (
+            "示例中的内容是虚构格式占位；示例来源只展示引用结构，不表示该来源支持占位内容。"
+            "实际输出只能引用本轮来源中确实支持该建议的条目。"
+            if require_source_refs else "Research proposal 输出结构。"
+        ),
         "required": ["company_items", "opportunity_items"],
         "additionalProperties": False,
         "properties": {
             "company_items": {
                 "description": "公司范围的研究条目。",
                 "type": "array", "items": {
-                    "type": "object", "required": ["content"],
+                    "type": "object", "required": item_required,
                     "additionalProperties": False, "properties": item_properties,
                 },
             },
             "opportunity_items": {
                 "description": "当前岗位/机会范围的研究条目。",
                 "type": "array", "items": {
-                    "type": "object", "required": ["content"],
+                    "type": "object", "required": item_required,
                     "additionalProperties": False, "properties": item_properties,
                 },
             },
@@ -96,7 +122,7 @@ def research_proposal_output_schema():
     }
 
 
-def normalise_proposal_output(value):
+def normalise_proposal_output(value, *, require_source_refs=False):
     """Validate and normalize the model-owned portion of a Research proposal."""
     if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
         raise ResearchProposalValidationError("invalid_result", "$")
@@ -134,9 +160,14 @@ def normalise_proposal_output(value):
                 if field in raw and (not isinstance(raw[field], str) or raw[field] not in allowed):
                     raise ResearchProposalValidationError("invalid_result", item_path + "." + field)
 
+            refs_path = item_path + ".source_refs"
+            if require_source_refs and "source_refs" not in raw:
+                raise ResearchProposalValidationError("source_refs_missing", refs_path)
             refs = raw.get("source_refs", [])
             if not isinstance(refs, list) or len(refs) > MAX_SOURCE_REFS:
-                raise ResearchProposalValidationError("source_ref_invalid", item_path + ".source_refs")
+                raise ResearchProposalValidationError("source_ref_invalid", refs_path)
+            if require_source_refs and not refs:
+                raise ResearchProposalValidationError("source_refs_empty", refs_path)
             for ref_index, ref in enumerate(refs):
                 ref_path = f"{item_path}.source_refs[{ref_index}]"
                 if not isinstance(ref, dict) or any(not isinstance(key, str) for key in ref):
