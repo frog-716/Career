@@ -485,8 +485,22 @@ def _dispatch_research_search(store, opportunity, key):
     )
 
 
-def _research_output_schema():
-    return rs.research_proposal_output_schema()
+def _research_output_schema(sources=None):
+    web_sources = [
+        source for source in (sources or [])
+        if isinstance(source, dict) and source.get("purpose") == "web_source"
+    ]
+    if not web_sources:
+        return rs.research_proposal_output_schema()
+    source = web_sources[0]
+    selected = source.get("selected_content") or {}
+    source_id, source_url = source.get("id"), selected.get("url")
+    if not isinstance(source_id, str) or not isinstance(source_url, str) or not source_url:
+        raise ao.PreDispatchFailure("Research Search 来源标识无效，未调用模型")
+    return rs.research_proposal_output_schema(
+        require_source_refs=True,
+        example_source_ref={"id": source_id, "url": source_url},
+    )
 
 
 def _research_compile(store, prepared, results):
@@ -575,7 +589,7 @@ def _research_create_preparation(store, opportunity_id, body):
     results = search.value
     prepared = _research_compile(store, prepared, results)
     payload, diagnostics, _, clean_pack, budget_info = ModelGateway(store).prepare_payload(
-        "research_update", prepared["pack"], _research_output_schema(), body.get("model_config_id")
+        "research_update", prepared["pack"], _research_output_schema(prepared["sources"]), body.get("model_config_id")
     )
     prepared.update(pack=clean_pack, payload=payload, diagnostics=diagnostics, budget=budget_info)
     value = outbound.create_preparation(
@@ -596,7 +610,7 @@ def _research_prepare_for_execution(store, opportunity_id, body):
         raise Conflict("准备对象上下文已过期，请重新确认搜索和发送内容")
     current = _research_compile(store, base, volatile["results"])
     payload, diagnostics, _, clean_pack, budget_info = ModelGateway(store).prepare_payload(
-        "research_update", current["pack"], _research_output_schema(), body.get("model_config_id")
+        "research_update", current["pack"], _research_output_schema(current["sources"]), body.get("model_config_id")
     )
     outbound.validate_preparation(
         store, body["prepared_id"], task_type="research_update",
@@ -612,8 +626,14 @@ def _research_prepare_for_execution(store, opportunity_id, body):
 def _research_dispatch(store, prepared, binder):
     if "pack" not in prepared:
         raise ao.PreDispatchFailure("Research 必须先完成已确认的 SearchProvider 搜索")
+    sources = prepared.get("sources") or []
+    if not any(
+        isinstance(source, dict) and source.get("purpose") == "web_source"
+        for source in sources
+    ):
+        raise ao.PreDispatchFailure("Research Search 来源不存在，未调用模型")
     result, diagnostics = ModelGateway(store).generate(
-        "research_update", prepared["pack"], _research_output_schema(),
+        "research_update", prepared["pack"], _research_output_schema(sources),
         prepared["body"].get("model_config_id"),
         before_call=lambda payload_hash: binder(payload_hash, prepared["manifest"]),
         operation_id=prepared.get("_operation_id"),
@@ -624,8 +644,12 @@ def _research_dispatch(store, prepared, binder):
 
 def _research_persist(store, prepared, result, diagnostics):
     try:
-        result = rs.normalise_proposal_output(result)
         sources = prepared["sources"]
+        search_backed = any(
+            isinstance(source, dict) and source.get("purpose") == "web_source"
+            for source in sources
+        )
+        result = rs.normalise_proposal_output(result, require_source_refs=search_backed)
         company_items = result["company_items"]
         opportunity_items = result["opportunity_items"]
         source_by_url = {
@@ -740,6 +764,8 @@ def resolve(store, opportunity_id, proposal_id, body):
             proposal.update(status="rejected", resolved_at=now())
             store._record(c, "research_proposal", proposal)
             return proposal
+        if not _search_proposal_has_valid_sources(proposal):
+            raise Conflict("proposal_requires_regeneration: Search 提案缺少有效来源引用")
         opportunity = op.writable(store, c, opportunity_id)
         if proposal.get("company_id") != opportunity["company_id"]:
             raise Conflict("target_changed: Research 提案目标公司已变化")
@@ -759,6 +785,41 @@ def resolve(store, opportunity_id, proposal_id, body):
         proposal.update(status="accepted" if body["decision"] == "accept" else "rejected", resolved_at=now())
         store._record(c, "research_proposal", proposal)
         return proposal
+
+
+def _search_proposal_has_valid_sources(proposal):
+    """Keep legacy Search-backed proposals without traceable refs unappliable."""
+    if "source_urls" not in proposal:
+        return True
+    sources = proposal.get("source_urls")
+    if not isinstance(sources, list) or not sources:
+        return False
+    allowed_urls = {
+        source.get("url") for source in sources
+        if isinstance(source, dict) and isinstance(source.get("url"), str)
+    }
+    for group in ("company_items", "opportunity_items"):
+        items = proposal.get(group)
+        if not isinstance(items, list):
+            return False
+        for item in items:
+            if not isinstance(item, dict):
+                return False
+            refs = item.get("source_refs")
+            if not isinstance(refs, list) or not refs:
+                return False
+            for ref in refs:
+                if not isinstance(ref, dict):
+                    return False
+                url = ref.get("url")
+                if (
+                    not isinstance(url, str)
+                    or url not in allowed_urls
+                    or ref.get("id") != "web:" + digest(url)
+                    or ref.get("kind") != "web_source"
+                ):
+                    return False
+    return True
 
 
 def _proposal_views(store, c, opportunity_id):
