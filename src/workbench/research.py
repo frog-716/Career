@@ -486,7 +486,7 @@ def _dispatch_research_search(store, opportunity, key):
 
 
 def _research_output_schema():
-    return {"version": 1, "required": ["company_items", "opportunity_items"]}
+    return rs.research_proposal_output_schema()
 
 
 def _research_compile(store, prepared, results):
@@ -624,16 +624,20 @@ def _research_dispatch(store, prepared, binder):
 
 def _research_persist(store, prepared, result, diagnostics):
     try:
+        result = rs.normalise_proposal_output(result)
         sources = prepared["sources"]
-        company_items = [_item(x, []) for x in result.get("company_items", [])]
-        opportunity_items = [_item(x, []) for x in result.get("opportunity_items", [])]
+        company_items = result["company_items"]
+        opportunity_items = result["opportunity_items"]
         source_by_url = {
             source["selected_content"]["url"]: source for source in sources if source["purpose"] == "web_source"
         }
-        for target_items, owner_id in ((company_items, prepared["opportunity"]["company_id"]),
-                                       (opportunity_items, prepared["opportunity"]["id"])):
+        for group, target_items, owner_id in (
+            ("company_items", company_items, prepared["opportunity"]["company_id"]),
+            ("opportunity_items", opportunity_items, prepared["opportunity"]["id"]),
+        ):
             current_items = prepared["company"]["items"] if target_items is company_items else prepared["research"]["items"]
-            for item in target_items:
+            for index, item in enumerate(target_items):
+                item_path = f"{group}[{index}]"
                 # A search title/URL is only a lead.  The model cannot turn
                 # metadata into a fact or an independently verified claim.
                 item.update(
@@ -641,13 +645,16 @@ def _research_persist(store, prepared, result, diagnostics):
                     evidence=[], verification={"user_confirmed": False, "independently_verified": False},
                 )
                 refs = []
-                for ref in item["source_refs"]:
-                    if not isinstance(ref, dict) or ref.get("url") not in source_by_url:
-                        raise ao.AIValidationError("Research 引用了本轮之外的来源")
+                for ref_index, ref in enumerate(item["source_refs"]):
+                    ref_path = f"{item_path}.source_refs[{ref_index}]"
+                    if ref["url"] not in source_by_url:
+                        raise rs.ResearchProposalValidationError(
+                            "source_not_in_current_search", ref_path + ".url"
+                        )
                     source = source_by_url[ref["url"]]
                     expected_source_id = source["id"]
-                    if ref.get("id") is not None and ref.get("id") != expected_source_id:
-                        raise ao.AIValidationError("Research 来源 ID 与本轮来源不匹配")
+                    if ref.get("id") is not None and ref["id"] != expected_source_id:
+                        raise rs.ResearchProposalValidationError("source_id_mismatch", ref_path + ".id")
                     refs.append({**ref, "kind": "web_source", "id": expected_source_id,
                                  "owner_id": owner_id, "scope": "company" if target_items is company_items else "opportunity",
                                  "revision": source["revision"], "hash": digest(source["selected_content"]),
@@ -660,6 +667,8 @@ def _research_persist(store, prepared, result, diagnostics):
                 }) == digest({"owner_id": owner_id, "content": item.get("content"), "source_refs": refs})), None)
                 if duplicate:
                     item["duplicate_of"] = duplicate["id"]
+    except rs.ResearchProposalValidationError as exc:
+        raise ao.AIValidationError(str(exc), code=exc.code) from exc
     except (Invalid, TypeError, AttributeError, KeyError) as exc:
         raise ao.AIValidationError(str(exc)) from exc
     opportunity = prepared["opportunity"]

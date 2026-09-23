@@ -17,6 +17,143 @@ EVIDENCE_STATUSES = {"lead", "excerpt_present", "user_confirmed", "unknown"}
 EVIDENCE_SOURCE_TYPES = {"user_provided_excerpt", "manual_reference", "web_search_result"}
 EVIDENCE_INPUT_METHODS = {"user_pasted", "user_entered", "search_result", "manual"}
 ITEM_STATUSES = {"active", "retracted"}
+MAX_CONTENT_CHARS = 10000
+MAX_SOURCE_REFS = 10
+
+
+class ResearchProposalValidationError(Invalid):
+    """Safe model-proposal validation failure; never includes generated values."""
+
+    def __init__(self, code, path):
+        self.code = code
+        self.path = path
+        super().__init__(path)
+
+
+def research_proposal_output_schema():
+    """Describe only the fields accepted from the Research model proposal."""
+    item_properties = {
+        "category": {
+            "type": "string", "enum": sorted(CATEGORIES), "default": "unknown",
+            "description": "可省略；省略时 Career 使用 unknown。",
+        },
+        "classification": {
+            "type": "string", "enum": sorted(CLASSIFICATIONS), "default": "unknown",
+            "description": "可省略；省略时 Career 使用 unknown。搜索结果不能被模型标成已核实事实。",
+        },
+        "content": {
+            "type": "string", "minLength": 1, "pattern": r"\S",
+            "maxLength": MAX_CONTENT_CHARS,
+            "description": "必填，去除首尾空白后仍须非空，最多 10,000 个字符。",
+        },
+        "source_refs": {
+            "type": "array", "maxItems": MAX_SOURCE_REFS, "default": [],
+            "description": "可省略；省略时为空数组。url 必须精确匹配本轮 packet 中 purpose=web_source 的 selected_content.url；id 可省略或为 null，若提供字符串必须等于同一来源的 packet sources.id。Career 会补齐 kind、owner_id、scope、revision、hash、retrieved_at 和 date_status。",
+            "items": {
+                "type": "object", "required": ["url"], "additionalProperties": False,
+                "properties": {
+                    "url": {"type": "string", "minLength": 1},
+                    "id": {
+                        "type": ["string", "null"],
+                        "description": "可省略或为 null；若提供字符串，必须等于同一来源的 packet sources.id。",
+                    },
+                },
+            },
+        },
+    }
+    example = {
+        "company_items": [{
+            "category": "company_business", "classification": "unknown",
+            "content": "虚构星河科技经营虚构的协作产品。", "source_refs": [],
+        }],
+        "opportunity_items": [{
+            "category": "role", "classification": "unknown",
+            "content": "虚构岗位负责虚构产品的需求整理。", "source_refs": [],
+        }],
+    }
+    return {
+        "version": 1,
+        "type": "object",
+        "required": ["company_items", "opportunity_items"],
+        "additionalProperties": False,
+        "properties": {
+            "company_items": {
+                "description": "公司范围的研究条目。",
+                "type": "array", "items": {
+                    "type": "object", "required": ["content"],
+                    "additionalProperties": False, "properties": item_properties,
+                },
+            },
+            "opportunity_items": {
+                "description": "当前岗位/机会范围的研究条目。",
+                "type": "array", "items": {
+                    "type": "object", "required": ["content"],
+                    "additionalProperties": False, "properties": item_properties,
+                },
+            },
+        },
+        "example": example,
+    }
+
+
+def normalise_proposal_output(value):
+    """Validate and normalize the model-owned portion of a Research proposal."""
+    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+        raise ResearchProposalValidationError("invalid_result", "$")
+    required_groups = ("company_items", "opportunity_items")
+    if set(value) != set(required_groups):
+        raise ResearchProposalValidationError("invalid_result", "$")
+
+    normalized = {}
+    allowed_item_fields = {"category", "classification", "content", "source_refs"}
+    allowed_ref_fields = {"url", "id"}
+    for group in required_groups:
+        raw_items = value[group]
+        if not isinstance(raw_items, list):
+            raise ResearchProposalValidationError("invalid_result", group)
+        normalized[group] = []
+        for index, raw in enumerate(raw_items):
+            item_path = f"{group}[{index}]"
+            if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
+                raise ResearchProposalValidationError("invalid_result", item_path)
+            if not set(raw).issubset(allowed_item_fields):
+                raise ResearchProposalValidationError("invalid_result", item_path)
+
+            content_path = item_path + ".content"
+            if "content" not in raw:
+                raise ResearchProposalValidationError("content_missing", content_path)
+            content = raw["content"]
+            if not isinstance(content, str):
+                raise ResearchProposalValidationError("content_wrong_type", content_path)
+            if not content.strip():
+                raise ResearchProposalValidationError("content_empty", content_path)
+            if len(content) > MAX_CONTENT_CHARS:
+                raise ResearchProposalValidationError("content_too_long", content_path)
+
+            for field, allowed in (("category", CATEGORIES), ("classification", CLASSIFICATIONS)):
+                if field in raw and (not isinstance(raw[field], str) or raw[field] not in allowed):
+                    raise ResearchProposalValidationError("invalid_result", item_path + "." + field)
+
+            refs = raw.get("source_refs", [])
+            if not isinstance(refs, list) or len(refs) > MAX_SOURCE_REFS:
+                raise ResearchProposalValidationError("source_ref_invalid", item_path + ".source_refs")
+            for ref_index, ref in enumerate(refs):
+                ref_path = f"{item_path}.source_refs[{ref_index}]"
+                if not isinstance(ref, dict) or any(not isinstance(key, str) for key in ref):
+                    raise ResearchProposalValidationError("source_ref_invalid", ref_path)
+                if not set(ref).issubset(allowed_ref_fields):
+                    raise ResearchProposalValidationError("source_ref_invalid", ref_path)
+                url = ref.get("url")
+                if not isinstance(url, str) or not url.strip():
+                    raise ResearchProposalValidationError("source_ref_invalid", ref_path + ".url")
+                if "id" in ref and ref["id"] is not None and not isinstance(ref["id"], str):
+                    raise ResearchProposalValidationError("source_ref_invalid", ref_path + ".id")
+
+            try:
+                normalized[group].append(normalise_item(raw))
+            except (Invalid, TypeError, AttributeError, KeyError) as exc:
+                raise ResearchProposalValidationError("invalid_result", item_path) from exc
+    return normalized
 
 
 def owner_field(kind):
@@ -121,10 +258,10 @@ def _normalise_item(value, fallback_id):
     content = value.get("content", "")
     if category not in CATEGORIES or classification not in CLASSIFICATIONS:
         raise Invalid("Research item 的 category/classification 不合法")
-    if not isinstance(content, str) or not content.strip() or len(content) > 10000:
+    if not isinstance(content, str) or not content.strip() or len(content) > MAX_CONTENT_CHARS:
         raise Invalid("Research item 的 content 不合法")
     refs = value.get("source_refs", [])
-    if not isinstance(refs, list) or len(refs) > 10:
+    if not isinstance(refs, list) or len(refs) > MAX_SOURCE_REFS:
         raise Invalid("Research 来源过多")
     evidence_status = value.get("evidence_status", "unknown")
     if evidence_status not in EVIDENCE_STATUSES:

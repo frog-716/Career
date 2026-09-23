@@ -45,8 +45,9 @@ def _packet_result(packet: Dict[str, Any]) -> Dict[str, Any]:
     if task_type == "interview_research_patch":
         return {"items": [{"category": "unknown", "content": "测试模式候选：请依据真实面试 Raw 人工核对。"}]}
     if task_type == "research_update":
-        web = [s.get("selected_content", {}) for s in sources if s.get("purpose") == "web_source"]
-        refs = [{"url": item.get("url"), "title": item.get("title"), "retrieved_at": item.get("retrieved_at")} for item in web if item.get("url")]
+        web = [s for s in sources if s.get("purpose") == "web_source"]
+        refs = [{"url": source.get("selected_content", {}).get("url"), "id": source.get("id")}
+                for source in web if source.get("selected_content", {}).get("url")]
         return {
             "company_items": [{"category": "company", "classification": "unknown", "content": "测试模式：请根据来源人工核对公司信息。", "source_refs": refs[:1]}],
             "opportunity_items": [{"category": "unknown", "classification": "unknown", "content": "测试模式：当前岗位情报待人工核对。", "source_refs": refs[:1]}],
