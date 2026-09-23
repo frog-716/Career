@@ -126,6 +126,9 @@ def create_app(store=None, frontend_dir=None, *, require_local_session=None, run
             body = {'detail':str(exc)}
             if getattr(exc, 'code', None):
                 body['code'] = exc.code
+            diagnostics = getattr(exc, 'diagnostics', None)
+            if isinstance(diagnostics, dict):
+                body['diagnostics'] = diagnostics
             return JSONResponse(body,status_code=status)
         app.add_exception_handler(cls,handle)
 

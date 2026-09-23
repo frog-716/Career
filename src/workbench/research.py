@@ -1,9 +1,8 @@
 """Research workspace: sourced company/opportunity intelligence and proposals."""
-import html
 import json
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
-from urllib.parse import parse_qs, quote_plus, unquote, urlparse
+from urllib.parse import parse_qs, quote_plus, urljoin, urlsplit, urlunsplit
 
 import httpx
 from fastapi import APIRouter
@@ -29,27 +28,127 @@ CLASSIFICATIONS = rs.CLASSIFICATIONS
 _VOLATILE_RESEARCH_PREPARATIONS = {}
 
 
+class SearchFailure(Invalid):
+    """A fail-closed search error carrying only non-content diagnostics."""
+
+    def __init__(self, classification, diagnostics):
+        self.code = classification
+        allowed = (
+            "http_status", "content_type", "redirect_count", "result_nodes", "anchor_nodes",
+            "results_before_filter", "results_after_filter", "filtered_count",
+            "parser_error_type",
+        )
+        self.diagnostics = {key: diagnostics.get(key) for key in allowed if key in diagnostics}
+        super().__init__(f"Research 搜索失败（{classification}）")
+
+
 class _SearchParser(HTMLParser):
     def __init__(self):
-        super().__init__(); self.results = []; self.href = None; self.text = []
+        super().__init__()
+        self.results = []
+        self.result_nodes = 0
+        self.anchor_nodes = 0
+        self.no_results = False
+        self.challenge = False
+        self.href = None
+        self.text = []
+        self.page_text = []
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
-        if tag == "a" and "result__a" in attrs.get("class", ""):
-            self.href = attrs.get("href"); self.text = []
+        class_value = attrs.get("class") or ""
+        id_value = attrs.get("id") or ""
+        classes = set(class_value.split())
+        identity = f"{id_value} {class_value}".lower()
+        if "no-results" in classes or id_value.lower() in {"no-results", "no_results"}:
+            self.no_results = True
+        if any(marker in identity for marker in ("challenge", "captcha", "anomaly-modal")):
+            self.challenge = True
+        if tag == "a":
+            self.anchor_nodes += 1
+        if tag == "a" and "result__a" in classes:
+            self.result_nodes += 1
+            self.href = attrs.get("href")
+            self.text = []
 
     def handle_data(self, data):
-        if self.href is not None: self.text.append(data)
+        self.page_text.append(data)
+        if self.href is not None:
+            self.text.append(data)
 
     def handle_endtag(self, tag):
         if tag == "a" and self.href is not None:
-            href = self.href
-            query = parse_qs(urlparse(href).query).get("uddg")
-            if query: href = unquote(query[0])
-            title = html.unescape(" ".join("".join(self.text).split()))
-            if href.startswith("http") and title:
-                self.results.append({"url": href, "title": title})
-            self.href = None; self.text = []
+            self.results.append({
+                "url": self.href,
+                "title": " ".join("".join(self.text).split()),
+            })
+            self.href = None
+            self.text = []
+
+
+_PAGE_CHALLENGE_MARKERS = (
+    "verify you are human", "unusual traffic", "robot check", "security challenge",
+    "complete the captcha", "complete captcha", "验证后继续", "机器人验证",
+)
+_RESULT_CHALLENGE_MARKERS = _PAGE_CHALLENGE_MARKERS + ("captcha",)
+
+
+def _normalise_search_url(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    candidate = urljoin("https://html.duckduckgo.com/", value.strip())
+    try:
+        parsed = urlsplit(candidate)
+        host = (parsed.hostname or "").lower()
+        if host == "duckduckgo.com" or host.endswith(".duckduckgo.com"):
+            if parsed.path == "/l/":
+                targets = parse_qs(parsed.query).get("uddg", [])
+                if not targets:
+                    return None
+                candidate = targets[0]  # parse_qs already decodes exactly once.
+                parsed = urlsplit(candidate)
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            return None
+        if parsed.username is not None or parsed.password is not None:
+            return None
+        port = parsed.port
+    except ValueError:
+        return None
+    scheme = parsed.scheme.lower()
+    hostname = parsed.hostname.lower()
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+    default_port = (scheme == "http" and port == 80) or (scheme == "https" and port == 443)
+    netloc = hostname if port is None or default_port else f"{hostname}:{port}"
+    return urlunsplit((scheme, netloc, parsed.path or "/", parsed.query, ""))
+
+
+def _search_diagnostics(response=None, *, result_nodes=0, anchor_nodes=0, before=0, after=0, **extra):
+    status = getattr(response, "status_code", None)
+    headers = getattr(response, "headers", {}) or {}
+    content_type = headers.get("content-type") or headers.get("Content-Type")
+    if content_type is not None:
+        content_type = str(content_type)[:120]
+    history = getattr(response, "history", ()) or ()
+    redirects = len(history)
+    if status is not None and 300 <= status < 400 and not redirects:
+        redirects = 1
+    return {
+        "http_status": status,
+        "content_type": content_type,
+        "redirect_count": redirects,
+        "result_nodes": result_nodes,
+        "anchor_nodes": anchor_nodes,
+        "results_before_filter": before,
+        "results_after_filter": after,
+        "filtered_count": max(0, before - after),
+        **extra,
+    }
+
+
+def _search_failure(classification, response=None, **metadata):
+    diagnostics = _search_diagnostics(response, **metadata)
+    raise SearchFailure(classification, diagnostics) from None
 
 
 def web_search(company, title, jd, runtime_mode=None):
@@ -57,15 +156,64 @@ def web_search(company, title, jd, runtime_mode=None):
     query = " ".join(x for x in (company, title, "产品 商业模式 最新动态") if x)
     try:
         response = httpx.get("https://html.duckduckgo.com/html/?q=" + quote_plus(query), timeout=15.0, follow_redirects=False)
-        response.raise_for_status()
-        parser = _SearchParser(); parser.feed(response.text)
-    except httpx.HTTPError as exc:
-        raise Invalid("Web Research 暂时不可用，请保留手动研究入口") from exc
-    seen, results = set(), []
+    except httpx.TimeoutException:
+        _search_failure("timeout")
+    except httpx.HTTPError:
+        _search_failure("http_error")
+
+    if 300 <= response.status_code < 400:
+        _search_failure("redirect_blocked", response)
+    if response.status_code != 200:
+        _search_failure("http_error", response)
+
+    content_type = (response.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    if content_type != "text/html":
+        _search_failure("parse_error", response)
+    try:
+        body = response.text
+        if not body or not body.strip():
+            _search_failure("parse_error", response)
+        parser = _SearchParser()
+        parser.feed(body)
+        parser.close()
+    except SearchFailure:
+        raise
+    except Exception as exc:
+        _search_failure("parse_error", response, parser_error_type=type(exc).__name__)
+
+    diagnostic_base = {
+        "result_nodes": parser.result_nodes,
+        "anchor_nodes": parser.anchor_nodes,
+        "before": parser.result_nodes,
+    }
+    page_text = " ".join(parser.page_text).casefold()
+    if parser.challenge or any(marker in page_text for marker in _PAGE_CHALLENGE_MARKERS):
+        _search_failure("challenge_detected", response, **diagnostic_base)
+    if parser.no_results or any(marker in page_text for marker in ("no results found", "no results for", "没有搜索结果", "未找到结果")):
+        _search_failure("zero_results", response, **diagnostic_base)
+    if parser.result_nodes == 0:
+        _search_failure("selector_mismatch", response, **diagnostic_base)
+
+    candidates = []
     for item in parser.results:
-        if item["url"] not in seen:
-            seen.add(item["url"]); results.append({**item, "retrieved_at": now()})
-        if len(results) >= 8: break
+        url = _normalise_search_url(item.get("url"))
+        title_text = item.get("title", "").strip()
+        if url and title_text:
+            candidates.append({"url": url, "title": title_text})
+    if not candidates:
+        _search_failure("all_results_filtered", response, **diagnostic_base)
+    if all(_search_result_is_challenge(item) for item in candidates):
+        _search_failure("challenge_detected", response, **diagnostic_base)
+
+    seen, results = set(), []
+    for item in candidates:
+        if item["url"] not in seen and not _search_result_is_challenge(item):
+            seen.add(item["url"])
+            results.append({**item, "retrieved_at": now()})
+        if len(results) >= 8:
+            break
+    if not results:
+        _search_failure("all_results_filtered", response, **diagnostic_base)
     return results
 
 
@@ -80,15 +228,9 @@ def _item(value, source_refs=None):
     return rs.normalise_item(value, source_refs)
 
 
-_SEARCH_CHALLENGE_MARKERS = (
-    "captcha", "验证后继续", "verify you are human", "unusual traffic",
-    "robot check", "机器人验证", "security challenge",
-)
-
-
 def _search_result_is_challenge(value):
     text = " ".join(str(value.get(key, "")) for key in ("title", "url")).lower()
-    return any(marker.lower() in text for marker in _SEARCH_CHALLENGE_MARKERS)
+    return any(marker.lower() in text for marker in _RESULT_CHALLENGE_MARKERS)
 
 
 def _search_results(results):
