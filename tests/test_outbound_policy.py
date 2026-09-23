@@ -8,6 +8,7 @@ from workbench.app import create_app
 from workbench.core import Store
 from workbench.opportunity import create_opportunity
 from workbench.providers import TestProvider
+from search_fakes import FakeSearchProvider
 
 
 HEADERS = {"X-Career-Request": "1", "Content-Type": "application/json"}
@@ -119,7 +120,7 @@ def test_research_requires_search_confirmation_then_model_confirmation(tmp_path,
         search_calls.append(args)
         return [{"url": "https://example.test/t06", "title": "假来源", "retrieved_at": "2026-09-19T00:00:00+00:00"}]
 
-    monkeypatch.setattr("workbench.research.web_search", fake_search)
+    store.search_provider = FakeSearchProvider(fake_search)
     initial = client.post(f"/api/opportunities/{opportunity['id']}/research/update", json={
         "idempotency_key": "t06-research",
     })

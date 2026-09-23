@@ -138,7 +138,7 @@ export function bindOpportunity(ctx:Context,actions:Actions) {
     const data=(error as any).data||{};
     if((error as any).status===409&&data.status==='search_confirmation_required'){
      box.hidden=false;
-     box.innerHTML=`<h3>搜索前确认</h3><p>将搜索：${escape(data.query||`${o.company} ${o.title}`)}。搜索结果只会进入本次临时资料包。</p><button class="primary" data-confirm-search>确认开始搜索</button>`;
+     box.innerHTML=`<h3>搜索前确认</h3><p>搜索服务：${escape(data.provider||'tavily')} · 目的地：${escape(data.destination||'Tavily Search API')}</p><p>将发送字段：${escape((data.fields||['query']).join('、'))}</p><p>将搜索：${escape(data.query||`${o.company} ${o.title}`)}。简历、面试原文和完整 JD 不会发送给搜索服务；搜索结果只作为本次来源线索。</p><button class="primary" data-confirm-search>确认开始搜索</button>`;
      button.hidden=true;
      box.querySelector('[data-confirm-search]')!.addEventListener('click',()=>void run({search_confirmed:true}));
     }else if((error as any).status===409&&data.status==='context_confirmation_required'){

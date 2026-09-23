@@ -16,6 +16,9 @@ from . import research_store as rs
 from .model_gateway import ModelGateway
 from . import outbound_policy as outbound
 from .runtime_mode import require_ai_enabled
+from .secret_store import SecretStoreError
+from .search_provider import SearchProviderError, SearchResult, TavilySearchProvider
+from . import research_search_config
 
 
 CATEGORIES = rs.CATEGORIES
@@ -36,7 +39,7 @@ class SearchFailure(Invalid):
         allowed = (
             "http_status", "content_type", "redirect_count", "result_nodes", "anchor_nodes",
             "results_before_filter", "results_after_filter", "filtered_count",
-            "parser_error_type",
+            "parser_error_type", "results_received", "results_accepted",
         )
         self.diagnostics = {key: diagnostics.get(key) for key in allowed if key in diagnostics}
         super().__init__(f"Research 搜索失败（{classification}）")
@@ -347,6 +350,141 @@ def _research_client_intent(opportunity_id, body):
     }
 
 
+_RESEARCH_SEARCH_TERMS = "产品 商业模式 最新动态"
+
+
+def _research_search_query(opportunity):
+    # Only company, role title and fixed public research terms are searchable.
+    # The JD and all candidate/interview/career materials stay out of this path.
+    return " ".join(
+        value for value in (opportunity.get("company"), opportunity.get("title"), _RESEARCH_SEARCH_TERMS)
+        if isinstance(value, str) and value.strip()
+    )
+
+
+def _normalise_provider_results(results):
+    if not isinstance(results, list):
+        raise SearchProviderError("invalid_response")
+    normalized = []
+    for result in results:
+        if isinstance(result, SearchResult):
+            normalized.append(result.as_dict())
+        elif isinstance(result, dict):
+            # This is the explicit injectable-provider seam used by synthetic tests.
+            title, url = result.get("title"), result.get("url")
+            snippet = result.get("snippet", "")
+            if not isinstance(title, str) or not title.strip() or not isinstance(url, str) or not isinstance(snippet, str):
+                raise SearchProviderError("invalid_response")
+            source = result.get("source") or {"provider": result.get("provider", "test")}
+            if not isinstance(source, dict):
+                raise SearchProviderError("invalid_response")
+            normalized.append({
+                "title": title.strip(), "url": url, "snippet": snippet,
+                "source": dict(source),
+                "provider": result.get("provider", source.get("provider", "test")),
+                "retrieved_at": result.get("retrieved_at") or now(),
+            })
+        else:
+            raise SearchProviderError("invalid_response")
+    return normalized
+
+
+def _search_manifest(opportunity):
+    # Store only a digest of allowed query inputs, never the full JD in the
+    # search operation audit manifest.
+    public_identity = {
+        "company": opportunity.get("company"),
+        "title": opportunity.get("title"),
+    }
+    return cm.manifest(
+        "research_search",
+        {"kind": "opportunity", "id": opportunity["id"]},
+        opportunity["revision"],
+        [cm.dependency(
+            "opportunity", opportunity["id"], opportunity["revision"],
+            public_identity, "public_search_query",
+        )],
+    )
+
+
+def _dispatch_research_search(store, opportunity, key):
+    query = _research_search_query(opportunity)
+    manifest = _search_manifest(opportunity)
+
+    def prepare():
+        return {"query": query, "manifest": manifest}
+
+    def dispatch(prepared, binder):
+        injected_provider = store.search_provider
+        if injected_provider is None:
+            ref = research_search_config.configured_ref_for_search(store)
+            if not ref:
+                store.set_runtime_search_secret_status("not_configured")
+                error = ao.PreDispatchFailure("Tavily Search 尚未配置 Secret")
+                error.code = "auth_error"
+                raise error
+            try:
+                api_key = store.secret_store_for_maintenance().get(ref)
+            except SecretStoreError as exc:
+                store.set_runtime_search_secret_status(exc.code)
+                error = ao.PreDispatchFailure("Tavily Search Secret 不可用")
+                error.code = "auth_error"
+                raise error from None
+            except Exception:
+                store.set_runtime_search_secret_status("error")
+                error = ao.PreDispatchFailure("Tavily Search Secret 不可用")
+                error.code = "auth_error"
+                raise error from None
+            if not isinstance(api_key, str) or not api_key:
+                store.set_runtime_search_secret_status("error")
+                error = ao.PreDispatchFailure("Tavily Search Secret 不可用")
+                error.code = "auth_error"
+                raise error
+            store.set_runtime_search_secret_status("ready")
+            provider = TavilySearchProvider(api_key)
+        else:
+            provider = injected_provider
+
+        binder(digest({
+            "destination": "https://api.tavily.com/search",
+            "query": prepared["query"],
+            "search_depth": "basic",
+            "topic": "general",
+            "max_results": 8,
+            "include_answer": False,
+            "include_raw_content": False,
+        }), prepared["manifest"])
+        try:
+            results = _normalise_provider_results(provider.search(prepared["query"]))
+            if not results:
+                raise SearchProviderError(
+                    "zero_results",
+                    diagnostics={"results_received": 0, "results_accepted": 0},
+                )
+        except SearchProviderError as exc:
+            if exc.outcome_unknown:
+                raise
+            raise SearchFailure(exc.code, exc.diagnostics) from None
+        finally:
+            if injected_provider is None:
+                api_key = ""
+                provider = None
+        return results, {"provider": "tavily", "result_count": len(results)}
+
+    return ao.execute(
+        store, task_type="research_search", target_kind="opportunity",
+        target_id=opportunity["id"], idempotency_key=key,
+        client_intent={
+            "opportunity_id": opportunity["id"],
+            "query": query,
+            "idempotency_key": key,
+        },
+        prepare=prepare,
+        dispatch=dispatch,
+        persist=lambda _prepared, results, _diagnostics: results,
+    )
+
+
 def _research_output_schema():
     return {"version": 1, "required": ["company_items", "opportunity_items"]}
 
@@ -393,19 +531,48 @@ def _research_create_preparation(store, opportunity_id, body):
     prepared = _research_prepare(store, opportunity_id, body)
     opportunity = prepared["opportunity"]
     client_intent = _research_client_intent(opportunity_id, body)
-    with store.connect(False) as c:
-        existing = next((row for row in store._records(c, "ai_preparation")
-                         if row.get("task_type") == "research_update"
-                         and row.get("target") == {"kind": "opportunity", "id": opportunity["id"]}
-                         and row.get("idempotency_key") == body.get("idempotency_key")), None)
-    if existing:
-        if existing.get("client_intent_hash") != digest(client_intent):
-            raise Conflict("请求标识已用于不同 Research 准备操作")
-        volatile = _VOLATILE_RESEARCH_PREPARATIONS.get(existing["id"])
-        if volatile is None:
-            raise Conflict("准备对象上下文已过期，请重新确认搜索和发送内容")
-        return outbound.public_preparation(existing, payload_preview=volatile["payload"])
-    results = web_search(opportunity["company"], opportunity["title"], opportunity.get("jd", ""), store.runtime_mode)
+    require_ai_enabled(store.runtime_mode)
+    try:
+        search = _dispatch_research_search(store, opportunity, body["idempotency_key"])
+    except SearchFailure as exc:
+        operation = ao.find(store, "research_search", "opportunity", opportunity["id"], body["idempotency_key"])
+        return JSONResponse({
+            **(ao._public(operation) if operation else {}),
+            "status": "failed", "code": exc.code,
+            "diagnostics": exc.diagnostics,
+            "message": "搜索失败；Career 不会自动重试或切换搜索服务。",
+        }, status_code=422)
+    except SearchProviderError as exc:
+        operation = ao.find(store, "research_search", "opportunity", opportunity["id"], body["idempotency_key"])
+        return JSONResponse({
+            **(ao._public(operation) if operation else {}),
+            "status": "outcome_unknown", "state": "outcome_unknown", "code": exc.code,
+            "diagnostics": exc.diagnostics,
+            "message": "搜索结果状态不确定；Career 不会自动重试。",
+        }, status_code=409)
+    except ao.PreDispatchFailure as exc:
+        operation = ao.find(store, "research_search", "opportunity", opportunity["id"], body["idempotency_key"])
+        return JSONResponse({
+            **(ao._public(operation) if operation else {}),
+            "status": "failed", "code": getattr(exc, "code", "auth_error"),
+            "message": "Tavily Search Secret 不可用；没有发送搜索请求。",
+        }, status_code=503)
+    if search.state == "running":
+        return ao.unwrap(search)
+    if search.state == "outcome_unknown":
+        return JSONResponse({
+            **ao._public(search.operation),
+            "code": search.operation.get("error_code") or "provider_error",
+            "message": "搜索结果状态不确定；Career 不会自动重试。",
+        }, status_code=409)
+    if search.state == "failed":
+        return JSONResponse({
+            **ao._public(search.operation),
+            "status": "failed",
+            "code": search.operation.get("error_code") or "provider_error",
+            "message": "搜索失败；Career 不会自动重试或切换搜索服务。",
+        }, status_code=503)
+    results = search.value
     prepared = _research_compile(store, prepared, results)
     payload, diagnostics, _, clean_pack, budget_info = ModelGateway(store).prepare_payload(
         "research_update", prepared["pack"], _research_output_schema(), body.get("model_config_id")
@@ -444,8 +611,7 @@ def _research_prepare_for_execution(store, opportunity_id, body):
 
 def _research_dispatch(store, prepared, binder):
     if "pack" not in prepared:
-        opportunity = prepared["opportunity"]
-        _research_compile(store, prepared, web_search(opportunity["company"], opportunity["title"], opportunity.get("jd", ""), store.runtime_mode))
+        raise ao.PreDispatchFailure("Research 必须先完成已确认的 SearchProvider 搜索")
     result, diagnostics = ModelGateway(store).generate(
         "research_update", prepared["pack"], _research_output_schema(),
         prepared["body"].get("model_config_id"),
@@ -528,14 +694,20 @@ def update(store, opportunity_id, body):
                 if not ao.find(store, "research_update", "opportunity", opportunity["id"], key):
                     return previous
     if body.get("search_confirmed") is not True:
-        query = " ".join(x for x in (opportunity["company"], opportunity["title"], "产品 商业模式 最新动态") if x)
+        query = _research_search_query(opportunity)
         return JSONResponse({
             "status": "search_confirmation_required",
             "target": {"kind": "opportunity", "id": opportunity["id"]},
+            "provider": "tavily",
+            "destination": "https://api.tavily.com/search",
+            "fields": ["query"],
             "query": query,
         }, status_code=409)
     if not body.get("prepared_id") or body.get("confirm_outbound") is not True:
-        return JSONResponse(_research_create_preparation(store, opportunity_id, body), status_code=409)
+        preparation = _research_create_preparation(store, opportunity_id, body)
+        if isinstance(preparation, JSONResponse):
+            return preparation
+        return JSONResponse(preparation, status_code=409)
     execution = ao.execute(
         store, task_type="research_update", target_kind="opportunity",
         target_id=op.canonical_id(opportunity_id), idempotency_key=key,

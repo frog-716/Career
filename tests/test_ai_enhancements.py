@@ -7,6 +7,7 @@ from workbench.app import create_app
 from workbench.core import Store
 from workbench.opportunity import create_opportunity
 from workbench.providers import TestProvider
+from search_fakes import FakeSearchProvider
 from workbench.secret_store import MemorySecretStore
 from workbench.model_gateway import GatewayError, OpenAICompatibleAdapter
 from workbench.model_gateway import ModelGateway
@@ -76,7 +77,7 @@ def test_research_web_proposal_requires_confirmation_and_keeps_provenance(tmp_pa
     store = Store(tmp_path / "data", TestProvider())
     client = TestClient(create_app(store), headers={**HEADERS, "Content-Type": "application/json"})
     opportunity = create_opportunity(store, {"company_name": "虚构公司", "title": "研究工程师", "jd": "负责研究", "idempotency_key": "research-op"})
-    monkeypatch.setattr("workbench.research.web_search", lambda *args: [{"url": "https://example.test/company", "title": "公司主页", "retrieved_at": "2026-09-18T00:00:00+00:00"}])
+    store.search_provider = FakeSearchProvider([{"url": "https://example.test/company", "title": "公司主页", "retrieved_at": "2026-09-18T00:00:00+00:00"}])
     before = client.get(f"/api/opportunities/{opportunity['id']}/research-overview").json()
     seed = {"idempotency_key": "research-1"}
     assert client.post(f"/api/opportunities/{opportunity['id']}/research/update", json=seed).status_code == 409

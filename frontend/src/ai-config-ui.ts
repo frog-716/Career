@@ -5,6 +5,7 @@ type Deps = {state: Row; api: Api; modal: (title:string, body:string, ready?: (d
 
 export function aiSettingsView(state: Row, modeText: string) {
   const ai = state.ai || {configs: [], default_model_config_id: null};
+  const search = state.search_provider || {provider: 'tavily', configured: false, secret_status: 'not_configured', revision: 0};
   const secretLabel = (config: Row) => {
     if (!config.configured_ref) return '未设置 Key';
     if (config.secret_status === 'ready') return 'Key 已验证可用';
@@ -14,10 +15,34 @@ export function aiSettingsView(state: Row, modeText: string) {
   };
   const rows = (ai.configs || []).map((config: Row) => `<article class="ai-config-row"><div><h3>${esc(config.display_name)}</h3><p>${esc(config.provider)} · ${esc(config.model)}</p><small>${esc(config.base_url)} · ${secretLabel(config)}${config.id === ai.default_model_config_id ? ' · 当前使用' : ''}</small></div><div class="actions"><button class="secondary" data-ai-test="${esc(config.id)}">测试</button>${config.id === ai.default_model_config_id ? '<span class="pill">当前使用</span>' : `<button class="quiet" data-ai-default="${esc(config.id)}">设为当前</button>`}<button class="quiet" data-ai-edit="${esc(config.id)}">编辑</button><button class="text-btn" data-ai-delete="${esc(config.id)}">删除</button></div></article>`).join('');
   const current = (ai.configs || []).find((config: Row) => config.id === ai.default_model_config_id);
-  return `<section class="settings scroll"><div class="pane-heading"><h2>AI 模型</h2><div class="actions"><button class="primary" id="ai-add">添加模型</button></div></div><p class="muted">API Key 只保存在 macOS Keychain；Career 数据库、备份、日志和浏览器响应都不保存完整密钥。</p><section class="ai-config-list">${rows || '<div class="empty">尚未配置 AI 模型。人工资料、简历和求职记录仍可正常使用。</div>'}</section><div class="setting-row"><span>当前模式</span><b>${esc(modeText)}</b></div><div class="setting-row"><span>默认模型</span><span>${current ? esc(`${current.provider} / ${current.model}`) : '尚未设置，AI 操作会提示进入本页配置模型'}</span></div><button class="text-btn" id="logout-session" type="button">退出本地会话</button><button class="text-btn" data-page="feedback">查看反馈记录 →</button></section>`;
+  const searchStatus = search.secret_status === 'ready' ? 'Secret 已验证可读' : search.secret_status === 'not_checked' ? '已配置，尚未检查' : search.configured ? `状态：${esc(search.secret_status)}` : search.secret_status === 'not_configured' ? '尚未配置' : `未配置 · 最近状态：${esc(search.secret_status)}`;
+  return `<section class="settings scroll"><div class="pane-heading"><h2>AI 模型</h2><div class="actions"><button class="primary" id="ai-add">添加模型</button></div></div><h3>模型 Provider</h3><p class="muted">例如 DeepSeek。API Key 只保存在 macOS Keychain；Career 数据库、备份、日志和浏览器响应都不保存完整密钥。</p><section class="ai-config-list">${rows || '<div class="empty">尚未配置 AI 模型。人工资料、简历和求职记录仍可正常使用。</div>'}</section><div class="setting-row"><span>当前模式</span><b>${esc(modeText)}</b></div><div class="setting-row"><span>默认模型</span><span>${current ? esc(`${current.provider} / ${current.model}`) : '尚未设置，AI 操作会提示进入本页配置模型'}</span></div><section class="ai-config-list"><h3>搜索 Provider · Tavily</h3><p class="muted">这是网页搜索服务，不是模型。只有 Research 经过预览并由你确认后才会搜索。搜索 Key 单独保存在 macOS Keychain。</p><div class="setting-row"><span>配置状态</span><b>${search.configured ? '已配置' : '未配置'}</b></div><div class="setting-row"><span>Secret 状态</span><span>${searchStatus}</span></div><form id="tavily-search-key-form"><label>Tavily API Key<input name="api_key" type="password" autocomplete="new-password" maxlength="10000" required></label><div class="actions"><button class="primary" type="submit">安全保存搜索 Key</button></div><p class="muted">保存只写入并验证 Keychain；不会测试连接或发起搜索。</p></form></section><button class="text-btn" id="logout-session" type="button">退出本地会话</button><button class="text-btn" data-page="feedback">查看反馈记录 →</button></section>`;
 }
 
 export function bindAiSettings(d: Deps) {
+  const searchForm = document.querySelector<HTMLFormElement>('#tavily-search-key-form');
+  searchForm?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const input = searchForm.elements.namedItem('api_key') as HTMLInputElement;
+    const button = searchForm.querySelector<HTMLButtonElement>('button[type=submit]')!;
+    const apiKey = input.value;
+    button.disabled = true;
+    try {
+      await d.api('/research/search-provider', {
+        api_key: apiKey,
+        expected_revision: d.state.search_provider?.revision ?? 0,
+      }, 'PUT');
+      input.value = '';
+      await d.load();
+      d.render();
+      d.inform('Tavily 搜索 Key 已安全保存；没有测试连接或执行搜索。');
+    } catch (e) {
+      d.modalError(e);
+    } finally {
+      input.value = '';
+      button.disabled = false;
+    }
+  });
   const form = (current?: Row) => {
     const editing = Boolean(current);
     const dialog = d.modal(editing ? '编辑模型配置' : '添加模型', `<form id="ai-form"><label>显示名称<input name="display_name" required maxlength="200" value="${esc(current?.display_name)}"></label><label>供应商<input name="provider" required maxlength="100" value="${esc(current?.provider || 'OpenAI-compatible')}"></label><label>Base URL<input name="base_url" required maxlength="2000" type="url" value="${esc(current?.base_url || 'https://api.openai.com/v1')}"></label><label>模型名称<input name="model" required maxlength="500" value="${esc(current?.model)}"></label><p class="muted">DeepSeek 当前模型名称为 <code>deepseek-flash</code>；旧别名会在保存和测试时自动规范化。</p><label>API Key${editing ? '（留空仅保留原 Key；修改供应商或 Base URL 时必须重新录入）' : ''}<input name="api_key" type="password" autocomplete="new-password" maxlength="10000"></label><label><input name="enabled" type="checkbox" ${current?.enabled !== false ? 'checked' : ''}> 启用</label><div class="actions"><button type="button" class="secondary" data-ai-dialog-test>测试连接</button><button type="submit" class="primary">保存</button></div><p class="muted" data-ai-dialog-status></p></form>`);

@@ -35,7 +35,7 @@ CAREER_DATA_DIR=/tmp/career-fake-data CAREER_RUNTIME_DIR=/tmp/career-fake-runtim
 - `knowledge`：不可变来源、候选整理/确认、Wiki 当前修订/撤回与历史；来源同 scope 校验；个人/机会/任职隔离。仅个人或当前机会有效条目能进入求职 packet。
 - `domain`：公司/组织树、求职周期/方向、机会关系、固定简历版本用途。用途不创建实际投递；当前实际投递只能走 Opportunity scoped `RecordSubmitted`。接口见 [Wiki 与业务对象整合](../../docs/execution/WIKI-DOMAIN.md)。
 - `opportunity`：current JSON 中唯一 canonical Opportunity，Company 由 company_id 实时读取；Create/Update/End 同事务 CAS/幂等。旧 Job/plan.stage/context.company_id 冻结，legacy 未决对象只读。历史 Submission 快照保持原文，新投递由 `submission` 模块冻结材料并推进阶段。
-- `research`：CompanyResearch 按公司共享、OpportunityResearch 按机会隔离；搜索标题/URL 只保存为 `lead`，用户粘贴摘录保存 owner、input method、scope、日期和 hash；Research item 支持稳定 ID 更正/撤回、显式 supersedes/replaces、来源 owner 校验和 pending proposal 重开，自动搜索不读取网页正文。当前 HTML 搜索入口失败时返回 `http_error`、`redirect_blocked`、`timeout`、`challenge_detected`、`parse_error`、`selector_mismatch`、`zero_results` 或 `all_results_filtered` 分类及安全结构计数；网页正文不进入诊断响应或持久化记录。
+- `research`：CompanyResearch 按公司共享、OpportunityResearch 按机会隔离；`SearchProvider.search(query) -> SearchResult[]` 是唯一正式网页搜索边界，当前 Tavily Adapter 只调用[基础 Search API](https://docs.tavily.com/documentation/api-reference/endpoint/search)，返回标题、URL、搜索摘要和来源 Provider 元数据，并关闭 answer/raw content。标题、URL 与搜索摘要只作为 `lead` 来源材料；用户粘贴摘录保存 owner、input method、scope、日期和 hash；Research item 支持稳定 ID 更正/撤回、显式 supersedes/replaces、来源 owner 校验和 pending proposal 重开，搜索不下载完整网页正文。搜索需先预览公开 query 再由用户确认；Search operation 复用持久化幂等账本，失败不自动重试或切换 Provider。Tavily 搜索结果不能绕过 `user_confirmed`。DuckDuckGo HTML parser 仅留作 legacy 离线诊断/兼容代码，不是正式搜索 Provider。
 - `employment` / `work`：公开的 Employment 主身份和旧 `journey_episode` 兼容映射；EmploymentStage、Project、Person、WorkEvent、Achievement、Evidence 及其多对多关系。工作成果不会自动写入个人 Wiki；T14 仅允许用户在查看证据后，编辑并明确批准一条复用表达，写入现有 personal `wiki_entry` 容器。
 - `communication`：Opportunity scoped Communication 的唯一新写入口；Create/Update/Archive 使用幂等命令与记录级 CAS。旧 typed Communication 原 ID 只读投影并可由用户显式核对升级；不复制 `journey_note`，不改变 Opportunity 生命周期。
 - `interview`：Opportunity scoped Real/Simulation、柔性 Preparation、current-only Raw/Final Review、Context Pack 与 real-only Research Patch。`GenerateFinalReview` 和 `GenerateResearchPatch` 是两个独立动作；Simulation 在 service/storage/HTTP/UI 均无 Patch 能力。
@@ -60,6 +60,8 @@ HTTP 路由、错误与并发语义以当前模块实现和对应测试为准，
 编辑配置时，只有目的地身份（provider、scheme、host、有效端口、base path）未变化且 API Key 留空，才保留旧 Key；目的地或 Key 变化均先写入新 ref，切换成功后再清理未引用的旧 ref。删除当前默认模型必须明确确认，删除后不自动切换其它模型。没有默认模型时人工资料、简历、投递、面试和记录功能继续可用。
 
 生产 macOS Keychain 的每次 `get`、`put`、`delete` 都在短生命周期 helper 中执行；Career 主进程以 2 秒 bounded timeout 等待，helper 超时会被 terminate 并确认退出。锁定、拒绝、交互不可用、缺失、崩溃或畸形响应均 fail closed，绝不 fallback 到环境变量或其它 Secret 来源。Secret 只通过进程内匿名 socketpair 传递，不进入 argv、环境变量、标准输出/错误、临时文件或日志；应用 shutdown 也会清理仍在运行的 helper。
+
+Research 搜索凭据通过独立的“搜索 Provider · Tavily”设置维护；它与模型 Provider（例如 DeepSeek）使用不同的 opaque Secret ref。状态 API 只返回 `configured` 和 runtime `secret_status`，不返回 Key 或 ref。LOCAL_ONLY 可在明确进入设置后保存/验证 Tavily Secret，但不能搜索；AI_ENABLED 也不会自动搜索。每次搜索仍须 Research preview → 用户 confirm，confirm 前不读 Tavily Secret、不联网；搜索失败不自动回退 DuckDuckGo。
 
 配置列表不逐项探测 Keychain。`LOCAL_ONLY` 启动不访问 Keychain，配置存在时运行时 `secret_status` 保持 `not_checked`；`AI_ENABLED` 启动只对当前默认配置的 active `api_key_ref` 做一次 bounded read，成功后本进程状态为 `ready`，失败则显示 `missing`、`denied`、`locked`、`interaction_not_allowed`、`timeout` 或 `error`，并阻止 Gateway 出站。历史持久化 `ready` 不会直接继承为新进程的 runtime readiness。
 

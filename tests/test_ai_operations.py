@@ -14,6 +14,7 @@ from workbench.opportunity import create_opportunity
 from workbench.providers import TestProvider
 from workbench import ai_operations
 from workbench.research import update as research_update
+from search_fakes import FakeSearchProvider
 
 
 HEADERS = {"X-Career-Request": "1", "Content-Type": "application/json"}
@@ -116,13 +117,11 @@ def test_all_generation_paths_deduplicate_before_provider_and_reject_different_i
     provider = CountingFakeProvider()
     client, store = client_for(tmp_path, provider)
     opportunity = opportunity_for(store, "all-paths")
-    search_calls = []
-    monkeypatch.setattr("workbench.research.web_search", lambda *args: [{
+    search_provider = FakeSearchProvider([{
         "url": "https://example.test/t03", "title": "假来源",
         "retrieved_at": "2026-09-19T00:00:00+00:00",
     }])
-    original_search = __import__("workbench.research", fromlist=["web_search"]).web_search
-    monkeypatch.setattr("workbench.research.web_search", lambda *args: (search_calls.append(args) or original_search(*args)))
+    store.search_provider = search_provider
 
     research_body = prepare_research(client, opportunity['id'], "same-research")
     first = client.post(f"/api/opportunities/{opportunity['id']}/research/update", json=research_body)
@@ -178,11 +177,11 @@ def test_all_generation_paths_deduplicate_before_provider_and_reject_different_i
     assert first_patch.status_code == second_patch.status_code == 200
     assert first_patch.json() == second_patch.json()
     assert provider.call_count == 4
-    assert len(search_calls) == 1
+    assert len(search_provider.calls) == 1
     with store.connect(False) as connection:
         operations = connection.execute("SELECT task_type,state,dispatched_payload_hash FROM ai_operations ORDER BY rowid").fetchall()
     assert [row[0] for row in operations] == [
-        "research_update", "resume_optimization", "interview_final_review", "interview_research_patch"
+        "research_search", "research_update", "resume_optimization", "interview_final_review", "interview_research_patch"
     ]
     assert all(row[1] == "succeeded" and row[2] for row in operations)
 
@@ -191,7 +190,7 @@ def test_serial_duplicate_five_times_calls_provider_once(tmp_path, monkeypatch):
     provider = CountingFakeProvider()
     client, store = client_for(tmp_path, provider)
     opportunity = opportunity_for(store, "serial-five")
-    monkeypatch.setattr("workbench.research.web_search", lambda *args: [{
+    store.search_provider = FakeSearchProvider([{
         "url": "https://example.test/serial-five", "title": "假来源", "retrieved_at": "2026-09-19T00:00:00+00:00",
     }])
     body = prepare_research(client, opportunity['id'], "serial-five-key")
@@ -213,7 +212,7 @@ def test_concurrent_duplicate_five_times_calls_provider_once(tmp_path, monkeypat
     provider = CountingFakeProvider(entered=entered, release=release)
     client, store = client_for(tmp_path, provider)
     opportunity = opportunity_for(store, "concurrent")
-    monkeypatch.setattr("workbench.research.web_search", lambda *args: [{
+    store.search_provider = FakeSearchProvider([{
         "url": "https://example.test/concurrent", "title": "假来源", "retrieved_at": "2026-09-19T00:00:00+00:00",
     }])
     body = prepare_research(client, opportunity['id'], "concurrent-key")
@@ -285,7 +284,7 @@ def test_timeout_becomes_outcome_unknown_and_same_key_does_not_retry(tmp_path, m
     provider = CountingFakeProvider(error=GatewayError("timeout", "synthetic timeout"))
     client, store = client_for(tmp_path, provider)
     opportunity = opportunity_for(store, "timeout")
-    monkeypatch.setattr("workbench.research.web_search", lambda *args: [{
+    store.search_provider = FakeSearchProvider([{
         "url": "https://example.test/timeout", "title": "假来源", "retrieved_at": "2026-09-19T00:00:00+00:00",
     }])
     body = prepare_research(client, opportunity['id'], "timeout-key")
@@ -296,14 +295,16 @@ def test_timeout_becomes_outcome_unknown_and_same_key_does_not_retry(tmp_path, m
     assert second.json()["status"] == "outcome_unknown"
     assert provider.call_count == 1
     with store.connect(False) as connection:
-        assert connection.execute("SELECT state,error_code FROM ai_operations").fetchone() == ("outcome_unknown", "timeout")
+        assert connection.execute(
+            "SELECT state,error_code FROM ai_operations WHERE task_type='research_update'"
+        ).fetchone() == ("outcome_unknown", "timeout")
 
 
 def test_succeeded_replay_after_restart_does_not_recharge(tmp_path, monkeypatch):
     provider = CountingFakeProvider()
     client, store = client_for(tmp_path, provider)
     opportunity = opportunity_for(store, "succeeded-restart")
-    monkeypatch.setattr("workbench.research.web_search", lambda *args: [{
+    store.search_provider = FakeSearchProvider([{
         "url": "https://example.test/succeeded-restart", "title": "假来源", "retrieved_at": "2026-09-19T00:00:00+00:00",
     }])
     body = prepare_research(client, opportunity['id'], "succeeded-restart-key")
@@ -326,7 +327,7 @@ def test_successful_provider_then_persistence_failure_is_unknown_after_restart(t
     provider = CountingFakeProvider()
     client, store = client_for(tmp_path, provider)
     opportunity = opportunity_for(store, "persist-failure")
-    monkeypatch.setattr("workbench.research.web_search", lambda *args: [{
+    store.search_provider = FakeSearchProvider([{
         "url": "https://example.test/persist", "title": "假来源", "retrieved_at": "2026-09-19T00:00:00+00:00",
     }])
     original_record = store._record
@@ -342,7 +343,9 @@ def test_successful_provider_then_persistence_failure_is_unknown_after_restart(t
         client.post(f"/api/opportunities/{opportunity['id']}/research/update", json=body)
     assert provider.call_count == 1
     with store.connect(False) as connection:
-        state = connection.execute("SELECT state,error_code FROM ai_operations").fetchone()
+        state = connection.execute(
+            "SELECT state,error_code FROM ai_operations WHERE task_type='research_update'"
+        ).fetchone()
     assert state == ("outcome_unknown", "persistence_unknown")
 
     restarted_store = Store(tmp_path / "data", provider)
@@ -379,16 +382,16 @@ def test_busy_outbound_slot_fails_before_second_provider_call(tmp_path, monkeypa
     provider = CountingFakeProvider(entered=entered, release=release)
     client, store = client_for(tmp_path, provider)
     opportunity = opportunity_for(store, "busy")
-    monkeypatch.setattr("workbench.research.web_search", lambda *args: [{
+    store.search_provider = FakeSearchProvider([{
         "url": "https://example.test/busy", "title": "假来源", "retrieved_at": "2026-09-19T00:00:00+00:00",
     }])
 
+    second_body = prepare_research(client, opportunity['id'], "busy-second")
     with ThreadPoolExecutor(max_workers=1) as pool:
         first_body = prepare_research(client, opportunity['id'], "busy-first")
         first = pool.submit(client.post, f"/api/opportunities/{opportunity['id']}/research/update",
                             json=first_body)
         assert entered.wait(5)
-        second_body = prepare_research(client, opportunity['id'], "busy-second")
         second = client.post(f"/api/opportunities/{opportunity['id']}/research/update",
                              json=second_body)
         assert second.status_code == 429
@@ -398,7 +401,7 @@ def test_busy_outbound_slot_fails_before_second_provider_call(tmp_path, monkeypa
     assert provider.call_count == 1
     with store.connect(False) as connection:
         assert connection.execute(
-            "SELECT state,error_code FROM ai_operations WHERE idempotency_key=?",
+            "SELECT state,error_code FROM ai_operations WHERE task_type='research_update' AND idempotency_key=?",
             ("busy-second",),
         ).fetchone() == ("failed", "busy")
 
@@ -407,7 +410,7 @@ def test_empty_research_stops_before_model_and_marks_failed(tmp_path, monkeypatc
     provider = CountingFakeProvider()
     client, store = client_for(tmp_path, provider)
     opportunity = opportunity_for(store, "empty-search")
-    monkeypatch.setattr("workbench.research.web_search", lambda *args: [])
+    store.search_provider = FakeSearchProvider([])
 
     initial = client.post(f"/api/opportunities/{opportunity['id']}/research/update",
                           json={"idempotency_key": "empty-search-key"})
@@ -417,7 +420,9 @@ def test_empty_research_stops_before_model_and_marks_failed(tmp_path, monkeypatc
     assert response.status_code == 422
     assert provider.call_count == 0
     with store.connect(False) as connection:
-        assert connection.execute("SELECT COUNT(*) FROM ai_operations").fetchone()[0] == 0
+        assert connection.execute("SELECT task_type,state,error_code FROM ai_operations").fetchone() == (
+            "research_search", "failed", "zero_results"
+        )
 
 
 def test_final_review_result_is_unknown_after_restart_without_recharge(tmp_path):

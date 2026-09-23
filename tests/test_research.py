@@ -10,6 +10,7 @@ from workbench.app import create_app
 from workbench.core import Store
 from workbench.opportunity import create_opportunity
 from workbench.providers import TestProvider
+from search_fakes import FakeSearchProvider
 
 
 HEADERS = {"X-Career-Request": "1", "Content-Type": "application/json"}
@@ -96,7 +97,7 @@ def test_research_is_shared_and_alias_owner_never_creates_second_record(tmp_path
 def test_research_update_manifest_rejects_changed_target_and_reject_is_always_available(tmp_path, monkeypatch):
     client, store = client_for(tmp_path)
     opportunity = make_opportunity(store, "研究虚构公司", "research-1")
-    monkeypatch.setattr(research, "web_search", lambda *args: [{
+    store.search_provider = FakeSearchProvider([{
         "url": "https://example.test/t02", "title": "虚构来源",
         "retrieved_at": "2026-09-19T00:00:00+00:00",
     }])
@@ -133,7 +134,7 @@ def test_research_proposal_rejects_company_switch_and_preserves_new_company(tmp_
         "idempotency_key": "company-b-existing",
     })
     assert saved.status_code == 200, saved.text
-    monkeypatch.setattr(research, "web_search", lambda *args: [{
+    store.search_provider = FakeSearchProvider([{
         "url": "https://example.test/company-a", "title": "A 来源",
         "retrieved_at": "2026-09-19T00:00:00+00:00",
     }])
@@ -179,7 +180,7 @@ def test_old_proposal_without_manifest_can_be_rejected_but_not_accepted(tmp_path
 def test_research_accept_is_atomic_when_second_owner_write_fails(tmp_path, monkeypatch):
     client, store = client_for(tmp_path)
     opportunity = make_opportunity(store, "原子性虚构公司", "atomic-1")
-    monkeypatch.setattr(research, "web_search", lambda *args: [{
+    store.search_provider = FakeSearchProvider([{
         "url": "https://example.test/atomic", "title": "来源", "retrieved_at": "2026-09-19T00:00:00+00:00",
     }])
     proposal = research_confirm(client, opportunity["id"], "atomic-proposal").json()
@@ -213,7 +214,7 @@ def test_research_dependency_change_is_stale_and_reject_does_not_bump(tmp_path, 
         "idempotency_key": "research-source-initial",
     })
     assert initial.status_code == 200
-    monkeypatch.setattr(research, "web_search", lambda *args: [{
+    store.search_provider = FakeSearchProvider([{
         "url": "https://example.test/research-source", "title": "岗位来源",
         "retrieved_at": "2026-09-19T00:00:00+00:00",
     }])
@@ -319,12 +320,13 @@ def test_web_research_and_interview_patch_work_in_both_orders(tmp_path, monkeypa
     from test_interview import confirm
     from test_communication import setup_submitted
 
-    monkeypatch.setattr(research, "web_search", lambda *args: [{
+    fake_search = FakeSearchProvider([{
         "url": "https://example.test/order", "title": "顺序测试来源",
         "retrieved_at": "2026-09-19T00:00:00+00:00",
     }])
 
     first_client, first_store, submitted = setup_submitted(tmp_path / "web-first", "web-first")
+    first_store.search_provider = fake_search
     first_interview = confirm(first_client, submitted).json()
     first_opp = first_interview["opportunity"]
     first_raw = first_client.put(
@@ -366,6 +368,7 @@ def test_web_research_and_interview_patch_work_in_both_orders(tmp_path, monkeypa
     assert any(item["kind"] == "opportunity_research" for item in resume_proposal.json()["manifest"]["dependencies"])
 
     second_client, second_store, submitted = setup_submitted(tmp_path / "patch-first", "patch-first")
+    second_store.search_provider = fake_search
     second_interview = confirm(second_client, submitted).json()
     second_opp = second_interview["opportunity"]
     raw = second_client.put(

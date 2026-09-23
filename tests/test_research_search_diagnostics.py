@@ -11,6 +11,7 @@ from workbench.core import Invalid, Store
 from workbench.opportunity import create_opportunity
 from workbench.providers import TestProvider
 from workbench.runtime_mode import resolve_runtime_mode
+from workbench.search_provider import SearchProviderError
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "research_search"
@@ -155,14 +156,21 @@ def test_parser_exception_is_classified_without_exception_message(monkeypatch):
 
 
 def test_research_api_exposes_only_safe_search_diagnostics(tmp_path, monkeypatch):
-    store = Store(tmp_path / "data", TestProvider())
+    class FailingSearchProvider:
+        def search(self, query):
+            raise SearchProviderError("http_error", diagnostics={
+                "http_status": 502,
+                "content_type": "application/json",
+                "response_body": "synthetic response body must not escape",
+            })
+
+    store = Store(tmp_path / "data", TestProvider(), search_provider=FailingSearchProvider())
     store.runtime_mode = resolve_runtime_mode("AI_ENABLED")
     store.provider.runtime_mode = store.runtime_mode
     opportunity = create_opportunity(store, {
         "company_name": "诊断用虚构公司", "title": "虚构岗位", "jd": "虚构 JD",
         "idempotency_key": "search-diagnostic-opportunity",
     })
-    calls = _install_response(monkeypatch, _response(body=_fixture("challenge.html")))
     provider_calls = []
     original_complete = store.provider.complete
 
@@ -177,10 +185,10 @@ def test_research_api_exposes_only_safe_search_diagnostics(tmp_path, monkeypatch
     first = client.post(path, json={"idempotency_key": "search-diagnostic", "search_confirmed": True})
     assert first.status_code == 422
     payload = first.json()
-    assert payload["code"] == "challenge_detected"
-    assert payload["diagnostics"]["http_status"] == 200
-    assert "Unusual traffic" not in json.dumps(payload)
-    assert len(calls) == 1 and provider_calls == []
+    assert payload["code"] == "http_error"
+    assert payload["diagnostics"]["http_status"] == 502
+    assert "synthetic response body" not in json.dumps(payload)
+    assert provider_calls == []
     with store.connect(False) as connection:
         assert store._records(connection, "ai_preparation") == []
         assert store._records(connection, "research_proposal") == []
