@@ -14,6 +14,10 @@ _VOLATILE_RESULTS = {}
 class AIValidationError(Exception):
     """The provider returned, but the result failed local validation."""
 
+    def __init__(self, message, code="invalid_result"):
+        self.code = code
+        super().__init__(message)
+
 
 class PreDispatchFailure(Invalid):
     """A remote precondition failed before the model request was sent."""
@@ -331,8 +335,10 @@ def execute(store, *, task_type, target_kind, target_id, idempotency_key,
     try:
         value = persist(prepared, result, diagnostics)
     except AIValidationError as exc:
-        _mark_failure(store, row["op_id"], "failed", "invalid_result", str(exc))
-        raise Invalid(str(exc)) from exc
+        _mark_failure(store, row["op_id"], "failed", exc.code, str(exc))
+        error = Invalid(str(exc))
+        error.code = exc.code
+        raise error from exc
     except Exception as exc:
         _mark_failure(store, row["op_id"], "outcome_unknown", "persistence_unknown", str(exc))
         raise
