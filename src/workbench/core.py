@@ -30,7 +30,7 @@ def required(x, name, limit=100000):
     return x.strip()
 
 class Store:
-    def __init__(self, data_dir=None, provider=None, secret_store=None):
+    def __init__(self, data_dir=None, provider=None, secret_store=None, search_provider=None):
         self.data_dir=Path(data_dir or os.environ.get('CAREER_DATA_DIR') or Path.home()/'Library/Application Support/Career Data').expanduser().resolve()
         if self.data_dir==ROOT or ROOT in self.data_dir.parents: raise Invalid('数据目录必须在代码目录之外')
         self.runtime_mode = resolve_runtime_mode()
@@ -43,6 +43,7 @@ class Store:
         os.chmod(self.data_dir,0o700)
         self.db=self.data_dir/'workspace.sqlite3'
         self.provider=provider or get_provider(self.runtime_mode)
+        self.search_provider = search_provider
         # An injected test or provider object must inherit the Store's
         # fail-closed mode; otherwise a fixture created under AI_ENABLED could
         # bypass a LOCAL_ONLY production-shaped Store after an env flip.
@@ -56,6 +57,7 @@ class Store:
         self.secret_store=secret_store or (LocalOnlySecretStore() if self.runtime_mode.local_only else KeychainSecretStore())
         self._maintenance_secret_store = None
         self._runtime_secret_status = {}
+        self._runtime_search_secret_status = "not_checked"
         with self.connect() as c:
             v=c.execute('PRAGMA user_version').fetchone()[0]
             if v not in (0,6): raise Invalid('数据库版本不匹配')
@@ -126,6 +128,8 @@ class Store:
         if self.runtime_mode.ai_enabled or (self.runtime_mode.local_only and self.runtime_mode.valid):
             from .ai_config import recover_secret_operations
             recover_secret_operations(self)
+            from .research_search_config import recover_secret_operations as recover_search_secret_operations
+            recover_search_secret_operations(self)
         self._initialize_runtime_secret_readiness()
         os.chmod(self.db,0o600)
 
@@ -172,6 +176,16 @@ class Store:
             'interaction_not_allowed', 'timeout', 'error',
         }
         self._runtime_secret_status[config_id] = status if status in allowed else 'error'
+
+    def runtime_search_secret_status(self):
+        return self._runtime_search_secret_status
+
+    def set_runtime_search_secret_status(self, status):
+        allowed = {
+            'not_configured', 'not_checked', 'ready', 'missing', 'denied',
+            'locked', 'interaction_not_allowed', 'timeout', 'error',
+        }
+        self._runtime_search_secret_status = status if status in allowed else 'error'
 
     def shutdown(self):
         self.secret_store.shutdown()
@@ -226,6 +240,7 @@ class Store:
         with self.connect(False) as c:
             from .opportunity import current_opportunities, current_jobs
             from .ai_config import settings as ai_settings
+            from .research_search_config import settings as search_provider_settings
             profile = self._get(c, 'profile')
             jobs = current_jobs(self, c)
             opportunities = current_opportunities(self, c)
@@ -244,7 +259,7 @@ class Store:
                         "has_succeeded_evaluation": any(r.get("kind") == "job" and r.get("job_id") == job["id"] and r.get("status") == "succeeded" for r in runs),
                         "application_count": sum(1 for item in applications if item.get("job_id") == job["id"]),
                     } for job in jobs],
-                    ai=ai_settings(self, c), diagnostics=diagnostics,
+                    ai=ai_settings(self, c), search_provider=search_provider_settings(self, c), diagnostics=diagnostics,
                 )
             if view == "profile":
                 return {"profile": profile}
@@ -252,23 +267,23 @@ class Store:
                 return dict(profile=profile, jobs=jobs, opportunities=opportunities,
                             resumes=self._current(c, 'resume'), versions=self._records(c, 'version'),
                             artifacts=self._records(c, 'artifact'), applications=[json.loads(r[0]) for r in c.execute('SELECT body FROM applications ORDER BY rowid DESC')],
-                            feedback=[], runs=self._records(c, 'run'), ai=ai_settings(self, c), diagnostics=diagnostics)
+                            feedback=[], runs=self._records(c, 'run'), ai=ai_settings(self, c), search_provider=search_provider_settings(self, c), diagnostics=diagnostics)
             if view == "feedback":
                 return dict(profile=dict(profile, content=""), jobs=jobs, opportunities=opportunities,
                             resumes=[], versions=[], artifacts=[], applications=[], feedback=self._records(c, 'feedback'), runs=[],
-                            ai=ai_settings(self, c), diagnostics=diagnostics)
+                            ai=ai_settings(self, c), search_provider=search_provider_settings(self, c), diagnostics=diagnostics)
             if view == "opportunity":
                 runs = [run for run in self._records(c, 'run') if not job_id or run.get('job_id') == job_id]
                 applications = [json.loads(r[0]) for r in c.execute('SELECT body FROM applications ORDER BY rowid DESC')]
                 applications = [item for item in applications if not job_id or item.get('job_id') == job_id]
                 return dict(profile=dict(profile, content=""), jobs=jobs, opportunities=opportunities,
                             resumes=[], versions=[], artifacts=[], applications=applications, feedback=[], runs=runs,
-                            ai=ai_settings(self, c), diagnostics=diagnostics)
+                            ai=ai_settings(self, c), search_provider=search_provider_settings(self, c), diagnostics=diagnostics)
             return dict(profile=profile,jobs=jobs,
                         opportunities=opportunities,resumes=self._current(c,'resume'),versions=self._records(c,'version'),
                         artifacts=self._records(c,'artifact'),applications=[json.loads(r[0]) for r in c.execute('SELECT body FROM applications ORDER BY rowid DESC')],
                         feedback=self._records(c,'feedback'),runs=self._records(c,'run'),
-                        ai=ai_settings(self,c),
+                        ai=ai_settings(self,c), search_provider=search_provider_settings(self, c),
                         diagnostics=diagnostics)
 
     def save_profile(self,content,expected):

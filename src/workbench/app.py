@@ -28,6 +28,7 @@ from .offer import router as offer_router
 from .ai_config import create as create_ai_config, update as update_ai_config, delete as delete_ai_config, mark_cleanup_hold as mark_ai_cleanup_hold, set_default as set_ai_default, clear_default as clear_ai_default, settings as ai_settings, test_ephemeral as test_ai_ephemeral
 from .model_gateway import ModelGateway
 from .research import router as research_router
+from . import research_search_config
 from .local_session import LocalSessionManager, DEFAULT_BUILD_ID
 
 
@@ -197,6 +198,10 @@ def create_app(store=None, frontend_dir=None, *, require_local_session=None, run
     def ai_model_clear_default():return clear_default(s)
     @app.post('/api/ai/models/{config_id}/test')
     def ai_model_test(config_id:str):return ModelGateway(s).test_connection(config_id)
+    @app.get('/api/research/search-provider')
+    def research_search_provider():return research_search_config.settings(s)
+    @app.put('/api/research/search-provider')
+    def research_search_provider_update(b:dict):return research_search_config.save(s, b)
     @app.post('/api/profile')
     def profile(b:dict):return s.save_profile(b.get('content'),b.get('expected_revision'))
     @app.post('/api/jobs')
