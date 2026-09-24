@@ -32,7 +32,7 @@ from . import research_search_config
 from .local_session import LocalSessionManager, DEFAULT_BUILD_ID
 
 
-def create_app(store=None, frontend_dir=None, *, require_local_session=None, runtime_dir=None):
+def create_app(store=None, frontend_dir=None, *, require_local_session=None, runtime_dir=None, personal_local=False):
     app=FastAPI(title='Career',docs_url=None,redoc_url=None,openapi_url=None)
     s=store or Store();app.state.store=s
 
@@ -42,14 +42,26 @@ def create_app(store=None, frontend_dir=None, *, require_local_session=None, run
 
     if require_local_session is None:
         require_local_session = os.environ.get('CAREER_TEST_MODE') != '1'
+    if personal_local:
+        require_local_session = False
+    local_auth_mode = (
+        'personal_local'
+        if personal_local
+        else 'paired'
+        if require_local_session
+        else 'unpaired_test'
+    )
     runtime_root = Path(runtime_dir or os.environ.get('CAREER_RUNTIME_DIR') or (s.data_dir / '.runtime'))
     app.state.local_session = LocalSessionManager(
         runtime_root,
         data_dir=s.data_dir,
         build_id=os.environ.get('CAREER_BUILD_ID', DEFAULT_BUILD_ID),
         schema_version=6,
+        pairing_enabled=not personal_local,
+        local_auth_mode=local_auth_mode,
     )
     app.state.require_local_session = bool(require_local_session)
+    app.state.local_auth_mode = local_auth_mode
 
     @app.middleware('http')
     async def local_only(request:Request,call_next):
@@ -120,6 +132,7 @@ def create_app(store=None, frontend_dir=None, *, require_local_session=None, run
             request._body=b''.join(chunks)
         response=await call_next(request)
         response.headers.update({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Career-Build-Id':app.state.local_session.build_id,'Content-Security-Policy':"default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'"})
+        response.headers['X-Career-Local-Auth-Mode'] = app.state.local_auth_mode
         return response
 
     for cls,code in [(Invalid,422),(Conflict,409),(Missing,404),(ProviderError,503),(ArtifactError,422)]:
@@ -139,6 +152,8 @@ def create_app(store=None, frontend_dir=None, *, require_local_session=None, run
 
     @app.post('/api/pair')
     def pair(b:dict):
+        if not app.state.local_session.pairing_enabled:
+            return JSONResponse({'detail':'个人本机模式无需配对','code':'pairing_disabled'}, status_code=409)
         result = app.state.local_session.pair(b.get('code'))
         if result is None:
             return JSONResponse({'detail':'配对码无效、已过期或已使用','code':'pairing_failed'}, status_code=401)
@@ -146,6 +161,8 @@ def create_app(store=None, frontend_dir=None, *, require_local_session=None, run
 
     @app.post('/api/session/resume')
     def resume_session(b:dict):
+        if not app.state.local_session.pairing_enabled:
+            return JSONResponse({'detail':'个人本机模式不使用会话恢复','code':'pairing_disabled'}, status_code=409)
         result = app.state.local_session.resume(b.get('resume_token'))
         if result is None:
             return JSONResponse({'detail':'本地会话恢复凭据无效','code':'resume_failed'}, status_code=401)

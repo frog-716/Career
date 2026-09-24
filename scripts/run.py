@@ -13,7 +13,6 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
 
 from workbench.local_session import (
     process_started_at,
-    unpaired_fake_data_enabled,
     write_process_metadata,
 )
 from workbench.runtime_mode import RuntimeModeError, startup_mode
@@ -24,13 +23,6 @@ def runtime_dir(project_root: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     path.chmod(0o700)
     return path
-
-
-def configured_data_dir() -> Path:
-    return Path(
-        os.environ.get("CAREER_DATA_DIR")
-        or Path.home() / "Library/Application Support/Career Data"
-    ).expanduser().resolve()
 
 
 def acquire_runtime_lock(path: Path):
@@ -74,9 +66,11 @@ def main():
 
     import uvicorn
     from workbench.app import create_app
-    data_dir = configured_data_dir()
-    unpaired_fake_data = unpaired_fake_data_enabled(data_dir)
-    app=create_app(runtime_dir=runtime, require_local_session=not unpaired_fake_data)
+    app=create_app(
+        runtime_dir=runtime,
+        require_local_session=False,
+        personal_local=True,
+    )
     started_at = process_started_at(os.getpid()) or time.time()
     write_process_metadata(
         app.state.local_session.process_metadata_path,
@@ -85,10 +79,7 @@ def main():
         instance_id=app.state.local_session.startup_instance_id,
         data_instance_id=app.state.local_session.data_instance_id,
     )
-    if unpaired_fake_data:
-        print('Career：'+url+'\n仅隔离假数据免配对模式已启用；未连接正式数据。')
-    else:
-        print('Career：'+url+'\n本实例已生成一次性本地配对码；请在交互式终端运行 scripts/macos_app.py pair。')
+    print('Career：'+url+'\n个人本机模式已启用；不需要浏览器配对，服务只监听 127.0.0.1。')
     if not args.no_browser:
         import threading
         threading.Timer(1,lambda:webbrowser.open(url)).start()

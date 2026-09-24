@@ -152,6 +152,8 @@ class LocalSessionManager:
         clock: Callable[[], float] = time.time,
         pairing_ttl: int = PAIRING_TTL_SECONDS,
         session_ttl: int = SESSION_TTL_SECONDS,
+        pairing_enabled: bool = True,
+        local_auth_mode: Optional[str] = None,
     ) -> None:
         self.runtime_dir = Path(runtime_dir).expanduser().resolve()
         self.runtime_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -163,6 +165,10 @@ class LocalSessionManager:
         self._clock = clock
         self.pairing_ttl = pairing_ttl
         self.session_ttl = session_ttl
+        self.pairing_enabled = bool(pairing_enabled)
+        self.local_auth_mode = local_auth_mode or (
+            "paired" if self.pairing_enabled else "personal_local"
+        )
         self.startup_instance_id = secrets.token_hex(16)
         self._sessions: Dict[str, float] = {}
         self._pairing_failures = 0
@@ -174,18 +180,29 @@ class LocalSessionManager:
         self.process_metadata_path = self.runtime_dir / "process.json"
         self._control_token = secrets.token_urlsafe(32)
         self.data_instance_id = self._load_data_instance_id()
-        self._resume_digest = self._load_resume_digest()
-        self._pairing_code = secrets.token_hex(16)
-        self._pairing_digest = hashlib.sha256(self._pairing_code.encode()).digest()
-        self._pairing_expires_at = self._clock() + self.pairing_ttl
-        _write_private(
-            self.pairing_path,
-            json.dumps(
-                {"code": self._pairing_code, "expires_at": self._pairing_expires_at},
-                ensure_ascii=False,
-                sort_keys=True,
-            ),
-        )
+        if self.pairing_enabled:
+            self._resume_digest = self._load_resume_digest()
+            self._pairing_code = secrets.token_hex(16)
+            self._pairing_digest = hashlib.sha256(self._pairing_code.encode()).digest()
+            self._pairing_expires_at = self._clock() + self.pairing_ttl
+            _write_private(
+                self.pairing_path,
+                json.dumps(
+                    {"code": self._pairing_code, "expires_at": self._pairing_expires_at},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            )
+        else:
+            # Switching to personal-local mode revokes only the old browser
+            # bootstrap/resume credentials. Never inspect or carry them back
+            # into a later paired (for example, server) launch.
+            self._resume_digest = None
+            self._pairing_code = None
+            self._pairing_digest = None
+            self._pairing_expires_at = None
+            self.pairing_path.unlink(missing_ok=True)
+            self.resume_path.unlink(missing_ok=True)
         _write_private(
             self.control_path,
             json.dumps({"token": self._control_token}, ensure_ascii=False),
@@ -214,11 +231,14 @@ class LocalSessionManager:
 
     def pairing_status(self) -> Dict[str, object]:
         return {
+            "enabled": self.pairing_enabled,
             "expires_at": self._pairing_expires_at,
             "consumed": self._pairing_consumed,
         }
 
     def pair(self, code: str) -> Optional[Dict[str, object]]:
+        if not self.pairing_enabled or self._pairing_digest is None:
+            return None
         now = self._clock()
         if now < self._pairing_retry_after:
             return None
@@ -260,7 +280,8 @@ class LocalSessionManager:
 
     def resume(self, resume_token: str) -> Optional[Dict[str, object]]:
         if (
-            not isinstance(resume_token, str)
+            not self.pairing_enabled
+            or not isinstance(resume_token, str)
             or not resume_token
             or len(resume_token) > 256
             or self._resume_digest is None
@@ -293,6 +314,8 @@ class LocalSessionManager:
         return {"expires_at": expires_at, "startup_instance_id": self.startup_instance_id}
 
     def revoke(self, token: Optional[str]) -> None:
+        if not self.pairing_enabled:
+            return
         if isinstance(token, str):
             self._sessions.pop(hashlib.sha256(token.encode()).hexdigest(), None)
         self._resume_digest = None
@@ -308,4 +331,5 @@ class LocalSessionManager:
             "data_instance_id": self.data_instance_id,
             "startup_instance_id": self.startup_instance_id,
             "static_resource_build_id": self.static_resource_build_id,
+            "local_auth_mode": self.local_auth_mode,
         }

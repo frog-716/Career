@@ -4,6 +4,7 @@ const storage = new Map();
 const persistentStorage = new Map();
 const requests = [];
 let promptCount = 0;
+let personalLocal = false;
 const acceptedTokens = new Set(["peer-session-token"]);
 const channels = new Set();
 
@@ -79,7 +80,10 @@ function response(status, body = {}) {
   return {
     status,
     ok: status >= 200 && status < 300,
-    headers: new Headers({ "X-Career-Build-Id": "career-0.7.0-batch-f" }),
+    headers: new Headers({
+      "X-Career-Build-Id": "career-0.7.0-batch-f",
+      ...(personalLocal ? { "X-Career-Local-Auth-Mode": "personal_local" } : {}),
+    }),
     async json() {
       return body;
     },
@@ -91,6 +95,7 @@ globalThis.fetch = async (input, init = {}) => {
   const authorization = new Headers(init.headers || {}).get("Authorization");
   requests.push({ url, authorization });
 
+  if (personalLocal && url.endsWith("/api/state")) return response(200, { ok: true });
   if (url.endsWith("/api/state") && (!authorization || !acceptedTokens.has(authorization.replace("Bearer ", "")))) {
     return response(401, { detail: "pairing_required" });
   }
@@ -107,6 +112,7 @@ globalThis.fetch = async (input, init = {}) => {
 };
 
 const { clearLocalSession, requestWithSession } = await import("../src/local-session.ts");
+const { aiSettingsView } = await import("../src/ai-config-ui.ts");
 const result = await requestWithSession("/api/state");
 
 assert.equal(result.status, 200);
@@ -145,3 +151,19 @@ assert.equal(afterStalePeer.status, 200);
 assert.equal(promptCount, 2, "a stale peer token must fall back to explicit pairing");
 assert.equal(requests.filter(({ url }) => url.endsWith("/api/pair")).length, 2);
 stalePeer.close();
+
+personalLocal = true;
+storage.set("career.local.session", "stale-session-from-before-personal-mode");
+persistentStorage.set("career.local.resume", "stale-resume-from-before-personal-mode");
+const personalLocalRequest = await requestWithSession("/api/state");
+assert.equal(personalLocalRequest.status, 200);
+assert.equal(promptCount, 2, "personal local mode must not ask for a pairing code");
+assert.equal(requests.filter(({ url }) => url.endsWith("/api/pair")).length, 2);
+assert.equal(storage.has("career.local.session"), false, "stale Bearer tokens must be cleared in personal local mode");
+assert.equal(persistentStorage.has("career.local.resume"), false, "stale resume handles must be cleared in personal local mode");
+
+const personalSettings = aiSettingsView({diagnostics:{local_auth_mode:"personal_local"}}, "本机");
+const pairedSettings = aiSettingsView({diagnostics:{local_auth_mode:"paired"}}, "本机");
+assert.match(personalSettings, /个人本机模式：无需配对/);
+assert.doesNotMatch(personalSettings, /id="logout-session"/);
+assert.match(pairedSettings, /id="logout-session"/);

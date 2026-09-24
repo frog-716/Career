@@ -95,7 +95,13 @@ def process_identity_matches(metadata_path: Path, *, pid: int, started_at: float
     return _process_identity_matches(metadata_path, pid=pid, started_at=started_at, instance_id=instance_id)
 
 
-def verified_healthy(host: str, port: int, metadata: dict, project_root: Path | None = None) -> bool:
+def verified_healthy(
+    host: str,
+    port: int,
+    metadata: dict,
+    project_root: Path | None = None,
+    expected_local_auth_mode: str | None = None,
+) -> bool:
     try:
         control = json.loads(_control_path(project_root).read_text(encoding="utf-8"))["token"]
         request = urllib.request.Request(
@@ -109,6 +115,10 @@ def verified_healthy(host: str, port: int, metadata: dict, project_root: Path | 
             payload.get("build_id") == expected_build
             and payload.get("static_resource_build_id") == expected_build
             and payload.get("startup_instance_id") == metadata.get("instance_id")
+            and (
+                expected_local_auth_mode is None
+                or payload.get("local_auth_mode", "paired") == expected_local_auth_mode
+            )
             and (
                 metadata.get("data_instance_id") is None
                 or payload.get("data_instance_id") == metadata.get("data_instance_id")
@@ -124,6 +134,7 @@ def start(project_root: Path, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
     except RuntimeModeError as exc:
         raise SystemExit(str(exc))
     base_url = _url(host, port)
+    expected_local_auth_mode = "personal_local"
     python = project_root / ".venv" / "bin" / "python"
     run_script = project_root / "scripts" / "run.py"
     if not python.exists():
@@ -141,15 +152,17 @@ def start(project_root: Path, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
                 started_at=metadata["started_at"],
                 instance_id=metadata["instance_id"],
             ):
-                if verified_healthy(host, port, metadata, project_root):
+                if verified_healthy(host, port, metadata, project_root, expected_local_auth_mode):
                     print(f"Career 已运行：{base_url}")
                     if open_browser:
                         _open_in_chrome(f"{base_url}{HOME_PATH}")
                     return 0
                 deadline = time.monotonic() + 15
-                while time.monotonic() < deadline and not verified_healthy(host, port, metadata, project_root):
+                while time.monotonic() < deadline and not verified_healthy(
+                    host, port, metadata, project_root, expected_local_auth_mode
+                ):
                     time.sleep(0.25)
-                if verified_healthy(host, port, metadata, project_root):
+                if verified_healthy(host, port, metadata, project_root, expected_local_auth_mode):
                     if open_browser:
                         _open_in_chrome(f"{base_url}{HOME_PATH}")
                     return 0
@@ -162,8 +175,9 @@ def start(project_root: Path, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
         raise SystemExit("端口已有未验证的服务；未复用或终止未知进程")
 
     log = _log_path(project_root).open("a", encoding="utf-8")
+    command = [str(python), str(run_script), "--port", str(port), "--no-browser"]
     process = subprocess.Popen(
-        [str(python), str(run_script), "--port", str(port), "--no-browser"],
+        command,
         cwd=project_root,
         stdin=subprocess.DEVNULL,
         stdout=log,
@@ -183,7 +197,13 @@ def start(project_root: Path, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
                 pid=metadata.get("pid"),
                 started_at=metadata.get("started_at"),
                 instance_id=metadata.get("instance_id"),
-            ) and verified_healthy(host, port, metadata, project_root):
+            ) and verified_healthy(
+                host,
+                port,
+                metadata,
+                project_root,
+                expected_local_auth_mode,
+            ):
                 print(f"Career 已启动：{base_url}")
                 if open_browser:
                     _open_in_chrome(f"{base_url}{HOME_PATH}")
