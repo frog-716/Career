@@ -11,7 +11,7 @@ import webbrowser
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
 
-from workbench.local_session import (
+from workbench.local_runtime import (
     process_started_at,
     write_process_metadata,
 )
@@ -68,16 +68,14 @@ def main():
     from workbench.app import create_app
     app=create_app(
         runtime_dir=runtime,
-        require_local_session=False,
-        personal_local=True,
     )
     started_at = process_started_at(os.getpid()) or time.time()
     write_process_metadata(
-        app.state.local_session.process_metadata_path,
+        app.state.local_runtime.process_metadata_path,
         pid=os.getpid(),
         started_at=started_at,
-        instance_id=app.state.local_session.startup_instance_id,
-        data_instance_id=app.state.local_session.data_instance_id,
+        instance_id=app.state.local_runtime.startup_instance_id,
+        data_instance_id=app.state.local_runtime.data_instance_id,
     )
     print('Career：'+url+'\n个人本机模式已启用；不需要浏览器配对，服务只监听 127.0.0.1。')
     if not args.no_browser:
@@ -87,7 +85,7 @@ def main():
         uvicorn.run(app,host='127.0.0.1',port=args.port,access_log=False)
     finally:
         try:
-            app.state.local_session.process_metadata_path.unlink(missing_ok=True)
+            app.state.local_runtime.process_metadata_path.unlink(missing_ok=True)
         finally:
             lock.close()
     return 0

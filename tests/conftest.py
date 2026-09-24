@@ -1,4 +1,4 @@
-"""Unit-test compatibility mode; production create_app defaults to session auth."""
+"""Allow unit tests to use TestClient's synthetic host name."""
 import os
 
 

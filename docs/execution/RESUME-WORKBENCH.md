@@ -6,7 +6,7 @@
 
 - Resume Workspace 已在`#resume?document_id=...`同页挂载唯一纸面编辑模块；A4固定`210mm × 297mm`，宽桌面居中，窄桌面由画布和分组工具区独立滚动。旧“返回机会”、独立页标题/品牌、重复选择入口与编辑器内反馈按钮已移除，纸面模板内容与后端业务合同未重做。
 - Computer Use 使用隔离虚构资料验证`1440×900`、实际 Chrome 内容尺寸`1470×770`及`960×720`。宽桌面下A4横向完整可见并居中；窄桌面下尺寸与比例不变，工具、编辑保存、PDF预览/导出、版本和投递确认均可访问，console error/warning 为`[]`。
-- 较早一次全量测试报告`288 passed`后发现同一工作树的并行设备认证任务在该次pytest完成前写入`frontend/src/local-session.ts`、`scripts/macos_app.py`，并于`16:52:39`在`tests/test_macos_app.py`新增1个测试；该pytest进程已完成收集，故仍报告288，稍后的`review_checks`重新收集为289。提交前稳定工作树重新执行独立`pytest -q`与`review_checks`，两次均为`289 passed`，运行前后源码/测试内容指纹一致；frontend typecheck/build、pip check、npm ls、secret scan、Markdown links与`git diff --check`均通过。设备认证改动不属于本批，不纳入本提交。
+- 较早一次全量测试报告`288 passed`后发现同一工作树的并行设备认证任务（当时的配对登录方案，已于 2026-09-24 退役）在该次pytest完成前写入`frontend/src/local-session.ts`、`scripts/macos_app.py`，并于`16:52:39`在`tests/test_macos_app.py`新增1个测试；该pytest进程已完成收集，故仍报告288，稍后的`review_checks`重新收集为289。提交前稳定工作树重新执行独立`pytest -q`与`review_checks`，两次均为`289 passed`，运行前后源码/测试内容指纹一致；frontend typecheck/build、pip check、npm ls、secret scan、Markdown links与`git diff --check`均通过。设备认证改动不属于本批，不纳入本提交。
 
 状态：本批独立工作台主链技术验收通过，待用户体验反馈。产品目标仅见 01-product.md；本批交付可独立打开的原工作台，保持纸面编辑，接入本地草稿、不可变版本与 PDF。全流程 AI 适配另在结构化契约完成后接入，不将旧纯文本提案直接覆盖结构化稿。
 

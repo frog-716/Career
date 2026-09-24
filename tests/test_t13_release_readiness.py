@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from workbench.app import create_app
 from workbench.core import APP_VERSION
 from workbench.core import Store
-from workbench.local_session import DEFAULT_BUILD_ID
+from workbench.local_runtime import DEFAULT_BUILD_ID
 from workbench.providers import TestProvider
 
 
@@ -16,15 +16,15 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_final_runtime_identity_is_consistent_across_backend_and_frontend():
-    frontend_session = (ROOT / "frontend" / "src" / "local-session.ts").read_text(encoding="utf-8")
+    frontend_request = (ROOT / "frontend" / "src" / "local-request.ts").read_text(encoding="utf-8")
 
     assert DEFAULT_BUILD_ID == f"career-{APP_VERSION}"
-    assert f'CLIENT_BUILD_ID = "{DEFAULT_BUILD_ID}"' in frontend_session
+    assert f'CLIENT_BUILD_ID = "{DEFAULT_BUILD_ID}"' in frontend_request
     assert "schema_version=6" in (ROOT / "src" / "workbench" / "app.py").read_text(encoding="utf-8")
 
 
 def test_isolated_health_reports_the_same_build_identity(tmp_path):
-    app = create_app(Store(tmp_path / "data", TestProvider()), require_local_session=False)
+    app = create_app(Store(tmp_path / "data", TestProvider()))
     response = TestClient(app).get("/healthz")
 
     assert response.status_code == 200

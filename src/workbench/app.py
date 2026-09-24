@@ -78,9 +78,6 @@ def create_app(store=None, frontend_dir=None, *, runtime_dir=None):
             return JSONResponse({'detail':'不允许跨站访问本地资料'},403)
         if request.headers.get('sec-fetch-site')=='cross-site':
             return JSONResponse({'detail':'不允许跨站访问本地资料'},403)
-        # Use the ASGI scope path rather than request.url.path so a malformed
-        # Host header cannot rewrite the path used by the auth gate.
-        path = request.scope.get('path') or '/'
         # Career does not need resumable local downloads.  Reject Range before
         # Starlette FileResponse/StaticFiles can enter their range parser.
         if request.headers.get('range'):

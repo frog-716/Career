@@ -1,5 +1,7 @@
 # Final Acceptance
 
+> 历史验收快照：本文记录 2026-09-20 候选版曾执行的配对、刷新恢复和退出/重配对流程。该功能已于 2026-09-24 从个人本机版移除；下方浏览器证据只说明当时行为，不代表当前产品要求。
+
 日期：2026-09-20
 
 工作范围：仅使用隔离 Worktree `/Users/frog/Projects/Career-worktrees/review-t00-t01-20260919`、临时目录、虚构数据和假供应商。未合并主 Career，未删除 Worktree，未操作生产数据库、正式周备份、真实 Keychain、真实收费 Provider、部署或 Git push。

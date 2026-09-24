@@ -95,10 +95,11 @@ def test_candidate_launcher_can_embed_explicit_local_only_mode(tmp_path: Path) -
         builder.launcher_source(tmp_path, 18770, "UNKNOWN")
 
 
-def test_app_and_cli_no_longer_need_a_private_unpaired_marker(monkeypatch):
-    monkeypatch.delenv("CAREER_PERSONAL_LOCAL", raising=False)
-    monkeypatch.delenv("CAREER_BROWSER", raising=False)
-    assert not hasattr(macos_app, "personal_local_launch")
+def test_pair_command_is_not_part_of_the_launcher(monkeypatch):
+    monkeypatch.setattr(macos_app.sys, "argv", ["macos_app.py", "pair"])
+    with pytest.raises(SystemExit) as error:
+        macos_app.main()
+    assert error.value.code == 2
 
 
 def test_cold_start_opens_chrome_only_after_service_is_healthy(
