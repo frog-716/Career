@@ -1,10 +1,13 @@
+import importlib.util
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from workbench.app import create_app
 from workbench.core import Store
+from workbench.local_runtime import process_identity_matches
 from workbench.providers import TestProvider
 
 
@@ -35,15 +38,10 @@ def test_pair_resume_and_logout_routes_are_removed(tmp_path: Path):
         Store(tmp_path / "data", TestProvider()),
         runtime_dir=tmp_path / "runtime",
     )
-    client = TestClient(app, headers=HEADERS)
-
-    for path, body in (
-        ("/api/pair", {"code": "fictional"}),
-        ("/api/session/resume", {"resume_token": "fictional"}),
-        ("/api/logout", {}),
-    ):
-        response = client.post(path, json=body)
-        assert response.status_code == 404, (path, response.text)
+    paths = {getattr(route, "path", None) for route in app.routes}
+    assert "/api/pair" not in paths
+    assert "/api/session/resume" not in paths
+    assert "/api/logout" not in paths
 
 
 def test_startup_removes_only_retired_browser_auth_files(tmp_path: Path):
@@ -99,3 +97,58 @@ def test_local_origin_guards_and_private_runtime_health_remain(tmp_path: Path):
     )
     assert health.status_code == 200
     assert {"build_id", "startup_instance_id", "data_instance_id"} <= health.json().keys()
+
+
+def test_cli_launcher_starts_personal_app_without_auth_switches(monkeypatch, tmp_path: Path):
+    module_path = Path(__file__).parents[1] / "scripts" / "run.py"
+    spec = importlib.util.spec_from_file_location("career_run_without_pairing", module_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkeypatch.setenv("CAREER_AI_MODE", "LOCAL_ONLY")
+    monkeypatch.delenv("CAREER_TEST_MODE", raising=False)
+    monkeypatch.setenv("CAREER_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setenv("CAREER_DATA_DIR", str(tmp_path / "data"))
+
+    class FakeLock:
+        @staticmethod
+        def close():
+            return None
+
+    apps = []
+    monkeypatch.setattr(module.urllib.request, "urlopen", lambda *_a, **_k: (_ for _ in ()).throw(OSError()))
+    monkeypatch.setattr(module, "acquire_runtime_lock", lambda _path: FakeLock())
+    monkeypatch.setattr("uvicorn.run", lambda app, **_kwargs: apps.append(app))
+    monkeypatch.setattr(module.sys, "argv", ["run.py", "--port", "18765", "--no-browser"])
+
+    assert module.main() == 0
+    app = apps[0]
+    client = TestClient(app, headers=HEADERS)
+    assert client.get("/api/state").status_code == 200
+    assert app.state.local_runtime.process_metadata_path.parent == tmp_path / "runtime"
+    assert not (tmp_path / "runtime" / "pairing.json").exists()
+
+
+def test_runtime_process_identity_and_second_launcher_lock_are_preserved(tmp_path: Path):
+    metadata = tmp_path / "process.json"
+    metadata.write_text(
+        json.dumps({"pid": -1, "started_at": 1.0, "instance_id": "instance-a"}),
+        encoding="utf-8",
+    )
+    assert process_identity_matches(
+        metadata, pid=1, started_at=1.0, instance_id="instance-a"
+    ) is False
+
+    module_path = Path(__file__).parents[1] / "scripts" / "run.py"
+    spec = importlib.util.spec_from_file_location("career_run_runtime_lock", module_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    first = module.acquire_runtime_lock(tmp_path / "lock-runtime")
+    try:
+        with pytest.raises(RuntimeError):
+            module.acquire_runtime_lock(tmp_path / "lock-runtime")
+    finally:
+        first.close()

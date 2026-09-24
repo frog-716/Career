@@ -11,12 +11,11 @@ from workbench.providers import TestProvider
 _ONE_PIXEL_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 
 
-def test_malformed_host_cannot_change_the_session_gate(tmp_path):
+def test_malformed_host_cannot_bypass_local_host_guard(tmp_path):
     store = Store(tmp_path / "data", TestProvider())
     client = TestClient(
         create_app(
             store,
-            require_local_session=True,
             runtime_dir=tmp_path / "runtime",
         )
     )
@@ -38,7 +37,6 @@ def test_range_requests_do_not_reach_starlette_file_response(tmp_path):
         create_app(
             store,
             frontend_dir=Path(frontend_dir),
-            require_local_session=False,
         )
     )
 

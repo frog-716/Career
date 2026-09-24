@@ -1,5 +1,7 @@
 # Career 生产切换账本
 
+> 历史切换账本：其中 Chrome 配对、重新配对和临时假数据免配对记录是 2026-09-21 以前的真实历史证据。个人本机版已于 2026-09-24 统一免配对；不要把旧记录解释为当前需要配对或重新启用配对。
+
 本账本是 `PRODUCTION-CUTOVER-PROMPT.md` 阶段 0、1、1.5、2、2.5、3 的实际记录。阶段 3 已按用户绑定的发布身份在强制 `LOCAL_ONLY` 下完成正式本机切换；原正式数据目录、旧 App、旧 Python 环境、旧 runtime、LaunchAgent 配置和即时恢复点均保留。没有读取真实 Keychain、调用真实 Provider、修改正式周任务、Git push 或进入 Stage 4。
 
 ## 计划身份
@@ -132,6 +134,8 @@
 
 ### Stage 2 状态
 
+> 以下三项是 2026-09-20 的历史验收结果；其临时免配对限制已被 2026-09-24 的个人本机版决策取代，具体记录不改写。
+
 - `PASS`（Candidate-only rehearsal）：恢复点、隔离数据链、Candidate 身份、LOCAL_ONLY、只读业务链、PDF 文本层、macOS 启动器和质量门禁满足本阶段可证明条件；后续新增的临时假数据免配对模式也已完成四重条件验证。
 - `BLOCKED`（release/Stage 3）：真实 Keychain/Provider 未授权且未触碰；正式 Python 仍为 3.9.6；真实周任务/恢复故障、真实 PDF 鼠标复制、完整用户链和 Starlette residual risk 仍需最终验收。新增免配对能力只对四重条件同时满足的临时假数据生效；源码变化使上一版阶段 2 身份自动作废，Stage 3 必须基于本节顶部新身份另行授权。
 - 免配对回归：四重条件的虚构临时数据服务 `127.0.0.1:8866` `/api/state` HTTP `200`；同一标记数据缺少显式免配对开关的 `127.0.0.1:8867` `/api/state` HTTP `401 pairing_required`；两个临时服务均已优雅停止。
@@ -157,7 +161,7 @@ Stage 2.5 未读取正式数据、正式 Keychain、真实 Provider，未停止�
 3. 仅整合本账本冻结的 release object；保留原 App、旧 `.venv`、旧 plist、旧 runtime、旧数据和可恢复备份。
 4. 经身份核验后停止旧服务，确认 `8765` 释放；若身份不明、端口未释放或旧服务仍有写入，立即停止，不杀未知进程。
 5. 将新版 App、固定 Python、迁移后副本和批准的模式按已演练路径切换；原 LaunchAgent 只更新已批准的解释器/代码/数据路径，label、周期和保留策略不变。
-6. 维护/只读启动，校验 PID/启动时间/实例身份、build/static/source/schema/data identity、配对和关键只读页面；正常业务写入必须等待用户人工确认。
+6. 维护/只读启动，校验 PID/启动时间/实例身份、build/static/source/schema/data identity；确认页面无需配对即可访问，同时跨站请求仍被拒绝；正常业务写入必须等待用户人工确认。
 
 ## 阶段 3：LOCAL_ONLY 正式本机切换（2026-09-21）
 
@@ -178,7 +182,7 @@ Stage 2.5 未读取正式数据、正式 Keychain、真实 Provider，未停止�
 
 - 正式 App 为 `/Users/frog/Projects/Career/macos/Career.app`，bundle id=`local.career-os.desktop`，ad-hoc 签名通过 `codesign --verify --deep --strict`；正式 data=`/Users/frog/Library/Application Support/Career Data`，runtime/log=`/Users/frog/Projects/Career/.career-runtime`，端口 `127.0.0.1:8765`。最终服务 PID=`39300`、启动时间=`2026-09-21 10:06:41 +0800`、Python=`3.12.14`、build=`career-0.7.0-batch-f`、data instance=`42ff565e28a08e31414442521540ac3e`，只有 loopback listener。
 - 真实 App 已通过冷启动、连续打开/运行中再次打开只复用同一实例、可信停止、重新启动；受控旧 build 占用 `8765` 时新版拒绝且未误杀占用进程，释放后正常启动。正式 LaunchAgent plist SHA-256 仍为 `87b73bf9d7c179d22b9e9260678aa64231f24b677eab687079dfeee69f3f0099`，label/周期未改，也未触发正式周任务。
-- 真实 Chrome 完成一次性配对、刷新保持会话、退出、服务重启后重新配对、四个一级导航、真实机会详情、简历工作台、任职和 Wiki 只读查看。未保存虚构长文本分别验证关闭按钮、Esc、遮罩、路由切换和 `beforeunload`；均触发保护且最终选择放弃，未保存业务数据。正式数据 final inventory 证明浏览器验收未改变任何既有业务 row hash、冻结材料或附件。
+- 真实 Chrome 当时完成一次性配对、刷新保持会话、退出、服务重启后重新配对、四个一级导航、真实机会详情、简历工作台、任职和 Wiki 只读查看。**配对步骤现已退役；其余浏览器与数据完整性结果仍作为当时证据保留。**未保存虚构长文本分别验证关闭按钮、Esc、遮罩、路由切换和 `beforeunload`；均触发保护且最终选择放弃，未保存业务数据。正式数据 final inventory 证明浏览器验收未改变任何既有业务 row hash、冻结材料或附件。
 - 正式数据中没有可在不写入的前提下形成完整“真实机会 → 新面试 → 新简历”链；唯一面试是旧 demo/unknown 记录，因此没有为验收制造生产业务写入。历史 demo 机会曾显示一次 `Research owner 不合法`，真实机会重新加载正常；设置页仍把数据库 AI 配置显示为“真实 AI”，但该文案不是运行边界，列为后续 LOCAL_ONLY 状态展示改进。
 - 现有冻结 demo 简历经当前正式结构化 PDF 路径重新生成到临时目录：1 页、91,848 bytes、PDF SHA-256=`d9feeded5d9653ebd6f7517bf8f410a36dfcdebc37a2b49d28d853ae7180c544`、document hash=`038b99488315df34d770762e87cb13f199745c82aef9a76d81aa80d442f3d4fe`、renderer=`playwright-1.51.0-chrome-153.0.8010.50`。Preview 实际选择并复制“澄明科技 产品与交付负责人 2021-04—2024-08”，TextEdit 回读保留完整中文和日期顺序（字段加粗边界表现为 `**`），证明不是截图 PDF。
 - T11 规模继续采用已验证的隔离 1000 条虚构机会证据：summary `1,292,277` bytes/`0.074188s`，all opportunities `749,781` bytes/`0.022617s`，Chrome 显示总数和页面切换；未见分页按钮，不据此宣称性能结论。

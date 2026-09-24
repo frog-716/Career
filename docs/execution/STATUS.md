@@ -1,6 +1,14 @@
 # 当前状态
 
-最后整理：2026-09-21（T00–T15 implementation tasks = `COMPLETE`；Review stabilization / implementation program = `CLOSED`）。本文顶部只维护当前源码/运行身份、阶段状态、阻断项、下一动作和证据位置；历史批次的过程和证据留在下方既有章节及各自文档。
+最后整理：2026-09-24（T00–T15 implementation tasks = `COMPLETE`；Review stabilization / implementation program = `CLOSED`）。本文顶部只维护当前源码/运行身份、阶段状态、阻断项、下一动作和证据位置；历史批次的过程和证据留在下方既有章节及各自文档。
+
+## 2026-09-24：个人本机版取消配对与浏览器登录
+
+当前个人本机版的 `Career.app`、`scripts/run.py` 和 `scripts/macos_app.py start` 都直接打开，仅监听 `127.0.0.1`；浏览器配对码、Bearer 会话、恢复句柄、会话转交和退出登录入口已从当前实现移除。Host/Origin/Fetch Metadata/写请求保护、App 运行身份核验、单实例锁及启动器专用的受控停止凭据保留。服务器/多人身份认证仍未实现，未来需另行设计。
+
+下方 T09 与旧切换记录保留当时配对方案的历史证据，不是当前操作要求；旧实现已由本地免配对决策取代。
+
+本轮免配对源码批次尚未重新启动正式长驻服务，也未重新运行质量门禁；T15 与 Stage 3 的历史运行证据不替代本轮验证。
 
 ## 当前生产切换阶段
 
@@ -14,7 +22,7 @@
 ## 当前源码/运行身份
 
 - 当前开发目录：`/Users/frog/Projects/Career` 的 `main`；T14、T15 均已按批次范围收口到 `origin/main`。历史 review worktree、review branch、安全分支及本机资料均未纳入 T15。
-- 当前基线：`main` 已 fast-forward 到 review commit `920d08b645db14d272bc524103e969a2f504f1fb`，其后仅增加本状态记录提交。主项目原有本机资料未进入 Git；保护提交为 `d8c25f7b0ff321a256b2376909986d8f76845ecd`，安全分支为 `safety/pre-stage4a-main-20260921`。
+- 历史整合基线：T14/T15 review commit `920d08b645db14d272bc524103e969a2f504f1fb` 是生产切换文档所述的 source-consolidation 起点；其后的 `main` 变更另行记录，Stage 3 的 fingerprint 和 `career-0.7.0-batch-f` 只对应当时冻结的发布对象。主项目原有本机资料未进入 Git；保护提交为 `d8c25f7b0ff321a256b2376909986d8f76845ecd`，安全分支为 `safety/pre-stage4a-main-20260921`。
 - 测试身份：自动测试继续使用虚构数据、`TestProvider` 和隔离临时目录；Stage 3 仅通过一致性备份读取正式源并在恢复副本上验收，未读取真实 Keychain、未调用收费模型。
 - 最终交付身份：正式 Python 已切到固定 `3.12.14` 环境；source/static fingerprint 与授权值一致。Stage 3 没有源码修复、提交、Git 合并或 push。
 
@@ -34,7 +42,7 @@
 - Stage 4A.1：`SOURCE_CONSOLIDATED`；review commit `920d08b645db14d272bc524103e969a2f504f1fb` 从原 `main` 基线 `82af33dfe4d572e6ab04f36f3757b13a28049037` fast-forward 合并。A 类 tracked 修改与 C 类 17 个源码/测试/文档文件均纳入 review 历史；未发现 review 之外的合法源码修改；D 类本机资料仍在原处且未进入 Git。主项目门禁重新通过：`pytest 282 passed`、前端 typecheck/build、pip check、npm ls、secret scan、review_checks、git diff --check 均 exit `0`。主项目 90 个源文件和 12 个静态文件按 Stage 3 冻结清单重算，与授权 fingerprint 一致；正式 Career PID `39300` 健康运行且 `LOCAL_ONLY`，正式 DB 与 Stage 3 最终 inventory 的 hash 一致。
 - Stage 1.5：`CODE_VERIFIED`；`CAREER_AI_MODE=LOCAL_ONLY` 在 SecretStore、Provider、ModelGateway、Research web search 与启动器边界 fail closed。生产样式 `ModelConfig`/`secret_ref`、假 API Key、注入 TestProvider、四条 AI 路径和网络 trap 专项通过；不等同阶段 2 或正式切换授权。
 - Stage 2 / Stage 3 历史证据：Candidate-only rehearsal = `PASS`；当时记录的正式切换 gate 已由后续 Stage 3 `DEPLOYED_VERIFIED (LOCAL_ONLY)` 完成，不作为当前阻断。固定 Python 3.12.14、正式数据一致性备份、全新隔离恢复、schema v6/inventory/restore verify、Candidate App/8865、Chrome 只读链、PDF 文本层和 LOCAL_ONLY 证据已完成。
-- Stage 2 follow-up：`CODE_VERIFIED`；新增 `CAREER_TEST_MODE=1` + `CAREER_AI_MODE=LOCAL_ONLY` + `CAREER_ALLOW_UNPAIRED_FAKE_DATA=1` + 临时目录 `.career-fake-data` 标记的免配对模式。四重条件齐全时真实 `scripts/run.py` 的业务 API 无需配对；缺少显式开关仍返回 `401 pairing_required`。正式数据和恢复正式副本不满足临时目录约束，继续要求配对。
+- Stage 2 follow-up（历史记录，已被 2026-09-24 决策取代）：当时只有带临时目录标记的假数据可免配对，正式数据仍要求配对；这不再描述当前个人本机行为。现行边界见本节顶部和 [Architecture 本地可靠性](../03-architecture.md#本地可靠性)。
 - Stage 2.5：`CODE_VERIFIED`；仅修改 `src/workbench/resume_pdf.py`，将结构化 Chromium PDF 的纸面布局映射回 T04 前 `legacy.css`/`legacy-app.js` 的既有模板：9mm 页边距、居中姓名与联系方式图标、深灰标题块+横线、三列经历/项目表头、圆点 bullet 和教育背景位置；真实文字层、中文字体、分页、冻结一致性与 hash/renderer 元数据保持。历史基准为 `docs/archive/reviews/2026-09-15-novice/2026-09-15-novice-assets/03-empty-editor.png`；同一虚构简历的旧编辑器截图与新版 PDF 已逐项对照。此前锁屏阻断已解除：Preview 选择/⌘C/TextEdit 粘贴实际通过，证据已写入 [RELEASE-GATE](RELEASE-GATE.md)。
 - T01–T11：按用户确认保留既有状态，实现任务均已完成；历史 acceptance/platform 记录不影响当前关闭状态。T11 为 `CODE_VERIFIED + BROWSER_VERIFIED`。
 - 证据：T12 专项为 `tests/test_t12_quality.py`；本地质量入口为 `scripts/review_checks.py`；浏览器入口为 `scripts/browser_regression.py`；R 映射为 [REGRESSION-MATRIX](REGRESSION-MATRIX.md)。
@@ -45,7 +53,7 @@
 - Chrome loopback 保留为 `TOOL_BLOCKED / UNVERIFIED`，不阻塞 T15 收口，也不继续修改产品代码。
 - `AI_ENABLED`、真实 Keychain、真实 Provider、收费调用和真实网页 Research 未授权、未执行；这是未启用范围，不是本轮实现阻断。
 - 供应链残余：`starlette==0.46.2` 的 7 个唯一 advisory 仍存在，`pip-audit` exit `1`；该项按 T12.1 既有分类保留为非阻断观察，不在本轮升级 Starlette/FastAPI。
-- 非阻断观察：LOCAL_ONLY 设置页仍按数据库配置显示“真实 AI”；旧 demo 机会曾显示 `Research owner 不合法`；首次本地配对后由同源本机恢复凭据续发短期内存会话，显式退出会撤销恢复凭据；PDF 复制的加粗字段边界在 TextEdit 表现为 `**`。后端安全边界、真实机会读取和中文文字层均已独立通过。
+- 非阻断观察（部分为历史）：LOCAL_ONLY 设置页曾按数据库配置显示“真实 AI”；旧 demo 机会曾显示 `Research owner 不合法`；T09 旧实现曾使用配对及浏览器恢复会话，现已整体退役；PDF 复制的加粗字段边界在 TextEdit 表现为 `**`。后端安全边界、真实机会读取和中文文字层均已独立通过。
 - T11 规模数据仍只用于事实报告：1000 条虚构机会 summary `1,292,277` bytes/`0.074188s`，all opportunities `749,781` bytes/`0.022617s`；Chrome 显示总数和页面切换，未见分页按钮，不据此给出性能好坏结论。
 - 正式周任务 plist 未改且未运行；它不是本次 Stage 3 的新增阻断。旧数据/App/Python/runtime、即时恢复点和失败候选副本均保留，任何清理或 Stage 4 行为需另行授权。
 
@@ -57,17 +65,17 @@
 
 - 正式源与恢复：正式 DB 备份前后 hash 均为 `6c7b6bbe1e04ed86ccc4862e86fd5bac3f2305535f38db3d844071cde3ee3721`；`cutover-rehearsal-20260920` manifest `complete/healthy/valid/recoverable`；恢复验证 exit `0`，snapshot hash=`7eb49d921c13c8931eab01d224ec4b1cb72d7a666f3e567a0560b27391e7d3cb`，counts applications=1/current=31/meta=1/records=51/artifacts=1；inventory exit `0`，无 migration gate，未 apply。
 - Candidate：固定 Python `3.12.14` 环境、独立 App/data/runtime/log/`8865` 均已建立；冷启动、运行中双击、未知端口拒绝、正常停止和 `/healthz` 已实测；正式 PID `79422` 始终存活。
-- Chrome/PDF/规模：真实 Chrome 完成配对、刷新会话、退出/重配对、Wiki/机会/面试/简历/任职入口和只读详情；恢复简历摘要 DTO 的最小合同修复后工作台正常。Preview 显示真实 PDF 文本层；1000 条虚构机会页面显示总数并完成页面切换，未见分页按钮，不作性能结论。
+- Chrome/PDF/规模（历史验收）：真实 Chrome 当时完成配对、刷新会话、退出/重配对、Wiki/机会/面试/简历/任职入口和只读详情；个人本机版现已取消配对。恢复简历摘要 DTO 的最小合同修复后工作台正常。Preview 显示真实 PDF 文本层；1000 条虚构机会页面显示总数并完成页面切换，未见分页按钮，不作性能结论。
 - 门禁：`pytest -q` exit `0` — `282 passed in 149.19s`（由最后一次 `review_checks.py` 内含全量运行记录）；`npm --prefix frontend run typecheck` exit `0`；`npm --prefix frontend run build` exit `0`；固定 Python `-m pip check` exit `0`；`npm --prefix frontend ls --depth=0` exit `0`（已有 extraneous 条目）；`python scripts/secret_scan.py` exit `0`；`python scripts/review_checks.py` exit `0`；`git diff --check` exit `0`。`pip-audit` 既有重查 exit `1`，Starlette `14` 条记录、`7` 个唯一 advisory，未隐藏。
 - 安全边界：Candidate 进程实际环境包含 `CAREER_AI_MODE=LOCAL_ONLY`；未读取真实 Keychain、未调用真实 Provider、未发起 Research web outbound。Stage 2 不执行 Stage 3。
-- 免配对回归：四重条件的虚构临时数据服务 `127.0.0.1:8866` `/api/state` exit `0`/HTTP `200`；同一标记数据缺少 `CAREER_ALLOW_UNPAIRED_FAKE_DATA` 的 `127.0.0.1:8867` `/api/state` exit `0`/HTTP `401`，均已优雅停止。
+- 临时免配对机制回归（历史机制，已退役）：当时四重条件的虚构临时数据服务 `127.0.0.1:8866` `/api/state` HTTP `200`；同一标记数据缺少开关的 `127.0.0.1:8867` `/api/state` HTTP `401`，均已优雅停止。当前个人本机版所有本机启动方式都直接可用，不再按临时数据标记区分是否配对。
 
 ## T13：最终隔离验收与生产切换准备，2026-09-19
 
 - 原问题复核：最终收口前没有一次可复跑的交付身份/交叉场景/生产门禁证据；`frontend/README.md` 与 `docs/03-architecture.md` 还保留 T04 以前的 `html2canvas/jsPDF` 图片 PDF 描述。T13 专项先按该事实建立红灯，随后修正文档并保留测试约束。
 - 实现：新增 `tests/test_t13_release_readiness.py`，实际用临时 `Store`、`TestProvider` 和 `TestClient` 检查 backend/frontend `build_id` 与 schema v6 一致、隔离浏览器入口固定 loopback/临时目录/TestProvider、T12.1 两条危险输入前置拒绝与 7 个 Starlette advisory 记录不被隐藏、未宣称 `ACCEPTED`/`DEPLOYED_VERIFIED`。`scripts/browser_regression.py` 仅调整缺失 Chromium 时的确定性失败记录，不改变真实用户链或连接边界。更新两份过时工程文档。
 - 最终身份（`STATUS.md` 不计入差异指纹，避免证据记录自引用）：`HEAD=82af33dfe4d572e6ab04f36f3757b13a28049037`；branch=`codex/review-t00-t01-20260919`；schema=`6`；backend/frontend build=`career-0.7.0-batch-f`；requirements 锁定 `fastapi==0.115.12`、`starlette==0.46.2`、`playwright==1.51.0`、`pypdf==6.16.1`、`pytest==9.0.3`、`anyio==4.14.2`、`click==8.3.3`、`Pillow==12.3.0`；排除 `STATUS.md` 后的有效源文件清单 SHA-256 指纹为 `ac5e29028e8e769c4db98f1665879d5fb0c22de123f3083729e74725f2af7e96`。
-- T13 专项：直接 `tests/test_t13_release_readiness.py` exit `0`，`5 passed`；交叉专项 `PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src CAREER_TEST_MODE=1 env -u CAREER_AI_PROVIDER -u CAREER_AI_API_KEY -u OPENAI_API_KEY -u CAREER_AI_MODEL -u CAREER_AI_BASE_URL uv run --no-project --with-requirements requirements.txt pytest -q tests/test_t13_release_readiness.py tests/test_t12_1_dependency_security.py tests/test_ai_operations.py tests/test_outbound_policy.py tests/test_resume_pdf.py tests/test_t07_research_evidence.py tests/test_t08_resume_suggestions.py tests/test_t09_local_session.py tests/test_t10_backup.py tests/test_t11_pages.py` exit `0`，`63 passed`。这覆盖 T03 幂等/未知结果、T04 PDF/冻结、T07/T08 AI 提案、T09 会话身份、T10 备份恢复/T11 页面分页及 T12.1 Range/Host 前置拒绝；所有远端调用均为假供应商/隔离目录。
+- T13 专项（历史验收命令）：当时 `tests/test_t13_release_readiness.py` 为 `5 passed`；交叉专项运行了 `tests/test_t09_local_session.py` 等旧配对测试，记录为 `63 passed`。旧测试路径已移除，当前本机启动/身份/跨站保护回归见 `tests/test_local_runtime.py` 与 `tests/test_macos_app.py`。
 - 全量与质量门禁：`pytest -q` exit `0`，`273 passed`；`npm --prefix frontend run typecheck` exit `0`；`npm --prefix frontend run build` exit `0`；`pip check` exit `0`；`npm --prefix frontend ls --depth=0` exit `0`（仅已有 extraneous 本地 node_modules 条目）；`python scripts/secret_scan.py` exit `0`；`python scripts/review_checks.py` exit `0`（内含 `273 passed`、typecheck/build、pip check、npm ls、secret scan、Markdown links、diff check）；`git diff --check` exit `0`。
 - 供应链重查：`uv run --no-project --with-requirements requirements.txt --with pip-audit pip-audit -r requirements.lock --format columns` exit `1`，`starlette==0.46.2` 共 14 条重复/别名记录，归一为 7 个唯一 advisory：`PYSEC-2026-1941`、`PYSEC-2026-1942`、`PYSEC-2026-161`、`PYSEC-2026-2281`、`PYSEC-2026-2280`、`PYSEC-2026-249`、`PYSEC-2026-248`。未使用 `--ignore-vuln`；T12.1 的完整分类、A 类 Range/Host 直接回归和升级条件继续有效。
 - 浏览器/平台：隔离浏览器入口实际执行 exit `1`，失败原因为本机缺少 Playwright Chromium 可执行文件（入口现保留脱敏短日志目录）；未取得 `BROWSER_VERIFIED`。未执行真实 Provider、真实 Keychain、真实网页/Chrome、真实 macOS Career.app、正式周任务或生产资料验收；这些不以构建/单测替代。独立 Subagent 的实际 Luna/High 配置无法核实，因此本批由主线程串行实施并完成只读规格/安全审查，不计独立审查证据。
@@ -149,7 +157,9 @@
 - T08 未验/阻断：真实 Provider、真实 Keychain、真实收费模型、真实用户资料、生产数据库/附件、周备份任务、生产网页和生产环境仍保留到最终验收；本批没有部署、Git push 或生产写入。现无阻断 T09 的技术 Gate。
 - 下一任务：T09；本批到 T08 停止，不自动进入 T09。
 
-## Career Review 稳定化：T09 本地会话与可信启动器，2026-09-19
+## 历史：Career Review 稳定化 T09 配对会话与可信启动器，2026-09-19
+
+> 历史实现与验收记录。一次性配对、Bearer、浏览器恢复会话及对应前端流程已于 2026-09-24 从当前个人本机版退役；请勿把以下规格、阻断项或测试结论当成当前要求。运行身份核验、单实例锁和启动器控制凭据继续保留。
 
 - T09 开工复核：重新读取 T09 任务卡、`docs/00-authority.md`、Opportunity 工程/Context 合同、当前 `app.py`、`scripts/run.py`、`scripts/macos_app.py`、前端请求适配及 T01–T08 机制。当前代码只有 loopback Host/Origin/写请求头检查：`/api/state`、业务 API、artifact 无 Bearer 会话；启动器只按 PID 文件存活并可直接 `SIGTERM`，没有配对码、重启失效会话或 OS 单实例锁；问题仍存在，未重复建立 T03/T05/T06/T08 已有机制。
 - T09 状态：`CODE_VERIFIED + BROWSER_VERIFIED`；`ACCEPTED` 尚未由用户确认。浏览器证据为隔离 IAB 用户链，不计为 Chrome 独立验收；真实 Mac/Chrome 平台项保留为 `PLATFORM_VERIFICATION_REQUIRED`。主线程完成规格轴/规范轴只读审查；无法核实 Subagent 实际 Luna/High，因此本批主线程串行实施，独立实施/独立审查缺失。

@@ -1,5 +1,5 @@
 import "./editor/legacy.css";
-import { requestWithSession } from "./local-session";
+import { requestLocal } from "./local-request";
 
 type Row = Record<string, any>;
 
@@ -105,5 +105,5 @@ export async function mountResumeWorkspaceEditor(options: {
   const root = document.querySelector<HTMLElement>("[data-resume-editor-host]");
   if (!root) throw new Error("简历编辑区域不存在");
   const module = await import("./editor/legacy-app.js");
-  return module.mountResumeEditor({...options, root, request: requestWithSession}) as Promise<ResumeEditorController>;
+  return module.mountResumeEditor({...options, root, request: requestLocal}) as Promise<ResumeEditorController>;
 }

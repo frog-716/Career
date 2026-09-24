@@ -1,5 +1,17 @@
-.venv/
-.career-runtime/
+# 本机虚拟环境（可能是指向用户目录的符号链接）
+/.venv
+/.venv-*/
+
+# 本机运行状态与阶段备份
+/.career-runtime*/
+
+# 本机代码审查记录与探测产物，不作为公开仓库内容
+/Career-review/
+
+# macOS 本机打包备份及 codesign 生成的签名数据
+/macos/Career.app-*/
+/macos/Career.app/Contents/_CodeSignature/
+
 node_modules/
 __pycache__/
 .pytest_cache/

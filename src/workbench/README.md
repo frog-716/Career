@@ -16,7 +16,7 @@ npm --prefix frontend run build
 
 启动器必须显式设置 `CAREER_AI_MODE=LOCAL_ONLY` 或 `CAREER_AI_MODE=AI_ENABLED`；缺失或非法值直接拒绝启动，不会回退真实 AI。候选数据演练使用：`CAREER_AI_MODE=LOCAL_ONLY .venv/bin/python scripts/macos_app.py start --no-browser`。入口 http://127.0.0.1:8765；启动器复用已有服务。`scripts/run.py` 跟随系统默认浏览器，`macos/Career.app` 则显式使用 Google Chrome，不修改 macOS 全局设置。单进程运行，不使用多 worker。
 
-个人本机版统一免配对：双击 `macos/Career.app`、运行 `.venv/bin/python scripts/run.py` 或运行 `.venv/bin/python scripts/macos_app.py start`，都会只监听 `127.0.0.1`，直接打开 Career。Host/Origin/跨站写入检查和独立的停止服务控制凭据仍保留。启动时会撤销旧的配对码/恢复凭据，但不修改业务数据。免配对不防护同一台电脑上的其他本地账号或已控制当前用户账号的程序；未来服务器/多人版本必须另行实现登录和用户数据隔离。
+个人本机版统一直接打开：双击 `macos/Career.app`、运行 `.venv/bin/python scripts/run.py` 或运行 `.venv/bin/python scripts/macos_app.py start`，都会只监听 `127.0.0.1`，不使用配对码、Bearer、恢复会话或登录。Host/Origin/跨站写入检查，以及仅启动器可用的停止服务控制凭据仍保留。启动时会删除旧版本遗留的浏览器认证文件和浏览器存储键，不读取其内容，也不修改业务数据。能访问本机端口的本地程序仍可尝试访问 Career；未来服务器/多人版本须另行实现正式登录和用户数据隔离，不能复用旧配对方案。
 
 测试仍必须使用虚构资料和独立临时数据目录；免配对不等于可以把测试资料写入正式数据库。
 生产默认 `~/Library/Application Support/Career Data`；用 `CAREER_DATA_DIR` 指向代码目录之外可更换位置。代码不含任何用户资料，生产与合成测试数据分开。本代码新空库为 SQLite user_version=6，已有库只接受 v6，v1–v5 启动前只读检查并拒绝，不隐式迁移。备份 manifest.schemaVersion=1 是包格式，不是数据库版本。
@@ -38,7 +38,7 @@ npm --prefix frontend run build
 - `editor` / `knowledge` / `communication` 对 Resume、Profile、Interview 使用的跨模块能力通过公开 domain helper 暴露；旧的 underscored helper 只保留给兼容路由和未纳入本轮的迁移/Store 内部代码，不能据此宣称全仓库已消除所有历史松散边界。
 - `providers`：只收实际 payload；Provider 不持有 Store、数据库或文件工具。远端不继承会话。正式调用完成后只保存 payload hash、预算和来源元数据，原始 payload 不作为长期审计正文；语义正确性需人工审阅。
 - `artifacts`：PDF / 截图原子写入与 sha256；数据库只存相对路径、metadata和关系。已有投递关联不可变版本/PDF与岗位快照。
-- `app`：个人本机的 `scripts/run.py` 和 `macos/Career.app` 均固定只监听 `127.0.0.1`，直接提供本机页面，不要求配对或 Bearer；Host/Origin/Fetch Metadata/写入检查和独立控制凭据仍保留。运行时撤销旧的配对码和浏览器恢复凭据，但不改业务数据；前端根据响应的本机模式标记清除旧 Bearer/恢复凭据。未来服务器/多人部署必须另建登录和用户数据隔离，不得开放个人本机免配对模式。`/healthz` 只返回最小 build 状态，`/api/local/stop` 只接受受保护运行时控制凭据。单实例锁、PID+启动时间+实例身份校验和优雅停止由 `scripts/run.py` / `scripts/macos_app.py` 负责。
+- `app`：个人本机的 `scripts/run.py` 和 `macos/Career.app` 均固定只监听 `127.0.0.1`；页面与业务 API 不要求配对、Bearer 或登录。Host/Origin/Fetch Metadata/写入检查和仅启动器使用的控制凭据仍保留；启动时清除旧版本遗留的浏览器认证文件/存储键，不读取内容或修改业务数据。未来服务器/多人部署必须另建正式登录和用户数据隔离。`/healthz` 只返回最小 build 状态，`/api/local/stop` 只接受受保护运行时控制凭据。单实例锁、PID+启动时间+实例身份校验和优雅停止由 `scripts/run.py` / `scripts/macos_app.py` 负责。
 - `backup`：在 SQLite 稳定写入窗口内生成在线一致性快照和关联附件哈希清单；备份、恢复都会逐条核对数据库 artifact 引用、清单、文件与 sha256，并拒绝缺失、哈希不符、清单遗漏或孤儿附件。恢复只允许不存在的新目录，现有 schemaVersion 1 清单仍可读取。
 - `demo`：幂等装载或删除带固定 dataset id 的虚构全链路案例；不会覆盖 profile、现有机会、简历或附件，删除前逐项核对归属。
 - `journey`：机会辅助计划仅保存下一行动/提醒日期，独立 CAS；stage 只读。旧 note/typed interview/offer 新记入口停写，新业务动作由 `communication` / `interview` / `offer` 接管；已有记录更正/候选/历史继续可用，任职分支不变。

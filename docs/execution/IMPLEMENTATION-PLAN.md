@@ -6,6 +6,8 @@
 用途：把深度 Review 转成有顺序、有写入边界、有失败处理、有验收条件的施工单。  
 交付性质：实施规格，尚未在用户本机执行；不代表任何修复已经完成。
 
+> 历史规格提示（2026-09-24）：下方 T09 配对码、Bearer 与恢复会话方案已被个人本机版免登录决策取代，仅保留作历史追溯，不可作为当前实施要求。进程身份核验、单实例锁和启动器控制通道仍有效；未来服务器版需另行设计认证。
+
 ## 0. 给使用者的三句话
 
 1. 把本文件放进 `Career/docs/execution/IMPLEMENTATION-PLAN.md`。原 Review 保留原名，建议放进 `docs/audit/`；不要把整段聊天粘进项目。
@@ -150,7 +152,7 @@ Research 负责 Research 的读取和修改；Interview 只提交经许可的变
 | AI 操作登记、并发去重与恢复 | `src/workbench/ai_operations.py` | T03 |
 | 表单关闭与未保存状态保护 | `frontend/src/edit-session.ts` | T01 |
 | 可提取文字的 PDF 生成 | `src/workbench/resume_pdf.py` | T04 |
-| 本地会话验证 | `src/workbench/local_session.py` | T09 |
+| 本机运行身份与启动器控制 | `src/workbench/local_runtime.py` | T09 保留的运行时部分；浏览器会话验证已退役 |
 
 同等职责已经存在就原位增强，不要求机械创建上述名称。不得让 schema helper 反向依赖前端或 Provider。
 
@@ -228,7 +230,7 @@ failed       outcome_unknown
 
 | 情况 | HTTP / 语义 | 用户输入 |
 |---|---|---|
-| 无权限或未配对 | 401/403 | 保留；不得返回业务数据 |
+| 个人本机版跨站/来源校验失败 | 403 | 拒绝请求；当前个人本机版不使用配对或 Bearer 登录 |
 | 目标不存在或不属于该 scope | 404 | 不泄露另一对象内容 |
 | 版本、目标、请求 key 冲突 | 409 | 保留本地输入，展示冲突原因 |
 | 输入结构或范围不合法 | 422 | 指明字段；不调用模型 |
@@ -576,6 +578,8 @@ POST /api/ai/execute
 
 ### T09：本地会话与可信启动器
 
+> 本节中的浏览器配对与会话认证要求已退役；仅可信启动器、进程身份与本机边界条款可作为历史参考，不代表当前产品要重新实现登录。
+
 **范围：R10、R15。** 允许修改 `app.py` 安全 middleware、拟新增 `local_session.py`、`scripts/run.py`、`scripts/macos_app.py`、安装脚本、所有敏感客户端请求适配和关联测试。
 
 威胁边界：防止未配对本机客户端和其他系统用户经 HTTP 读写资料/用 Key；不声称能防御已完全控制同一系统账号的恶意进程。继续默认 loopback 监听、Host/Origin/CSP 检查。
@@ -677,7 +681,7 @@ tests/test_ai_operations.py
 tests/test_secret_lifecycle.py
 tests/test_outbound_policy.py
 tests/test_resume_pdf.py
-tests/test_local_session.py
+tests/test_local_runtime.py
 tests/test_backup_recovery.py
 frontend/tests/e2e/review-regressions.spec.ts
 ```

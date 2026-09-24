@@ -100,7 +100,7 @@ def run_isolated() -> int:
     os.environ["CAREER_TEST_MODE"] = "1"
     os.environ["CAREER_AI_MODE"] = "LOCAL_ONLY"
     store = Store(data_dir, TestProvider())
-    app = create_app(store, frontend_dir=dist, require_local_session=False)
+    app = create_app(store, frontend_dir=dist)
     client = TestClient(app)
     for index, opportunity in enumerate(fixture["opportunities"]):
         response = client.post(

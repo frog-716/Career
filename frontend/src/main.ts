@@ -7,7 +7,7 @@ import { bindProfile, hasUnsavedProfile } from "./profile-ui";
 import { bindRecords } from "./record-ui";
 import { bindAiSettings } from "./ai-config-ui";
 import { closeDialogIfAllowed, guardOpenDialog } from "./edit-session";
-import { logoutLocalSession, requestWithSession } from "./local-session";
+import { requestLocal } from "./local-request";
 import { isJsonObject, parseInterviewSessions, parseJsonEnvelope, parseResearchView, parseResumeDocuments } from "./contracts";
 import { mountResumeWorkspaceEditor, type ResumeEditorController } from "./resume-workspace";
 
@@ -133,7 +133,7 @@ class ApiError extends Error {
   }
 }
 async function api<T = Obj>(path: string, body?: Obj, method = "POST"): Promise<T> {
-  const response = await requestWithSession(
+  const response = await requestLocal(
     "/api" + path,
     body === undefined
       ? {}
@@ -160,7 +160,7 @@ async function api<T = Obj>(path: string, body?: Obj, method = "POST"): Promise<
 }
 
 async function downloadProtected(path: string, mode: "preview" | "download", filename: string): Promise<void> {
-  const response = await requestWithSession(path, {cache: "no-store"});
+  const response = await requestLocal(path, {cache: "no-store"});
   if (!response.ok) {
     const result = await response.json().catch(() => ({}));
     throw new Error(result.detail || `下载失败：HTTP ${response.status}`);
@@ -1324,10 +1324,6 @@ function bind() {
     void load().then(render).catch(failure);
   });
   if (page === "diagnostics") bindAiSettings({state, api, modal, modalError, load, render, inform});
-  document.querySelector<HTMLButtonElement>("#logout-session")?.addEventListener("click", async () => {
-    await logoutLocalSession();
-    location.reload();
-  });
   bindProfile({state, api, modal, modalError, load, render, navigate: async () => {
     knowledgeUI.tab = "candidates"; knowledgeUI.scope = "all"; knowledgeUI.category = "all"; await navigate("wiki");
   }});
