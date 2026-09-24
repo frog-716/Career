@@ -80,19 +80,55 @@ def test_unknown_occupied_port_is_rejected_before_launch(monkeypatch, tmp_path: 
 
 
 def test_candidate_launcher_embeds_an_isolated_port(tmp_path: Path) -> None:
-    source = builder.launcher_source(tmp_path, 18770)
+    source = builder.launcher_source(18770)
 
     assert '"start", "--project-root", root, "--port", "18770"' in source
-    assert '"start", "--project-root", root, "--port", "8765"' in builder.launcher_source(tmp_path, 8765)
+    assert '"start", "--project-root", root, "--port", "8765"' in builder.launcher_source(8765)
 
 
 def test_candidate_launcher_can_embed_explicit_local_only_mode(tmp_path: Path) -> None:
-    source = builder.launcher_source(tmp_path, 18770, "LOCAL_ONLY")
+    source = builder.launcher_source(18770, "LOCAL_ONLY")
 
     assert 'setenv("CAREER_AI_MODE", "LOCAL_ONLY", 1);' in source
     assert "CAREER_PERSONAL_LOCAL" not in source
     with pytest.raises(ValueError):
-        builder.launcher_source(tmp_path, 18770, "UNKNOWN")
+        builder.launcher_source(18770, "UNKNOWN")
+
+
+def test_launcher_finds_project_root_at_runtime_instead_of_embedding_build_path():
+    source = builder.launcher_source(18770, "LOCAL_ONLY")
+
+    assert "proc_pidpath" in source
+    assert '"%s/scripts/macos_app.py"' in source
+    assert '"%s/.venv/bin/python"' in source
+    assert "const char *root = \"" not in source
+
+
+def test_app_builder_signs_and_verifies_after_building_the_bundle(
+    monkeypatch, tmp_path: Path
+):
+    calls = []
+
+    def fake_icon(_project_root, resources_dir):
+        resources_dir.mkdir(parents=True, exist_ok=True)
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+
+    monkeypatch.setattr(builder, "build_icon", fake_icon)
+    monkeypatch.setattr(builder.subprocess, "run", fake_run)
+
+    app = builder.build(tmp_path / "output", tmp_path / "project", ai_mode="LOCAL_ONLY")
+
+    assert app.is_dir()
+    assert calls[0][0] == "/usr/bin/clang"
+    assert calls[-2] == [
+        "/usr/bin/codesign", "--force", "--deep", "--sign", "-",
+        "--timestamp=none", str(app),
+    ]
+    assert calls[-1] == [
+        "/usr/bin/codesign", "--verify", "--deep", "--strict", str(app),
+    ]
 
 
 def test_pair_command_is_not_part_of_the_launcher(monkeypatch):

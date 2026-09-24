@@ -10,6 +10,8 @@ macOS 用户可以双击项目内的 `macos/Career.app` 启动。它会复用已
 
 App 图标源文件为 `macos/career-icon.png`，生成器会自动制作标准 macOS `Career.icns` 并写入 App；重新生成 App 时会保留该图标。
 
+启动器会从 App 自身位置向上查找项目目录，因此项目整体移动后不必重建；请将 App 留在项目目录中，不要单独移出。重新生成当前个人本机版 App：`.venv/bin/python scripts/install_macos_app.py --ai-mode LOCAL_ONLY`。生成器会编译 arm64 启动器，并在最后使用 ad-hoc 签名和验证；ad-hoc 签名不等于 Developer ID 签名或 Apple 公证。
+
 手动控制本地服务：
 
 ```sh

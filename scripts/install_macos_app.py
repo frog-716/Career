@@ -30,22 +30,67 @@ def build_icon(project_root: Path, resources_dir: Path) -> None:
         subprocess.run(["/usr/bin/iconutil", "-c", "icns", str(iconset), "-o", str(resources_dir / "Career.icns")], check=True)
 
 
-def launcher_source(project_root: Path, port: int = DEFAULT_PORT, ai_mode: str | None = None) -> str:
+def launcher_source(port: int = DEFAULT_PORT, ai_mode: str | None = None) -> str:
     if ai_mode not in (None, "LOCAL_ONLY", "AI_ENABLED"):
         raise ValueError("ai_mode 必须是 LOCAL_ONLY、AI_ENABLED 或 None")
-    root = str(project_root.resolve()).replace("\\", "\\\\").replace('"', '\\"')
     mode_setup = f'    setenv("CAREER_AI_MODE", "{ai_mode}", 1);\n' if ai_mode else ""
     return f'''#include <unistd.h>
+#include <libproc.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 int main(void) {{
-    const char *root = "{root}";
+    char executable[PROC_PIDPATHINFO_MAXSIZE];
+    char resolved[PROC_PIDPATHINFO_MAXSIZE];
+    char root[PROC_PIDPATHINFO_MAXSIZE];
+    char python[PROC_PIDPATHINFO_MAXSIZE];
+    char script[PROC_PIDPATHINFO_MAXSIZE];
+    if (proc_pidpath(getpid(), executable, sizeof(executable)) <= 0 ||
+        realpath(executable, resolved) == NULL) {{
+        perror("Career launcher: cannot locate executable");
+        return 1;
+    }}
+    char *last_slash = strrchr(resolved, '/');
+    if (last_slash == NULL) {{
+        fprintf(stderr, "Career launcher: invalid executable path\\n");
+        return 1;
+    }}
+    *last_slash = '\\0';
+    if (snprintf(root, sizeof(root), "%s", resolved) >= (int)sizeof(root)) {{
+        fprintf(stderr, "Career launcher: project path is too long\\n");
+        return 1;
+    }}
+    int found = 0;
+    for (int depth = 0; depth < 16; depth++) {{
+        int written = snprintf(script, sizeof(script), "%s/scripts/macos_app.py", root);
+        if (written < 0 || written >= (int)sizeof(script)) {{
+            fprintf(stderr, "Career launcher: project path is too long\\n");
+            return 1;
+        }}
+        if (access(script, R_OK) == 0) {{
+            found = 1;
+            break;
+        }}
+        char *parent = strrchr(root, '/');
+        if (parent == NULL || parent == root) break;
+        *parent = '\\0';
+    }}
+    if (!found) {{
+        fprintf(stderr, "Career 项目目录不存在；请将 Career.app 放回项目目录内\\n");
+        return 1;
+    }}
+    int python_written = snprintf(python, sizeof(python), "%s/.venv/bin/python", root);
+    if (python_written < 0 || python_written >= (int)sizeof(python)) {{
+        fprintf(stderr, "Career launcher: project path is too long\\n");
+        return 1;
+    }}
+    if (access(python, X_OK) != 0) {{
+        fprintf(stderr, "Career 虚拟环境不存在：%s\\n", python);
+        return 1;
+    }}
 {mode_setup}
-    char python[4096];
-    char script[4096];
-    snprintf(python, sizeof(python), "%s/.venv/bin/python", root);
-    snprintf(script, sizeof(script), "%s/scripts/macos_app.py", root);
     execl(python, python, script, "start", "--project-root", root, "--port", "{int(port)}", (char *)0);
     perror("Career launcher");
     return 1;
@@ -77,7 +122,7 @@ def build(destination: Path, project_root: Path, port: int = DEFAULT_PORT, ai_mo
         "NSHighResolutionCapable": True,
     }
     (contents / "Info.plist").write_bytes(plistlib.dumps(plist))
-    source = launcher_source(project_root, port, ai_mode)
+    source = launcher_source(port, ai_mode)
     with tempfile.TemporaryDirectory(prefix="career-launcher-") as temp_dir:
         source_path = Path(temp_dir) / "launcher.c"
         source_path.write_text(source, encoding="utf-8")
@@ -86,6 +131,14 @@ def build(destination: Path, project_root: Path, port: int = DEFAULT_PORT, ai_mo
             ["/usr/bin/clang", "-arch", "arm64", "-O2", "-o", str(launcher), str(source_path)],
             check=True,
         )
+    subprocess.run(
+        ["/usr/bin/codesign", "--force", "--deep", "--sign", "-", "--timestamp=none", str(app)],
+        check=True,
+    )
+    subprocess.run(
+        ["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app)],
+        check=True,
+    )
     return app
 
 
