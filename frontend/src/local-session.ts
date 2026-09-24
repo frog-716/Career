@@ -215,7 +215,12 @@ function sameOrigin(input: RequestInfo | URL): boolean {
 async function send(input: RequestInfo | URL, init: RequestInit, token: string | null): Promise<Response> {
   const headers = new Headers(init.headers || {});
   if (token && sameOrigin(input)) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(input, { ...init, headers });
+  const response = await fetch(input, { ...init, headers });
+  if (sameOrigin(input) && response.headers.get("X-Career-Local-Auth-Mode") === "personal_local") {
+    clearLocalSession();
+    clearResumeToken();
+  }
+  return response;
 }
 
 export async function requestWithSession(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {

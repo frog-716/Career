@@ -90,8 +90,15 @@ def test_candidate_launcher_can_embed_explicit_local_only_mode(tmp_path: Path) -
     source = builder.launcher_source(tmp_path, 18770, "LOCAL_ONLY")
 
     assert 'setenv("CAREER_AI_MODE", "LOCAL_ONLY", 1);' in source
+    assert "CAREER_PERSONAL_LOCAL" not in source
     with pytest.raises(ValueError):
         builder.launcher_source(tmp_path, 18770, "UNKNOWN")
+
+
+def test_app_and_cli_no_longer_need_a_private_unpaired_marker(monkeypatch):
+    monkeypatch.delenv("CAREER_PERSONAL_LOCAL", raising=False)
+    monkeypatch.delenv("CAREER_BROWSER", raising=False)
+    assert not hasattr(macos_app, "personal_local_launch")
 
 
 def test_cold_start_opens_chrome_only_after_service_is_healthy(

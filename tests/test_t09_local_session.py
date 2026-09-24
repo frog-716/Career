@@ -116,6 +116,117 @@ def test_unpaired_business_and_artifact_requests_are_denied_but_health_is_minima
     assert pairing_code(app) not in client.get("/healthz").text
 
 
+def test_personal_local_app_and_cli_need_no_pairing_but_keep_guards(tmp_path):
+    store = Store(tmp_path / "data", TestProvider())
+    runtime = tmp_path / "runtime"
+    client = TestClient(
+        create_app(store, personal_local=True, runtime_dir=runtime),
+        headers=HEADERS,
+    )
+
+    state = client.get("/api/state")
+    assert state.status_code == 200
+    assert state.headers["X-Career-Local-Auth-Mode"] == "personal_local"
+    assert state.json()["diagnostics"]["local_auth_mode"] == "personal_local"
+    assert not (runtime / "pairing.json").exists()
+    assert not (runtime / "browser-session.json").exists()
+
+    pair_response = client.post("/api/pair", json={"code": "not-a-real-code"})
+    assert pair_response.status_code == 409
+    assert pair_response.json()["code"] == "pairing_disabled"
+    resume_response = client.post(
+        "/api/session/resume",
+        json={"resume_token": "not-a-real-handle"},
+    )
+    assert resume_response.status_code == 409
+    assert resume_response.json()["code"] == "pairing_disabled"
+
+    assert client.get("/api/state", headers={**HEADERS, "Origin": "https://attacker.example"}).status_code == 403
+    assert client.get("/api/state", headers={**HEADERS, "Host": "192.0.2.44"}).status_code == 403
+    assert client.post(
+        "/api/local/stop",
+        json={},
+        headers={**HEADERS, "Content-Type": "application/json"},
+    ).status_code == 403
+
+
+def test_personal_local_start_revokes_only_old_browser_auth_material(tmp_path):
+    runtime = tmp_path / "runtime"
+    paired = LocalSessionManager(runtime, data_dir=tmp_path / "data")
+    code = json.loads(paired.pairing_path.read_text(encoding="utf-8"))["code"]
+    credentials = paired.pair(code)
+    assert credentials is not None
+    unrelated = runtime / "unrelated.marker"
+    unrelated.write_text("keep", encoding="utf-8")
+
+    personal = LocalSessionManager(
+        runtime,
+        data_dir=tmp_path / "data",
+        pairing_enabled=False,
+    )
+
+    assert personal.pairing_path.exists() is False
+    assert personal.resume_path.exists() is False
+    assert personal.pair(code) is None
+    assert personal.resume(credentials["resume_token"]) is None
+    assert unrelated.read_text(encoding="utf-8") == "keep"
+    assert personal.control_path.exists()
+
+
+def test_regular_app_still_requires_pairing_by_default(tmp_path):
+    client, app = secure_client(tmp_path)
+
+    assert client.get("/api/state").status_code == 401
+    assert app.state.local_session.pairing_enabled is True
+
+
+def test_run_cli_defaults_to_personal_local_without_pairing(monkeypatch, tmp_path):
+    module_path = Path(__file__).parents[1] / "scripts" / "run.py"
+    spec = importlib.util.spec_from_file_location("career_run_personal_local", module_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setenv("CAREER_AI_MODE", "LOCAL_ONLY")
+    monkeypatch.delenv("CAREER_ALLOW_UNPAIRED_FAKE_DATA", raising=False)
+    monkeypatch.delenv("CAREER_TEST_MODE", raising=False)
+
+    apps = []
+
+    def unavailable(*_args, **_kwargs):
+        raise OSError("isolated test")
+
+    class FakeLock:
+        @staticmethod
+        def close():
+            return None
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", unavailable)
+    monkeypatch.setattr(module, "acquire_runtime_lock", lambda _path: FakeLock())
+    uvicorn_calls = []
+
+    def fake_uvicorn(app, **kwargs):
+        apps.append(app)
+        uvicorn_calls.append(kwargs)
+
+    monkeypatch.setattr("uvicorn.run", fake_uvicorn)
+
+    runtime = tmp_path / "runtime"
+    monkeypatch.setenv("CAREER_RUNTIME_DIR", str(runtime))
+    monkeypatch.setenv("CAREER_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(module.sys, "argv", ["run.py", "--port", "18765", "--no-browser"])
+    assert module.main() == 0
+
+    app = apps[0]
+    client = TestClient(app, headers=HEADERS)
+    assert app.state.local_auth_mode == "personal_local"
+    assert app.state.require_local_session is False
+    assert app.state.local_session.pairing_enabled is False
+    assert client.get("/api/state").status_code == 200
+    assert not (runtime / "pairing.json").exists()
+    assert not (runtime / "browser-session.json").exists()
+    assert uvicorn_calls == [{"host": "127.0.0.1", "port": 18765, "access_log": False}]
+
+
 def test_pairing_is_one_time_and_session_is_required_for_business_api(tmp_path):
     client, app = secure_client(tmp_path)
     code = pairing_code(app)
