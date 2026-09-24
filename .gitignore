@@ -8,9 +8,8 @@
 # 本机代码审查记录与探测产物，不作为公开仓库内容
 /Career-review/
 
-# macOS 本机打包备份及 codesign 生成的签名数据
+# macOS 本机打包候选与旧备份；正式 App 的校验签名随发布包提交
 /macos/Career.app-*/
-/macos/Career.app/Contents/_CodeSignature/
 
 node_modules/
 __pycache__/
