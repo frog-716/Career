@@ -571,3 +571,64 @@ class Store:
         required(text,'补充',20000)
         with self.connect() as c:
             f=self._get(c,id,'feedback',True);f['notes'].append(dict(text=text,created_at=now()));self._record(c,'feedback',f);return f
+
+    def delete_feedback(self,id,confirmed=False):
+        if confirmed is not True:raise Conflict('删除反馈需要明确确认')
+        screenshot_path=None
+        screenshot_retained=False
+        with attachment_lifecycle_lock(self.data_dir):
+            with self.connect() as c:
+                feedback=self._get(c,id,'feedback',True)
+                screenshot_id=feedback.get('screenshot_id')
+                if isinstance(screenshot_id,str):
+                    artifact_row=c.execute(
+                        "SELECT body FROM records WHERE id=? AND kind='artifact'",
+                        (screenshot_id,),
+                    ).fetchone()
+                    if artifact_row:
+                        def references(value):
+                            if isinstance(value,dict):return any(references(item) for item in value.values())
+                            if isinstance(value,list):return any(references(item) for item in value)
+                            return value==screenshot_id
+
+                        referenced_elsewhere=False
+                        for (body,) in c.execute("SELECT body FROM records WHERE id NOT IN (?,?)",(id,screenshot_id)):
+                            if references(json.loads(body)):
+                                referenced_elsewhere=True
+                                break
+                        if not referenced_elsewhere:
+                            for (body,) in c.execute("SELECT body FROM current UNION ALL SELECT body FROM revisions UNION ALL SELECT body FROM applications"):
+                                if references(json.loads(body)):
+                                    referenced_elsewhere=True
+                                    break
+                        if referenced_elsewhere:
+                            screenshot_retained=True
+                        else:
+                            artifact=json.loads(artifact_row[0])
+                            relative=artifact.get('path')
+                            artifact_dir=self.data_dir/'artifacts'
+                            candidate=self.data_dir/relative if isinstance(relative,str) else self.data_dir/'invalid'
+                            if (
+                                artifact.get('media_type') not in ('image/png','image/jpeg')
+                                or
+                                not isinstance(relative,str)
+                                or not relative.startswith('artifacts/')
+                                or artifact_dir.is_symlink()
+                                or candidate.is_symlink()
+                                or candidate.resolve().parent!=artifact_dir.resolve()
+                                or (candidate.exists() and not candidate.is_file())
+                            ):
+                                raise Invalid('反馈截图附件路径无效，未删除记录')
+                            same_path=c.execute(
+                                "SELECT 1 FROM records WHERE kind='artifact' AND id<>? AND json_extract(body,'$.path')=?",
+                                (screenshot_id,relative),
+                            ).fetchone()
+                            if same_path:screenshot_retained=True
+                            elif candidate.exists():screenshot_path=candidate
+                            c.execute("DELETE FROM records WHERE id=? AND kind='artifact'",(screenshot_id,))
+                c.execute("DELETE FROM records WHERE id=? AND kind='feedback'",(id,))
+            cleanup_pending=False
+            if screenshot_path is not None:
+                try:screenshot_path.unlink(missing_ok=True)
+                except OSError:cleanup_pending=True
+        return dict(deleted=id,screenshot_retained=screenshot_retained,screenshot_cleanup_pending=cleanup_pending)

@@ -29,10 +29,10 @@ from .ai_config import create as create_ai_config, update as update_ai_config, d
 from .model_gateway import ModelGateway
 from .research import router as research_router
 from . import research_search_config
-from .local_session import LocalSessionManager, DEFAULT_BUILD_ID
+from .local_runtime import LocalRuntimeManager, DEFAULT_BUILD_ID
 
 
-def create_app(store=None, frontend_dir=None, *, require_local_session=None, runtime_dir=None, personal_local=False):
+def create_app(store=None, frontend_dir=None, *, runtime_dir=None):
     app=FastAPI(title='Career',docs_url=None,redoc_url=None,openapi_url=None)
     s=store or Store();app.state.store=s
 
@@ -40,28 +40,13 @@ def create_app(store=None, frontend_dir=None, *, require_local_session=None, run
         s.shutdown()
     app.add_event_handler('shutdown', shutdown_store)
 
-    if require_local_session is None:
-        require_local_session = os.environ.get('CAREER_TEST_MODE') != '1'
-    if personal_local:
-        require_local_session = False
-    local_auth_mode = (
-        'personal_local'
-        if personal_local
-        else 'paired'
-        if require_local_session
-        else 'unpaired_test'
-    )
     runtime_root = Path(runtime_dir or os.environ.get('CAREER_RUNTIME_DIR') or (s.data_dir / '.runtime'))
-    app.state.local_session = LocalSessionManager(
+    app.state.local_runtime = LocalRuntimeManager(
         runtime_root,
         data_dir=s.data_dir,
         build_id=os.environ.get('CAREER_BUILD_ID', DEFAULT_BUILD_ID),
         schema_version=6,
-        pairing_enabled=not personal_local,
-        local_auth_mode=local_auth_mode,
     )
-    app.state.require_local_session = bool(require_local_session)
-    app.state.local_auth_mode = local_auth_mode
 
     @app.middleware('http')
     async def local_only(request:Request,call_next):
@@ -85,7 +70,7 @@ def create_app(store=None, frontend_dir=None, *, require_local_session=None, run
             or parsed_host.fragment
         ):
             return JSONResponse({'detail':'不允许的本地 Host'},403)
-        test_host = hostname == 'testserver' and os.environ.get('CAREER_TEST_MODE') == '1' and not require_local_session
+        test_host = hostname == 'testserver' and os.environ.get('CAREER_TEST_MODE') == '1'
         if hostname not in ('localhost','127.0.0.1') and not test_host:
             return JSONResponse({'detail':'仅允许本地访问'},403)
         origin=request.headers.get('origin')
@@ -96,27 +81,6 @@ def create_app(store=None, frontend_dir=None, *, require_local_session=None, run
         # Use the ASGI scope path rather than request.url.path so a malformed
         # Host header cannot rewrite the path used by the auth gate.
         path = request.scope.get('path') or '/'
-        public = (
-            path == '/healthz'
-            or path == '/api/pair'
-            or path == '/api/session/resume'
-            or (request.method in ('GET', 'HEAD') and not path.startswith('/api'))
-        )
-        control_authorized = path in ('/api/local/stop', '/api/local/healthz') and app.state.local_session.authorize_control(
-            request.headers.get('x-career-control')
-        )
-        if require_local_session and not public and not control_authorized:
-            authorization = request.headers.get('authorization', '')
-            token = authorization[7:].strip() if authorization.lower().startswith('bearer ') else None
-            session = app.state.local_session.authenticate(token)
-            if session is None:
-                return JSONResponse(
-                    {'detail':'需要本地配对会话', 'code':'pairing_required'},
-                    status_code=401,
-                    headers={'Cache-Control':'no-store'},
-                )
-            request.state.local_session = session
-            request.state.local_session_token = token
         # Career does not need resumable local downloads.  Reject Range before
         # Starlette FileResponse/StaticFiles can enter their range parser.
         if request.headers.get('range'):
@@ -131,8 +95,7 @@ def create_app(store=None, frontend_dir=None, *, require_local_session=None, run
                 chunks.append(chunk)
             request._body=b''.join(chunks)
         response=await call_next(request)
-        response.headers.update({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Career-Build-Id':app.state.local_session.build_id,'Content-Security-Policy':"default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'"})
-        response.headers['X-Career-Local-Auth-Mode'] = app.state.local_auth_mode
+        response.headers.update({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Career-Build-Id':app.state.local_runtime.build_id,'Content-Security-Policy':"default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'"})
         return response
 
     for cls,code in [(Invalid,422),(Conflict,409),(Missing,404),(ProviderError,503),(ArtifactError,422)]:
@@ -148,43 +111,20 @@ def create_app(store=None, frontend_dir=None, *, require_local_session=None, run
 
     @app.get('/healthz')
     def healthz():
-        return {'status':'ok','build_id':app.state.local_session.build_id}
-
-    @app.post('/api/pair')
-    def pair(b:dict):
-        if not app.state.local_session.pairing_enabled:
-            return JSONResponse({'detail':'个人本机模式无需配对','code':'pairing_disabled'}, status_code=409)
-        result = app.state.local_session.pair(b.get('code'))
-        if result is None:
-            return JSONResponse({'detail':'配对码无效、已过期或已使用','code':'pairing_failed'}, status_code=401)
-        return result
-
-    @app.post('/api/session/resume')
-    def resume_session(b:dict):
-        if not app.state.local_session.pairing_enabled:
-            return JSONResponse({'detail':'个人本机模式不使用会话恢复','code':'pairing_disabled'}, status_code=409)
-        result = app.state.local_session.resume(b.get('resume_token'))
-        if result is None:
-            return JSONResponse({'detail':'本地会话恢复凭据无效','code':'resume_failed'}, status_code=401)
-        return result
-
-    @app.post('/api/logout')
-    def logout(request:Request):
-        app.state.local_session.revoke(getattr(request.state, 'local_session_token', None))
-        return {'ok':True}
+        return {'status':'ok','build_id':app.state.local_runtime.build_id}
 
     @app.post('/api/local/stop')
     def local_stop(request:Request):
-        if not app.state.local_session.authorize_control(request.headers.get('x-career-control')):
+        if not app.state.local_runtime.authorize_control(request.headers.get('x-career-control')):
             return JSONResponse({'detail':'本实例控制凭据无效'}, status_code=403)
         threading.Timer(0.05, lambda: os.kill(os.getpid(), signal.SIGTERM)).start()
         return {'ok':True,'status':'stopping'}
 
     @app.get('/api/local/healthz')
     def local_healthz(request:Request):
-        if not app.state.local_session.authenticate(getattr(request.state, 'local_session_token', None)) and not app.state.local_session.authorize_control(request.headers.get('x-career-control')):
+        if not app.state.local_runtime.authorize_control(request.headers.get('x-career-control')):
             return JSONResponse({'detail':'本实例控制凭据无效'}, status_code=403)
-        return app.state.local_session.diagnostics()
+        return app.state.local_runtime.diagnostics()
 
     @app.get('/api/state')
     def state(view: str = 'full', job_id: str | None = None):
@@ -193,7 +133,7 @@ def create_app(store=None, frontend_dir=None, *, require_local_session=None, run
         result = s.state(view, job_id)
         diagnostics = result.get('diagnostics', {})
         diagnostics.pop('data_dir', None)
-        diagnostics.update(app.state.local_session.diagnostics())
+        diagnostics.update(app.state.local_runtime.diagnostics())
         result['diagnostics'] = diagnostics
         return result
     @app.get('/api/ai/models')
@@ -283,6 +223,8 @@ def create_app(store=None, frontend_dir=None, *, require_local_session=None, run
     def feedback(b:dict):return s.feedback(b)
     @app.post('/api/feedback/{id}/notes')
     def note(id:str,b:dict):return s.feedback_note(id,b.get('text'))
+    @app.delete('/api/feedback/{id}')
+    def delete_feedback(id:str,b:dict):return s.delete_feedback(id,b.get('confirm') is True)
 
     app.include_router(editor_router(s))
     from .resume_documents import router as resume_router

@@ -3,6 +3,15 @@ const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp
 type Api = (path: string, body?: Row, method?: string) => Promise<any>;
 type Deps = {state: Row; api: Api; modal: (title:string, body:string, ready?: (d:HTMLDialogElement)=>void)=>HTMLDialogElement; modalError:(e:unknown)=>void; load:()=>Promise<void>; render:()=>void; inform:(text:string)=>void};
 
+type SettingsTab = 'overview' | 'models' | 'search' | 'data';
+const settingsTabs: [SettingsTab, string][] = [
+  ['overview', '概览'],
+  ['models', 'AI 模型'],
+  ['search', '搜索'],
+  ['data', '数据与版本'],
+];
+export const settingsUI: {tab: SettingsTab} = {tab: 'overview'};
+
 export function aiSettingsView(state: Row, modeText: string) {
   const ai = state.ai || {configs: [], default_model_config_id: null};
   const search = state.search_provider || {provider: 'tavily', configured: false, secret_status: 'not_configured', revision: 0};
@@ -19,10 +28,42 @@ export function aiSettingsView(state: Row, modeText: string) {
   const localSessionControl = state.diagnostics?.local_auth_mode === 'personal_local'
     ? '<p class="muted">个人本机模式：无需配对。</p>'
     : '<button class="text-btn" id="logout-session" type="button">退出本地会话</button>';
-  return `<section class="settings scroll"><div class="pane-heading"><h2>AI 模型</h2><div class="actions"><button class="primary" id="ai-add">添加模型</button></div></div><h3>模型 Provider</h3><p class="muted">例如 DeepSeek。API Key 只保存在 macOS Keychain；Career 数据库、备份、日志和浏览器响应都不保存完整密钥。</p><section class="ai-config-list">${rows || '<div class="empty">尚未配置 AI 模型。人工资料、简历和求职记录仍可正常使用。</div>'}</section><div class="setting-row"><span>当前模式</span><b>${esc(modeText)}</b></div><div class="setting-row"><span>默认模型</span><span>${current ? esc(`${current.provider} / ${current.model}`) : '尚未设置，AI 操作会提示进入本页配置模型'}</span></div><section class="ai-config-list"><h3>搜索 Provider · Tavily</h3><p class="muted">这是网页搜索服务，不是模型。只有 Research 经过预览并由你确认后才会搜索。搜索 Key 单独保存在 macOS Keychain。</p><div class="setting-row"><span>配置状态</span><b>${search.configured ? '已配置' : '未配置'}</b></div><div class="setting-row"><span>Secret 状态</span><span>${searchStatus}</span></div><form id="tavily-search-key-form"><label>Tavily API Key<input name="api_key" type="password" autocomplete="new-password" maxlength="10000" required></label><div class="actions"><button class="primary" type="submit">安全保存搜索 Key</button></div><p class="muted">保存只写入并验证 Keychain；不会测试连接或发起搜索。</p></form></section>${localSessionControl}<button class="text-btn" data-page="feedback">查看反馈记录 →</button></section>`;
+  const defaultModel = current
+    ? `${current.provider} / ${current.model}`
+    : '尚未设置默认模型';
+  const modelState = current ? secretLabel(current) : '未配置';
+  const appVersion = state.diagnostics?.build_id || state.diagnostics?.app_version || '未知';
+  const overview = `<section class="settings-overview"><h3>当前状态</h3><p class="muted">点下面任一项，可以直接进入对应设置。</p><div class="settings-cards"><button type="button" class="settings-card" data-settings-open="models"><span class="settings-card-label">AI 模型</span><strong>${esc(defaultModel)}</strong><span class="settings-card-status">${esc(modelState)}</span></button><button type="button" class="settings-card" data-settings-open="search"><span class="settings-card-label">搜索服务</span><strong>Tavily</strong><span class="settings-card-status">${esc(search.configured ? searchStatus : '尚未配置')}</span></button><button type="button" class="settings-card" data-settings-open="data"><span class="settings-card-label">本机数据</span><strong>当前实例</strong><span class="settings-card-status">Career 数据保存在本机</span></button></div><div class="settings-overview-details"><div class="setting-row"><span>AI 运行模式</span><b>${esc(modeText)}</b></div><div class="setting-row"><span>应用版本</span><span>${esc(appVersion)}</span></div></div></section>`;
+  const models = `<section class="settings-section"><div class="pane-heading"><div><h3>模型 Provider</h3><p class="muted">例如 DeepSeek。API Key 只保存在 macOS Keychain；Career 数据库、备份、日志和浏览器响应都不保存完整密钥。</p></div><div class="actions"><button class="primary" id="ai-add">添加模型</button></div></div><section class="ai-config-list">${rows || '<div class="empty">尚未配置 AI 模型。人工资料、简历和求职记录仍可正常使用。</div>'}</section><div class="setting-row"><span>当前模式</span><b>${esc(modeText)}</b></div><div class="setting-row"><span>默认模型</span><span>${current ? esc(`${current.provider} / ${current.model}`) : '尚未设置，AI 操作会提示进入本页配置模型'}</span></div></section>`;
+  const searchProvider = `<section class="settings-section"><h3>搜索 Provider · Tavily</h3><p class="muted">这是网页搜索服务，不是模型。只有 Research 经过预览并由你确认后才会搜索。搜索 Key 单独保存在 macOS Keychain。</p><div class="setting-row"><span>配置状态</span><b>${search.configured ? '已配置' : '未配置'}</b></div><div class="setting-row"><span>Secret 状态</span><span>${searchStatus}</span></div><form id="tavily-search-key-form"><label>Tavily API Key<input name="api_key" type="password" autocomplete="new-password" maxlength="10000" required></label><div class="actions"><button class="primary" type="submit">安全保存搜索 Key</button></div><p class="muted">保存只写入并验证 Keychain；不会测试连接或发起搜索。</p></form></section>`;
+  const data = `<section class="settings-section"><h3>本机数据与应用</h3><div class="setting-row"><span>数据位置</span><span>Career 本机数据目录</span></div><div class="setting-row"><span>应用版本</span><span>${esc(appVersion)}</span></div><section class="settings-local-use"><h3>本地使用</h3>${localSessionControl}</section><button class="text-btn" data-page="feedback">查看反馈记录 →</button></section>`;
+  const panels: Record<SettingsTab, string> = {overview, models, search: searchProvider, data};
+  const active = settingsTabs.some(([id]) => id === settingsUI.tab) ? settingsUI.tab : 'overview';
+  const tabs = settingsTabs.map(([id, label]) => `<button id="settings-tab-${id}" type="button" role="tab" aria-selected="${active === id}" aria-controls="settings-active-panel" tabindex="${active === id ? 0 : -1}" data-settings-tab="${id}">${label}</button>`).join('');
+  return `<section class="settings settings-hub scroll" aria-label="设置"><div class="settings-tabs" role="tablist" aria-label="设置分类">${tabs}</div><div class="settings-panel" id="settings-active-panel" role="tabpanel" aria-labelledby="settings-tab-${active}" tabindex="0">${panels[active]}</div></section>`;
 }
 
 export function bindAiSettings(d: Deps) {
+  const tabButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-settings-tab]')];
+  const activateTab = (tab: SettingsTab) => {
+    settingsUI.tab = tab;
+    d.render();
+    document.querySelector<HTMLButtonElement>(`[data-settings-tab="${tab}"]`)?.focus();
+  };
+  tabButtons.forEach((button, index) => {
+    button.addEventListener('click', () => activateTab(button.dataset.settingsTab as SettingsTab));
+    button.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const next = event.key === 'Home' ? 0
+        : event.key === 'End' ? tabButtons.length - 1
+          : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabButtons.length) % tabButtons.length;
+      activateTab(tabButtons[next].dataset.settingsTab as SettingsTab);
+    });
+  });
+  document.querySelectorAll<HTMLElement>('[data-settings-open]').forEach(button => {
+    button.addEventListener('click', () => activateTab(button.dataset.settingsOpen as SettingsTab));
+  });
   const searchForm = document.querySelector<HTMLFormElement>('#tavily-search-key-form');
   searchForm?.addEventListener('submit', async event => {
     event.preventDefault();

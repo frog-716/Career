@@ -792,6 +792,147 @@ pre {
   align-self: center;
   padding: 24px 35px;
 }
+.settings-hub {
+  width: min(1080px, 100%);
+  align-self: stretch;
+  margin: 0 auto;
+  padding: 26px 36px 44px;
+  overflow-y: auto;
+}
+.settings-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.settings-tabs button {
+  flex: 1 0 auto;
+  min-width: 112px;
+  padding: 13px 16px;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.settings-tabs button[aria-selected="true"] {
+  color: #242424;
+  border-bottom-color: #416d7a;
+  font-weight: 600;
+}
+.settings-tabs button:focus-visible {
+  outline-offset: -3px;
+}
+.settings-panel {
+  min-width: 0;
+  outline: none;
+}
+.settings-overview > h3,
+.settings-section > h3,
+.settings-local-use > h3 {
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+.settings-overview > .muted,
+.settings-section > .muted,
+.settings-local-use > .muted {
+  line-height: 1.6;
+}
+.settings-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  min-height: 126px;
+  padding: 17px;
+  border: 1px solid #e4e8e9;
+  border-radius: 9px;
+  background: #fff;
+  text-align: left;
+  transition: border-color .15s ease, background-color .15s ease;
+}
+.settings-card:hover {
+  border-color: #afc3c9;
+  background: #fbfcfc;
+}
+.settings-card-label,
+.settings-card-status {
+  color: var(--muted);
+  font-size: 12px;
+}
+.settings-card strong {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  font-weight: 600;
+}
+.settings-overview-details {
+  margin-top: 26px;
+  border-top: 1px solid var(--line);
+}
+.settings-section {
+  min-width: 0;
+}
+.settings-section > .pane-heading {
+  align-items: flex-start;
+  padding: 0 0 18px;
+}
+.settings-section > .pane-heading > div:first-child {
+  min-width: 0;
+}
+.settings-section > .pane-heading .muted {
+  margin-top: 7px;
+  line-height: 1.6;
+}
+.ai-config-list {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0 22px;
+}
+.ai-config-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.ai-config-row > div:first-child {
+  min-width: 0;
+}
+.ai-config-row p,
+.ai-config-row small {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+.ai-config-row .actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.settings-section form {
+  max-width: 620px;
+  margin-top: 20px;
+}
+.settings-section form > .muted {
+  margin-top: 10px;
+  line-height: 1.6;
+}
+.settings-local-use {
+  margin: 26px 0 18px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
 .settings > .pane-heading {
   padding: 0 0 22px;
 }
@@ -1063,6 +1204,9 @@ blockquote {
   .tabs button {
     padding: 12px 10px;
   }
+  .settings-hub {
+    padding: 22px 24px 36px;
+  }
   .next-strip {
     margin-left: 20px;
     margin-right: 20px;
@@ -1087,6 +1231,33 @@ blockquote {
   }
   .topbar {
     padding: 0 14px;
+  }
+  .settings-hub {
+    padding: 18px 16px 30px;
+  }
+  .settings-tabs {
+    gap: 2px;
+    margin: 0 -4px 20px;
+  }
+  .settings-tabs button {
+    flex: 0 0 auto;
+    min-width: auto;
+    padding: 12px 13px;
+  }
+  .settings-cards {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .settings-card {
+    min-height: 0;
+    padding: 14px;
+  }
+  .ai-config-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .ai-config-row .actions {
+    justify-content: flex-start;
   }
   .split {
     grid-template-columns: 160px minmax(0, 1fr);

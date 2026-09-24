@@ -50,7 +50,7 @@ App 图标源文件为 `macos/career-icon.png`，生成器会自动制作标准 
 | [docs/execution/STATUS.md](docs/execution/STATUS.md) | 当前交付、已知问题和本批状态 | 核对现状与下一步；不是产品规格 |
 | [AS-IS System Map](docs/audit/AS-IS-system-map.md) | 现状证据快照 | 核对代码/运行/测试边界，不作目标规范 |
 | [Opportunity Gap Analysis](docs/audit/OPPORTUNITY-GAP-ANALYSIS.md) | 差异、迁移与增量批次建议快照 | 规划迁移和重构；不代表实施授权或完成 |
-| `.agents/skills/` | `mattpocock/skills` 通用技能与 Career 专用技能 | 按description触发 |
+| `.agents/skills/` | Career 专用工作台技能 | 按需使用 `workbench-plan`、`workbench-implement` 和 `workbench-review` |
 | `fixtures/` | 明确虚构的求职与任职验收案例 | 开发和测试 |
 | `src/workbench/` | 本地服务、领域模块、备份和 Provider | 运行及后端开发 |
 | `frontend/` | 任务工作区与结构化简历编辑器 | 前端开发与构建 |
