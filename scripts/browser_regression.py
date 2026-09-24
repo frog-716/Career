@@ -64,6 +64,16 @@ def run_existing(base_url: str) -> int:
             page.wait_for_selector("#op-create, .op-page")
             body = page.locator("body").inner_text()
             assert "虚构浏览器回归公司" in body, "隔离 fixture 未显示"
+            page.goto(base_url + "/#feedback", wait_until="networkidle")
+            page.get_by_role("button", name="删除记录").wait_for()
+            assert "虚构浏览器反馈删除验收" in page.locator("body").inner_text(), "反馈记录未显示"
+            page.once("dialog", lambda dialog: dialog.dismiss())
+            page.get_by_role("button", name="删除记录").click()
+            assert "虚构浏览器反馈删除验收" in page.locator("body").inner_text(), "取消删除后反馈不应消失"
+            page.once("dialog", lambda dialog: dialog.accept())
+            page.get_by_role("button", name="删除记录").click()
+            page.get_by_role("button", name="删除记录").wait_for(state="detached")
+            assert "虚构浏览器反馈删除验收" not in page.locator("body").inner_text(), "确认删除后反馈仍在页面"
             print(f"browser regression: requests={len(requests)} api_requests={sum('/api/' in url for url in requests)}")
             return 0
         except Exception:
@@ -99,6 +109,12 @@ def run_isolated() -> int:
             headers=HEADERS,
         )
         response.raise_for_status()
+    feedback_response = client.post(
+        "/api/feedback",
+        json={"text": "虚构浏览器反馈删除验收", "current_page": "feedback"},
+        headers=HEADERS,
+    )
+    feedback_response.raise_for_status()
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]

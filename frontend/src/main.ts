@@ -1443,6 +1443,28 @@ function bind() {
         render();
       }),
   );
+  document.querySelector<HTMLElement>("[data-delete-feedback]")?.addEventListener("click", (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    const id = button.dataset.deleteFeedback;
+    if (!id || !window.confirm("这会从 Career 删除此反馈原文、补充内容和关联截图，应用内无法恢复。确认删除？")) return;
+    button.disabled = true;
+    void (async () => {
+      try {
+        const result = await api<Obj>(`/feedback/${encodeURIComponent(id)}`, {confirm: true}, "DELETE");
+        ui.selectedFeedback = "";
+        await load();
+        render();
+        inform(result.screenshot_cleanup_pending
+          ? "反馈已删除，但关联截图文件暂未能清理。"
+          : result.screenshot_retained
+            ? "反馈已删除；因截图仍被其他记录引用，截图予以保留。"
+            : "反馈记录及其关联内容已删除。");
+      } catch (error) {
+        button.disabled = false;
+        failure(error);
+      }
+    })();
+  });
   document.querySelectorAll<HTMLElement>("[data-resume-document]").forEach(
     (element) =>
       (element.onclick = () => {

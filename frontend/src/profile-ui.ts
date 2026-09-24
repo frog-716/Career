@@ -87,7 +87,7 @@ function entryRow(entry: Obj = {}, index = 0) {
 
 function basicsForm(profile: Obj) {
   const basics = basicsOf(profile);
-  return `<section class="profile-editor"><div class="pane-heading"><div><h2>基础资料</h2><p class="muted">维护姓名、联系方式和公开网页链接。经历、能力与目标请整理到职业 Wiki。</p></div></div><form id="profile-basics-form" data-profile-form>${basicsFields(basics)}<button class="primary" type="submit">保存基础资料</button></form></section>`;
+  return `<section class="profile-editor"><div class="pane-heading"><div><h2>基础资料</h2><p class="muted">维护姓名、联系方式和公开网页链接。经历、能力与目标请整理到 Wiki。</p></div></div><form id="profile-basics-form" data-profile-form>${basicsFields(basics)}<button class="primary" type="submit">保存基础资料</button></form></section>`;
 }
 
 export function profilePanel(profile: Obj): string {

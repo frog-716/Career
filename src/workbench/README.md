@@ -43,7 +43,7 @@ npm --prefix frontend run build
 - `demo`：幂等装载或删除带固定 dataset id 的虚构全链路案例；不会覆盖 profile、现有机会、简历或附件，删除前逐项核对归属。
 - `journey`：机会辅助计划仅保存下一行动/提醒日期，独立 CAS；stage 只读。旧 note/typed interview/offer 新记入口停写，新业务动作由 `communication` / `interview` / `offer` 接管；已有记录更正/候选/历史继续可用，任职分支不变。
 
-HTTP 路由、错误与并发语义以当前模块实现和对应测试为准，跨模块边界见 [结构优化与产品化重构](../../docs/execution/STRUCTURE-REFACTOR.md)。expected_revision 冲突返回409；提案原子检查 epoch+draft revision 并保存 applied_result实现幂等。版本按草稿revision幂等、投递按用户动作幂等键。反馈补充只追加；数据不进入AI。
+HTTP 路由、错误与并发语义以当前模块实现和对应测试为准，跨模块边界见 [结构优化与产品化重构](../../docs/execution/STRUCTURE-REFACTOR.md)。expected_revision 冲突返回409；提案原子检查 epoch+draft revision 并保存 applied_result实现幂等。版本按草稿revision幂等、投递按用户动作幂等键。反馈补充只追加；用户明确确认后可删除整条反馈及未被其他记录引用的截图；反馈数据不进入AI。
 
 ## AI 模型配置
 
