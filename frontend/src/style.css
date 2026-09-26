@@ -535,6 +535,7 @@ main {
   min-width: 0;
   overflow: hidden;
 }
+.detail-pane > .scroll { flex: 1; }
 .entity-heading {
   padding: 24px 30px 16px;
   display: flex;
@@ -1539,6 +1540,12 @@ blockquote {
 }
 .work-domain-card > .pane-heading { padding: 0 0 12px; }
 .work-domain-card > .pane-heading h2 { margin: 0; }
+.project-summary > .preserve { margin: 0 0 12px; }
+.project-summary > .setting-row { border-top: 1px solid #f0f0f0; padding: 10px 0; }
+.project-tags { gap: 7px; flex-wrap: wrap; margin: 10px 0; }
+.project-list { display: grid; gap: 4px; }
+.project-compatibility > summary { cursor: pointer; color: #68716c; font-size: 12px; }
+.project-compatibility[open] > summary { margin-bottom: 12px; }
 .work-project { padding: 14px 0; border-top: 1px solid #f0f0f0; }
 .work-project h3 { margin: 0 0 6px; font-size: 15px; }
 .work-project .preserve { margin: 0 0 10px; }

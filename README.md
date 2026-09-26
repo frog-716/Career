@@ -39,6 +39,7 @@ App 图标源文件为 `macos/career-icon.png`，生成器会自动制作标准 
 | --- | --- | --- |
 | `AGENTS.md` | 精简项目入口、权威顺序、执行约束 | 自动/首先 |
 | [docs/00-authority.md](docs/00-authority.md) | 模块权威、冲突规则、目标与证据的区别 | 首先读取，再判断任务模块 |
+| [长期 Career 模型](docs/target/long-term-career-model.md) | 一级导航、长期对象、Raw/Wiki/Cognition/Compiler、Resume 隐私与迁移目标正本 | 跨模块产品或数据边界任务 |
 | [Opportunity Product Model](docs/target/opportunity/opportunity-product-model.md) | Opportunity产品目标正本 | 所有Opportunity任务 |
 | [Opportunity Domain Model](docs/target/opportunity/opportunity-domain-model.md) | Opportunity领域语义正本 | 所有Opportunity任务 |
 | [Opportunity UI Flow](docs/target/opportunity/opportunity-ui-flow.md) | Opportunity用户动作正本 | 所有Opportunity任务 |

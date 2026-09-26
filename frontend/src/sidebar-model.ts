@@ -1,4 +1,4 @@
-export const SIDEBAR_MODULE_IDS = ["wiki", "jobs", "resume", "work"] as const;
+export const SIDEBAR_MODULE_IDS = ["wiki", "jobs", "projects", "resume", "work"] as const;
 export type SidebarModuleId = (typeof SIDEBAR_MODULE_IDS)[number];
 export interface SidebarPreferenceStore {
   getItem(key: string): string | null;

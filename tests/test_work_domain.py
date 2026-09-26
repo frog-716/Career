@@ -71,3 +71,157 @@ def test_work_domain_scope_cas_idempotency_and_no_wiki_side_effect(tmp_path):
     assert c.post("/api/work/events", json={"episode_id": episode["id"], "project_id": project["id"], "title": "x", "kind": "x", "content": "x", "idempotency_key": "bad-target"}).status_code == 422
     with store.connect(False) as db:
         assert not db.execute("SELECT 1 FROM records WHERE kind='knowledge_source'").fetchone()
+
+
+def test_project_is_independent_revisioned_object_with_free_tags_and_four_statuses(tmp_path):
+    c, store = client_for(tmp_path)
+    created = c.post("/api/work/projects", json={
+        "name": "个人 Career 工作台",
+        "description": "长期自己使用",
+        "tags": ["#AI", "#黑客松"],
+        "status": "active",
+        "status_note": "",
+        "idempotency_key": "independent-project",
+    })
+    assert created.status_code == 200
+    project = created.json()
+    assert project["employment_id"] is None
+    assert project["tags"] == ["#AI", "#黑客松"]
+    assert c.post("/api/work/projects", json={
+        "name": "个人 Career 工作台",
+        "description": "长期自己使用",
+        "tags": ["#AI", "#黑客松"],
+        "status": "active",
+        "status_note": "",
+        "idempotency_key": "independent-project",
+    }).json()["id"] == project["id"]
+    assert c.get("/api/work-domain").json()["participants"] == []
+
+    updated = c.post(f"/api/work/projects/{project['id']}", json={
+        "name": "Career 长期工作台",
+        "description": "改名仍然是同一个项目",
+        "tags": ["#AI", "#个人项目"],
+        "status": "canceled",
+        "status_note": "方向结束，记录在原 Project 上",
+        "employment_id": None,
+        "expected_revision": project["revision"],
+        "idempotency_key": "independent-project-edit",
+    })
+    assert updated.status_code == 200
+    saved = updated.json()
+    assert saved["id"] == project["id"]
+    assert saved["revision"] == project["revision"] + 1
+    assert saved["name"] == "Career 长期工作台"
+    assert saved["tags"] == ["#AI", "#个人项目"]
+    assert saved["status"] == "canceled"
+    assert saved["status_note"] == "方向结束，记录在原 Project 上"
+    repeated_update = c.post(f"/api/work/projects/{project['id']}", json={
+        "name": "Career 长期工作台",
+        "description": "改名仍然是同一个项目",
+        "tags": ["#AI", "#个人项目"],
+        "status": "canceled",
+        "status_note": "方向结束，记录在原 Project 上",
+        "employment_id": None,
+        "expected_revision": project["revision"],
+        "idempotency_key": "independent-project-edit",
+    }).json()
+    assert repeated_update["id"] == saved["id"]
+    assert repeated_update["revision"] == saved["revision"]
+    cleared_tags = c.post(f"/api/work/projects/{project['id']}", json={
+        "name": saved["name"], "description": saved["description"], "tags": [],
+        "status": saved["status"], "status_note": saved["status_note"],
+        "employment_id": None, "expected_revision": saved["revision"],
+        "idempotency_key": "independent-project-clear-tags",
+    }).json()
+    assert cleared_tags["tags"] == []
+    domain = c.get("/api/work-domain").json()
+    assert [item["id"] for item in domain["projects"]] == [project["id"]]
+    with store.connect(False) as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert db.execute("SELECT COUNT(*) FROM current WHERE kind='work_project'").fetchone()[0] == 1
+
+
+def test_project_status_is_restricted_and_revision_conflicts_remain_safe(tmp_path):
+    c, _ = client_for(tmp_path)
+    for status in ("active", "paused", "completed", "canceled"):
+        assert c.post("/api/work/projects", json={
+            "name": "允许状态 " + status, "status": status,
+            "idempotency_key": "good-status-" + status,
+        }).status_code == 200
+    for status in ("stopped", "merged", "replaced", "pivot", "archived", "unknown"):
+        response = c.post("/api/work/projects", json={
+            "name": "状态校验",
+            "status": status,
+            "idempotency_key": "bad-status-" + status,
+        })
+        assert response.status_code == 422
+
+    project = c.post("/api/work/projects", json={
+        "name": "CAS 项目", "idempotency_key": "cas-project",
+    }).json()
+    stale = c.post(f"/api/work/projects/{project['id']}", json={
+        "name": "过期修改", "description": "", "tags": [], "status": "paused",
+        "status_note": "", "employment_id": None,
+        "expected_revision": project["revision"] + 1,
+        "idempotency_key": "cas-project-stale",
+    })
+    assert stale.status_code == 409
+    assert c.get("/api/work-domain").json()["projects"][0]["name"] == "CAS 项目"
+
+
+def test_employment_and_project_share_one_optional_association_without_copy(tmp_path):
+    c, store = client_for(tmp_path)
+    episode = c.post("/api/journey/episodes", json={"company": "虚构公司", "role": "研发"}).json()
+    employment = c.get("/api/work-domain").json()["employments"][0]
+    assert employment["legacy_episode_id"] == episode["id"]
+    project = c.post("/api/work/projects", json={
+        "name": "关联项目", "tags": ["#AI"], "status": "active",
+        "employment_id": employment["id"], "idempotency_key": "linked-project",
+    }).json()
+    linked = c.get("/api/work-domain").json()["projects"]
+    assert len(linked) == 1
+    assert linked[0]["id"] == project["id"]
+    assert linked[0]["employment_id"] == employment["id"]
+
+    standalone = c.post("/api/work/projects", json={
+        "name": "待关联个人项目", "idempotency_key": "personal-to-link",
+    }).json()
+    link_request = {
+        "employment_id": employment["id"],
+        "expected_revision": standalone["revision"],
+        "idempotency_key": "attach-existing-project",
+    }
+    attached = c.post(f"/api/work/projects/{standalone['id']}/employment", json=link_request)
+    assert attached.status_code == 200
+    assert attached.json()["id"] == standalone["id"]
+    assert attached.json()["employment_id"] == employment["id"]
+    assert c.post(f"/api/work/projects/{standalone['id']}/employment", json=link_request).json() == attached.json()
+    assert c.post(f"/api/work/projects/{standalone['id']}/employment", json={
+        "employment_id": None, "expected_revision": standalone["revision"],
+        "idempotency_key": "stale-project-unlink",
+    }).status_code == 409
+
+    all_projects = c.get("/api/work-domain").json()["projects"]
+    assert {item["id"] for item in all_projects} == {project["id"], standalone["id"]}
+    assert len([item for item in all_projects if item["employment_id"] == employment["id"]]) == 2
+    with store.connect(False) as db:
+        assert db.execute("SELECT COUNT(*) FROM current WHERE kind='work_project'").fetchone()[0] == 2
+
+
+def test_legacy_project_scope_is_read_as_canonical_employment_without_schema_migration(tmp_path):
+    c, store = client_for(tmp_path)
+    episode = c.post("/api/journey/episodes", json={"company": "测试公司", "role": "测试岗位"}).json()
+    employment = c.get("/api/work-domain").json()["employments"][0]
+    legacy = c.post("/api/work/projects", json={
+        "name": "旧式测试项目", "scope_type": "episode", "scope_id": episode["id"],
+        "idempotency_key": "legacy-project",
+    }).json()
+    project = c.get("/api/work-domain").json()["projects"][0]
+    assert project["id"] == legacy["id"]
+    assert project["employment_id"] == employment["id"]
+    assert project["tags"] == []
+    assert project["status"] == "active"
+    assert "scope_type" not in project and "scope_id" not in project
+    with store.connect(False) as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert db.execute("SELECT COUNT(*) FROM current WHERE kind='work_project'").fetchone()[0] == 1

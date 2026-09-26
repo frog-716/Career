@@ -146,6 +146,10 @@ ResumeDocument 保存：
 
 当前编辑内容可以自动持久化，但不会自动制造版本历史。
 
+基础资料中的姓名、联系方式和个人网页是当前身份信息的唯一正本。基础资料保存后，所有当前 ResumeDocument 自动同步这些受管理字段和 profile 来源 revision；新建工作稿也带入最新基础资料。同步只替换简历中的基础资料区，不改经历、技能、排版或其他简历表达，并递增工作稿 revision 以保护并发编辑。
+
+普通 ResumeVersion、投递 ResumeVersion、Submission 快照和已生成 PDF 都是当时的冻结材料；之后基础资料变化只影响当前可编辑稿，不回写这些历史材料。
+
 ---
 
 # 5. ResumeVersion
@@ -156,13 +160,11 @@ ResumeDocument 保存：
 ResumeDocument 1:N ResumeVersion
 ```
 
-普通 ResumeVersion 只有在用户主动：
+普通草稿由 autosave 保存；用户按 `⌘S` 并确认名称后才创建普通 ResumeVersion：
 
 ```text
-[保存版本]
+创建 ResumeVersion
 ```
-
-时产生。
 
 投递时，无论当前内容是否手动保存过，系统都自动生成一个特殊的投递版本。
 
@@ -171,7 +173,7 @@ ResumeDocument 1:N ResumeVersion
 - 默认保存
 - 不可修改
 - 绑定对应 Opportunity / Submission
-- 在 Resume Workspace 历史版本中可查看
+- 在所属 Opportunity 的 Resume Editor 历史版本中可查看
 
 ---
 
@@ -398,13 +400,13 @@ purpose = negotiation
 
 RawSource 是统一资料入口的基础对象。
 
-可以关联：
+可以关联当前业务对象：
 
 - Opportunity
 - CommunicationEvent
 - InterviewSession
 - Offer
-- 未来 Project / Employment 等
+- Project / Employment（遵守[长期 Career 模型](../long-term-career-model.md)的范围规则）
 
 核心原则：
 
@@ -570,27 +572,13 @@ Codex 在实现时可以：
 
 ---
 
-# 19. Employment 的边界
+# 19. Employment 与 Opportunity 的边界
 
-本周期不深度设计 Employment。
-
-明确一点即可：
+Employment 的完整模型由[长期 Career 模型](../long-term-career-model.md)负责。本Opportunity文档只明确它与求职的边界：
 
 > Offer accepted 不自动创建 Employment。
 
-Employment 未来由用户自主：
-
-- 创建
-- 编辑
-- 删除
-
-以后最多提供：
-
-> 从 Opportunity 带入部分基础信息
-
-作为便捷填充。
-
-它不是 Opportunity 生命周期的强制子对象。
+用户在现实中开始任职后，可独立创建Employment；接受Offer本身不代表已入职，也不让Employment成为Opportunity的强制子对象。便捷预填须服从长期Career模型。
 
 ---
 

@@ -1,6 +1,6 @@
 # Context Contract
 
-本合同按[authority](00-authority.md)解释。Opportunity本周期目标以[Context & Ingestion](target/opportunity/context-ingestion.md)及[Domain Model](target/opportunity/opportunity-domain-model.md)为准；下文把它们转成读取、确认和并发合同，不声称目标已经实现。Employment/Project内部数据与原有记录政策不在本期重构范围。
+本合同按[authority](00-authority.md)解释。长期对象与跨模块语义以[长期 Career 模型](target/long-term-career-model.md)为准；Opportunity内任务以[Context & Ingestion](target/opportunity/context-ingestion.md)及[Domain Model](target/opportunity/opportunity-domain-model.md)为准。下文把目标转成读取、确认和并发合同，不声称目标已经实现。
 
 ## Current implementation — 审计基线
 
@@ -16,7 +16,7 @@
 | Wiki选材限制30条、正文100k；run保存packet/payload/result | 不是全包预算；新Raw覆盖政策和分析留存策略尚未落地 |
 | profile保存会同步唯一editor-main的身份区；Wiki选材保留source_refs | 多机会独立工作稿尚未实现；不能据此对所有未来文档自动覆盖身份表达 |
 
-当前真实Provider未验收、两项profile/editor测试失败等状态以[STATUS](execution/STATUS.md)为准。不能把合同要求当作现有机制的证明。
+2026-09-17审计快照中的真实 Provider 未验收、两项 profile/editor 测试失败等结论只描述当日证据，不代表当前。当前测试、运行与验收状态以 [STATUS](execution/STATUS.md) 为准；不能把合同要求当作现有机制的证明。
 
 ## Target contract — 资料与正式对象
 
@@ -42,7 +42,7 @@
 | Submission、投递ResumeVersion、Greeting Snapshot、原PDF | 保留实际当时材料，当前事实/JD/工作稿/Research修改不得覆盖 |
 | Offer原始材料 | 原件本身不可改；当前Offer条件可以更新。不能用通用Raw更正入口改写该原件 |
 | 历史库中的Raw、revisions、版本、run与附件 | 迁移保护并保持可追溯；新留存政策不授权清理旧用户数据 |
-| Employment / Project记录 | 原有任职原话＋更正历史及scope边界保持；本期不将求职Raw政策全局套用到这些模块 |
+| Employment / Project记录 | 现行原话与更正历史是实现现状；新目标按长期 Career 模型统一 Raw、Domain Object 与 Wiki 的边界，不把旧schema当目标 |
 
 覆盖当前Raw不等于降低revision。新写路径不得借通用revisions、run、proposal.before、日志或缓存暗中永久保存被替换Raw全文。备份是隔离恢复用途，不得作为正常分析的旧正文库。具体留存实现可参考[Gap Analysis §6–7](audit/OPPORTUNITY-GAP-ANALYSIS.md)，必须在实际写路径验收。
 
@@ -58,7 +58,7 @@
 | `forbidden_context` | 排除的范围、对象、历史、来源角色及未确认材料 |
 | `output schema` | 结构化输出、来源引用、事实/推断/建议/Unknown区分；声明哪些只是分析、哪些形成Patch |
 | `allowed patch targets` | 可修改的对象与字段白名单；只能调用所属Domain Action |
-| `confirmation requirement` | 正式事实Patch须用户确认；按目标分组接受后立即应用，拒绝不写事实，无第二次Apply |
+| `confirmation requirement` | 正式事实Patch须用户确认；逐条接受/编辑后接受后立即应用，拒绝不写事实，无第二次Apply或批量接受。Person身份映射、创建及重要人物知识写入须由用户确认；已确认身份后，明确要求/承诺作为普通逐条Patch，不再重复确认身份 |
 | `budget` | 最终请求的总预算、来源配额及超限行为；required约束和反证不足时提示/缩小任务，不静默截断 |
 
 Skill统一通过`ContextCompiler.prepare(task_type, target_object, user_request)`或等价受控接口取材料，不持有Store/SQL，也不能按对象关系递归展开全部description/context。Company身份字段仅在任务声明需要时作为背景；目录description不是CompanyResearch。Research必须读取对应当前档案并标明所有者和来源，不再用“相关目录已关联”替代授权。
@@ -67,13 +67,13 @@ Skill统一通过`ContextCompiler.prepare(task_type, target_object, user_request
 
 | 任务 | 允许的相关输入 | 关键限制 |
 | --- | --- | --- |
-| Resume / Greeting | 当前Opportunity/JD、相关Career Context、Research、目标当前稿/招呼语 | 当前表达不变个人事实；不读其他机会工作稿或全部旧版本 |
+| Resume / Greeting | 当前Opportunity/JD、相关Career Context、Research、目标当前稿/招呼语 | 不读其他机会工作稿或全部旧版本。Resume AI DTO 对Profile只发送“区存在”和字段名，剔除Profile区内容，不发送姓名、电话、微信、邮箱值；未来任务另行定义最小授权字段 |
 | Research / Communication ingestion | 本次指定Raw、所属机会、相关当前Research | 不自动把机会材料提升成公司级结论；范围变化需明确目标和确认 |
 | Interview准备 / Simulation Pack | 目标real轮次、JD、实际投递简历、Research、HR沟通、此前真实轮次的当前复盘 | 没有投递简历须明确缺失，不能用最新工作稿替代；不全量读取旧面试Raw |
 | Interview复盘 | 本轮当前Transcript、real/simulation来源及目标轮次、相关背景 | 模拟AI面试官的虚构信息不具备现实事实资格；用户自述可提个人Patch；真实面试官信息可提机会研究Patch |
 | Offer | 当前条件、指定原件、相关个人约束及谈薪沟通 | 不扩展到多Offer Comparison，不自动建Employment |
 
-Opportunity / Resume / Interview经Career Context Interface取得获准职业资料，不查询未来Employment/Project内部schema。任职私聊、他人档案不因同一窗口或同一用户而进入求职Context；成果必须先由用户查看证据、编辑/脱敏并明确批准为可复用个人事实，Resume/Context 只读取批准表达，Evidence 只保留指针/hash。Feedback与Career Wiki、Research、Resume、Interview完全隔离。
+Opportunity / Resume / Interview经Career Context Interface取得任务允许的职业资料。Employment、Project、Person是当前目标模型的一部分，其内部对象不因此被整库暴露。任职私聊、他人档案不因同一窗口或同一用户而进入求职Context；反馈与Career Wiki、Research、Resume、Interview完全隔离。
 
 ## 每次请求、确认与并发
 
@@ -95,6 +95,6 @@ Opportunity / Resume / Interview经Career Context Interface取得获准职业资
 
 ## 简历来源与非本期兼容
 
-`meta.source_refs`记录选材来源及revision/hash，是表达追溯而非第二份CareerFact。普通编辑不倒写事实；来源变化提示用户，不覆盖冻结历史。多文档目标下，profile是基础身份正本，不能在保存基础资料时无差别覆盖所有机会稿；采用初始化带入、在目标文档显式刷新等受控方式，具体交互在实施批次确定。
+`meta.source_refs`记录选材来源及revision/hash，是表达追溯而非第二份CareerFact。Profile 是姓名、联系方式和个人网页的基础资料正本：新工作稿带入最新资料；保存基础资料时，所有当前 ResumeDocument 自动更新受管理的身份/联系方式区及 profile 来源 revision。它不改经历、技能、排版或其他简历表达，并以工作稿 revision/CAS 保护并发编辑。普通 ResumeVersion、投递版本、Submission 快照和 PDF 保持当时内容，不随 Profile 改动。Wiki事实仍按当前目标显式选择，普通编辑不倒写CareerFact。
 
-旧混合profile仍需用户显式整理并保留原文；新合同不授权自动拆分或迁移用户资料。既有任职note回流按原scope及显式个人提升规则执行。跨模块来源读取与确认边界保持，未来Employment/Project改造另行制定模块目标。
+旧混合profile的历史内容不因新目标而自动拆分或删除。Profile保存后同步当前ResumeDocument身份区是当前用户确认的工作稿行为，和AI发送范围是两件事：Resume AI 默认只能知道Profile区是否存在及字段是否存在，不能读取这些字段值。任职人物身份、Person创建与重要知识写入按长期 Career 模型由用户确认；其它跨模块读取按任务授权与来源范围执行。

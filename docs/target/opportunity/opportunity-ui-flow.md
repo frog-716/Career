@@ -75,13 +75,16 @@ phase = 写简历
 [打开简历]
 ```
 
-第一次进入：
+创建规则：
 
 ```text
-选择 / 导入已有简历
+没有已有 Resume / Version → 创建 A4 基础模板
+有已有 Resume / Version → 用户选择版本，只复制当前内容
 ↓
-创建 ResumeDocument
+创建独立 ResumeDocument 并立即进入编辑
 ```
+
+不显示“选择空白”“确认创建”或“已创建，点击打开”等多余步骤。复制后的文档不保存跨简历source lineage。
 
 如果 Opportunity 不需要简历：
 
@@ -91,7 +94,7 @@ phase = 写简历
 
 # 3. 编辑简历
 
-用户在 Resume Workspace 中：
+用户从当前 Opportunity 进入绑定该机会的完整 Resume Editor：
 
 - 编辑内容
 - AI辅助
@@ -100,19 +103,21 @@ phase = 写简历
 
 普通编辑自动持久化当前内容。
 
+姓名、联系方式和个人网页来自 Wiki 的基础资料：保存基础资料时，所有当前工作稿会自动同步最新资料；新工作稿也直接带入最新资料。同步只更新基础资料区，简历其他内容不变，并提示并发编辑使用新的工作稿 revision。
+
 不会自动制造 ResumeVersion。
 
-只有点击：
+GitHub 和其他个人网页在简历中显示完整 URL；点击这段网址打开对应目标地址。
+
+导出 PDF 由服务端直接生成可复制文字的 PDF。每个可访问网址既显示为文字，也绑定 PDF 原生 URI 链接；不使用浏览器打印或 PDF JavaScript 跳转。
+
+普通草稿自动保存。按 `⌘S` 后输入名称并确认：
 
 ```text
-[保存版本]
+创建 ResumeVersion
 ```
 
-才创建：
-
-```text
-ResumeVersion
-```
+编辑器中的机会/简历选择器允许切换到其他 Opportunity 的 Resume 或版本，必须清楚显示当前编辑主体。
 
 ---
 
@@ -137,6 +142,8 @@ AI 通过 ContextCompiler 获取：
 - 当前 Career Context
 - Research
 - 当前 Resume
+
+专用 Resume AI DTO 不直接发送 ResumeDocument 原始数据库内容。Profile 默认只提供“Profile区存在”及其字段名，并从请求剔除Profile区内容，不发送姓名、电话、微信或邮箱值；如未来某个任务确需Profile内容，另行规定最小发送字段。
 
 输出修改建议。
 

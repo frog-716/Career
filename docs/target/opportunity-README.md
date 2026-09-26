@@ -2,11 +2,11 @@
 
 这套文档用于把当前已经对齐的 Opportunity 产品逻辑，转成后续可交给 Codex 审计、重构和维护的正式上下文。
 
-当前开发周期只聚焦：
+本文档包只负责 Opportunity 内部目标：
 
 > Opportunity 从加入 Career → 投递准备 → 已投递 → 沟通 → 多轮面试 → Offer → 结束。
 
-本周期暂不深度设计 Employment / Project / People / Growth 等长期职业资产模块，只保留未来可接入的边界。
+长期职业资产的唯一目标正本为[长期 Career 模型](long-term-career-model.md)，它负责 Project、Employment、Person、Raw/Wiki/Cognition 和全局导航。本文档包继续负责 Opportunity 内部产品与流程，不覆盖这些跨模块规则。
 
 ---
 

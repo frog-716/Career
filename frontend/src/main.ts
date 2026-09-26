@@ -22,10 +22,11 @@ type Page =
   | "diagnostics"
   | "progress"
   | "work"
+  | "projects"
   | "practice"
   | "footprint";
 const PAGE_IDS: Page[] = [
-  "wiki", "directory", "jobs", "progress", "work", "practice", "footprint",
+  "wiki", "directory", "jobs", "progress", "work", "projects", "practice", "footprint",
   "resume", "profile", "feedback", "diagnostics",
 ];
 const isPage = (value: string): value is Page => PAGE_IDS.includes(value as Page);
@@ -564,6 +565,7 @@ function render() {
         knowledge,
         domain,
         workDomain,
+        projectId: ui.projectId,
         journey,
         jobId,
         editorVersions,
@@ -586,9 +588,12 @@ async function navigate(next: Page, id = jobId) {
   const navigation = ++navigationSequence;
   page = next;
   jobId = id;
+  if (page === "projects") ui.projectId = id || "";
+  if (page === "work" && id) ui.episodeId = id;
   notice = "";
   if (page === "profile") knowledgeUI.tab = "profile";
   await load();
+  if (page === "projects" && !ui.projectId) ui.projectId = workDomain.projects?.[0]?.id || "";
   if (navigation !== navigationSequence || page !== next || jobId !== id) return;
   history.replaceState(
     null,
@@ -596,9 +601,11 @@ async function navigate(next: Page, id = jobId) {
     "#" +
       page +
       ((page === "jobs" || page === "progress") && jobId
-        ? "/" + jobId
+        ? "/" + encodeURIComponent(jobId)
+        : page === "projects" && ui.projectId
+          ? "/" + encodeURIComponent(ui.projectId)
         : page === "work" && ui.episodeId
-          ? "/" + ui.episodeId
+          ? "/" + encodeURIComponent(ui.episodeId)
           : "") +
       (page === "resume" && (resumeDocumentId || resumeLegacy)
         ? `?${resumeLegacy ? "legacy=1" : `document_id=${encodeURIComponent(resumeDocumentId)}`}`
@@ -1009,8 +1016,73 @@ function workForm(title: string, fields: string, submit: string, save: (values: 
     };
   });
 }
-function createWorkProject(episodeId: string) {
-  workForm("新建项目", `<label>项目名称<input name="name" required maxlength="500"></label><label>项目说明<textarea name="description" maxlength="100000"></textarea></label>`, "保存项目", (v) => api("/work/projects", { ...v, scope_type: "employment", scope_id: "employment:" + episodeId, idempotency_key: crypto.randomUUID() }));
+function editWorkProject(project?: Obj, defaultEmploymentId = "") {
+  const employmentId = project?.employment_id || defaultEmploymentId;
+  const employments = workDomain.employments || [];
+  const fields = `<label>项目名称<input name="name" required maxlength="500" value="${esc(project?.name || "")}"></label><label>项目说明<textarea name="description" maxlength="100000">${esc(project?.description || "")}</textarea></label><label>Tags（每行一个，可自行填写）<textarea name="tags" placeholder="#AI\n#黑客松\n#个人项目">${esc((project?.tags || []).join("\n"))}</textarea></label><label>状态<select name="status">${[["active", "进行中"], ["paused", "已暂停"], ["completed", "已完成"], ["canceled", "已取消"]].map(([value, label]) => `<option value="${value}" ${value === (project?.status || "active") ? "selected" : ""}>${label}</option>`).join("")}</select></label><label>状态说明（可选）<textarea name="status_note" maxlength="10000">${esc(project?.status_note || "")}</textarea></label><label>关联任职（可选）<select name="employment_id"><option value="">不关联任职</option>${employments.map((item: Obj) => `<option value="${esc(item.id)}" ${item.id === employmentId ? "selected" : ""}>${esc(item.company)} · ${esc(item.role)}</option>`).join("")}</select></label>`;
+  modal(project ? "编辑项目" : "新建项目", `<form data-project-form><fieldset>${fields}</fieldset><button class="primary full" type="submit">${project ? "保存修改" : "保存项目"}</button></form>`, (dialog) => {
+    const form = dialog.querySelector<HTMLFormElement>("form")!;
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const button = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+      if (button.disabled) return;
+      button.disabled = true;
+      const values = Object.fromEntries(new FormData(form).entries());
+      const tags = String(values.tags || "").split(/[\n,]/).map((tag) => tag.trim()).filter(Boolean);
+      const body = {
+        name: values.name,
+        description: values.description || "",
+        tags: [...new Set(tags)],
+        status: values.status,
+        status_note: values.status_note || "",
+        employment_id: values.employment_id || null,
+        idempotency_key: crypto.randomUUID(),
+      };
+      try {
+        const saved = project
+          ? await api(`/work/projects/${encodeURIComponent(project.id)}`, { ...body, expected_revision: project.revision })
+          : await api("/work/projects", body);
+        dialog.close();
+        ui.projectId = saved.id;
+        if (!project) await navigate("projects", saved.id);
+        else { await load(); render(); }
+        inform(project ? "项目已保存。" : "项目已创建，可以独立使用。");
+      } catch (error) {
+        modalError(error);
+        button.disabled = false;
+      }
+    };
+  });
+}
+function createWorkProject(employmentId = "") {
+  editWorkProject(undefined, employmentId);
+}
+function linkExistingProject(employmentId: string) {
+  const available = (workDomain.projects || []).filter((project: Obj) => !project.employment_id);
+  if (!available.length) { inform("目前没有未关联任职的项目可以关联。"); return; }
+  modal("关联已有项目", `<form data-project-link-form><fieldset><label>选择项目<select name="project_id" required>${available.map((project: Obj) => `<option value="${esc(project.id)}">${esc(project.name)}</option>`).join("")}</select></label></fieldset><button class="primary full" type="submit">关联项目</button></form>`, (dialog) => {
+    const form = dialog.querySelector<HTMLFormElement>("form")!;
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const button = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+      if (button.disabled) return;
+      button.disabled = true;
+      const projectId = String(new FormData(form).get("project_id") || "");
+      const project = available.find((item: Obj) => item.id === projectId);
+      if (!project) { modalError(new Error("所选项目已不存在，请重新载入。")); button.disabled = false; return; }
+      try {
+        await api(`/work/projects/${encodeURIComponent(project.id)}/employment`, {
+          employment_id: employmentId,
+          expected_revision: project.revision,
+          idempotency_key: crypto.randomUUID(),
+        });
+        dialog.close();
+        await load();
+        render();
+        inform("已关联项目正本。");
+      } catch (error) { modalError(error); button.disabled = false; }
+    };
+  });
 }
 function createWorkEvent(projectId: string) {
   workForm("记录工作事件", `<label>事件标题<input name="title" required maxlength="500"></label><label>事件类型<input name="kind" required maxlength="100" value="进展"></label><label>原文<textarea name="content" required maxlength="100000"></textarea></label>`, "保存事件", (v) => api("/work/events", { ...v, project_id: projectId, idempotency_key: crypto.randomUUID() }));
@@ -1251,6 +1323,8 @@ function captureFeedback() {
       ? jobId
       : page === "work"
         ? ui.episodeId || journey.episodes[0]?.id || ""
+        : page === "projects"
+          ? ui.projectId
         : page === "wiki"
           ? knowledgeUI.selected ||
             (knowledgeUI.tab === "profile" ? "profile" : "")
@@ -1335,7 +1409,7 @@ function bind() {
     if (!n) return;
     ui.selectedNote = n.id;
     if (n.scope_type === "job") {ui.jobTab = n.kind; void navigate("jobs", n.scope_id).catch(failure);}
-    else {ui.episodeId = n.scope_id; ui.workTab = n.kind; void navigate("work").catch(failure);}
+    else {ui.episodeId = n.scope_id; ui.workTab = n.kind; void navigate("work", ui.episodeId).catch(failure);}
   });
   bindKnowledge({
     api,
@@ -1415,7 +1489,7 @@ function bind() {
           ].includes(el.dataset.noteKind)
             ? el.dataset.noteKind
             : "reflection";
-        void navigate("work").catch(failure);
+        void navigate("work", ui.episodeId).catch(failure);
       }),
   );
   document.querySelectorAll<HTMLSelectElement>("[data-record-picker]").forEach(
@@ -1477,10 +1551,22 @@ function bind() {
   document.querySelectorAll<HTMLElement>("[data-page]").forEach(
     (el) =>
       (el.onclick = () => {
-        void navigate(el.dataset.page as Page, (el.dataset.job || (el.dataset.page === "jobs" ? "" : jobId))).catch(
+        const destination = el.dataset.page as Page;
+        const targetId = el.dataset.job || el.dataset.project ||
+          (destination === "jobs" ? "" : destination === "projects" ? ui.projectId : destination === "work" ? ui.episodeId : jobId);
+        void navigate(destination, targetId).catch(
           failure,
         );
       }),
+  );
+  document.querySelectorAll<HTMLElement>("[data-open-project]").forEach(
+    (el) => (el.onclick = () => { void navigate("projects", el.dataset.openProject || "").catch(failure); }),
+  );
+  document.querySelectorAll<HTMLElement>("[data-open-employment]").forEach(
+    (el) => (el.onclick = () => {
+      ui.episodeId = el.dataset.openEmployment || "";
+      void navigate("work", ui.episodeId).catch(failure);
+    }),
   );
   document.querySelectorAll<HTMLElement>("[data-job]").forEach(
     (el) =>
@@ -1522,7 +1608,13 @@ function bind() {
       inform("全链路案例已删除，你的资料未改动。");
     })().catch(failure);
   });
-  document.querySelectorAll<HTMLElement>("[data-work-project]").forEach((el) => (el.onclick = () => createWorkProject(el.dataset.workProject!)));
+  $("#add-project")?.addEventListener("click", () => createWorkProject());
+  document.querySelectorAll<HTMLElement>("[data-edit-project]").forEach((el) => (el.onclick = () => {
+    const project = workDomain.projects.find((item: Obj) => item.id === el.dataset.editProject);
+    if (project) editWorkProject(project);
+  }));
+  document.querySelectorAll<HTMLElement>("[data-work-project-employment]").forEach((el) => (el.onclick = () => createWorkProject(el.dataset.workProjectEmployment || "")));
+  document.querySelectorAll<HTMLElement>("[data-link-existing-project]").forEach((el) => (el.onclick = () => linkExistingProject(el.dataset.linkExistingProject || "")));
   document.querySelectorAll<HTMLElement>("[data-work-event]").forEach((el) => (el.onclick = () => createWorkEvent(el.dataset.workEvent!)));
   document.querySelectorAll<HTMLElement>("[data-work-achievement]").forEach((el) => (el.onclick = () => createWorkAchievement(el.dataset.workAchievement!)));
   document.querySelectorAll<HTMLElement>("[data-work-reuse]").forEach((el) => (el.onclick = () => approveWorkReuse(el.dataset.workReuse!)));
@@ -1607,6 +1699,7 @@ async function start() {
           ? "active"
           : "archived";
     if (page === "work") ui.episodeId = id || "";
+    if (page === "projects") ui.projectId = id || "";
     if (page === "profile") knowledgeUI.tab = "profile";
     render();
   } catch (e) {
@@ -1634,9 +1727,11 @@ window.addEventListener("hashchange", () => {
         "#" +
           page +
           (page === "jobs"
-            ? "/" + jobId
+            ? "/" + encodeURIComponent(jobId)
+            : page === "projects" && ui.projectId
+              ? "/" + encodeURIComponent(ui.projectId)
             : page === "work" && ui.episodeId
-              ? "/" + ui.episodeId
+              ? "/" + encodeURIComponent(ui.episodeId)
               : "") +
           (page === "resume" && (resumeDocumentId || resumeLegacy)
             ? `?${resumeLegacy ? "legacy=1" : `document_id=${encodeURIComponent(resumeDocumentId)}`}`
@@ -1647,7 +1742,8 @@ window.addEventListener("hashchange", () => {
     }
     routeSelection(requested,id,params);
     if (requested === "work") ui.episodeId = id || "";
-    const targetJob = (requested === 'jobs' || requested === 'progress') ? id : jobId;
+    if (requested === "projects") ui.projectId = id || "";
+    const targetJob = (requested === 'jobs' || requested === 'progress' || requested === 'projects') ? id : jobId;
     if (requested === "jobs" || requested === "progress")
       ui.jobFilter =
         state.jobs.find((j: Obj) => j.id === targetJob)?.status === "active"

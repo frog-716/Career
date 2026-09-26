@@ -1,6 +1,6 @@
 # 验收契约
 
-真实运行才记录通过；本文件是验收需求，不是已有测试报告。按[authority](00-authority.md)读取模块Spec，再选择本批验收；Opportunity以四份[target规范](target/opportunity/opportunity-domain-model.md)为准。工程先用[虚构案例](../fixtures/scenarios.json)，关注Interface、主路径、持久化和关键回归，不为未实施的全部未来需求先堆测试。
+真实运行才记录通过；本文件是验收需求，不是已有测试报告。按[authority](00-authority.md)读取模块Spec，再选择本批验收；长期对象以[长期 Career 模型](target/long-term-career-model.md)为准，Opportunity细节以四份[target规范](target/opportunity/opportunity-domain-model.md)为准。工程先用[虚构案例](../fixtures/scenarios.json)，关注Interface、主路径、持久化和关键回归，不为未实施的全部未来需求先堆测试。
 
 **下列Opportunity条目全部是 target acceptance / 待实施验收，不是当前通过声明。** 既有部分基础能力有测试证据，但不能据此勾选整个目标。2026-09-17审计为69通过、2失败及typecheck通过；本次文档对齐不重跑、不修复。状态与证据见[STATUS](execution/STATUS.md)、[AS-IS §11](audit/AS-IS-system-map.md)。
 
@@ -14,22 +14,42 @@
 | O02 | phase仅四阶段；result为active/accepted/rejected/withdrawn；任意阶段可rejected/withdrawn，accepted仅Offer；result!=active进入已结束View，最后phase不变 | Target / 待验 |
 | O03 | 阶段日期来自真实领域动作；确认面试当天进入面试，不用未来面试日期或计划due_date；添加第二轮不变成新phase，也不伪造历史日期 | Target / 待验 |
 | O04 | 两个Opportunity分别创建/编辑自己的ResumeDocument互不污染；每机会0..1，首次加工才创建；旧editor-main不得静默分配所有权，独立入口也不能绕过隔离 | Target / 待验 |
-| O05 | 普通自动保存不创建普通ResumeVersion，主动保存才创建；有简历投递总建特殊投递版，选已有普通版也如此；两类版本均在Resume Workspace可回看 | Target / 待验 |
+| O05 | 普通自动保存不创建ResumeVersion；`⌘S`命名后创建普通版本；有简历投递总建特殊投递版，选已有普通版也如此；历史从所属Opportunity的简历编辑器回看 | Target / 待验 |
 | O06 | 记录已投递支持当前稿/指定旧版/无简历；不要求日期/渠道/备注重复录入；自动记录今天，冻结Greeting及可选简历并切阶段；一个Opportunity最多一条Submission | Target / 待验 |
 | O07 | 投递后修改工作稿、profile/Wiki、JD或Research，旧Submission/投递版本/Greeting/PDF仍保持原内容和字节；删除普通来源版本不得破坏投递引用 | Target / 待验 |
 | O08 | 登记投递或接受Patch发生重试、并发、附件失败时，不重复事件、不半成功；CAS失败保留输入；新key或旧入口不能绕过唯一性/冻结约束 | Target / 待验 |
 | O09 | Communication统一线上/电话/其他，谈薪使用purpose=negotiation；同一typed活动与Raw/note不重复展示，不创建另一套PhoneCall/Negotiation系统 | Target / 待验 |
 | O10 | real轮次名称/日期必需；支持多轮和未投递先确认；simulation必须绑定同Opportunity的real，不能绑定simulation或跨机会；准备使用实际投递材料而非新工作稿 | Target / 待验 |
 | O11 | 可复制Simulation Context Pack供用户新开ChatGPT语音；上传带时间戳文本后进入同一复盘链；模拟AI面试官虚构信息不能提升为现实事实，用户自述只能提待确认个人Patch | Target / 待验 |
-| O12 | 新求职Raw确认修正覆盖当前正文，不保留旧Raw正文历史；revision/hash递增且旧依赖stale；不借run/proposal/log暗存旧正文；旧库历史仍保留；Offer原件及投递材料不被此动作覆盖 | Target / 待验 |
+| O12 | 新求职Raw确认修正覆盖当前正文，不保留旧Raw正文历史；revision/hash递增且旧依赖stale；不借run/proposal/log暗存旧正文；已分类为真实/未知的历史记录保留，明确测试记录可清理；Offer原件及投递材料不被此动作覆盖 | Target / 待验 |
 | O13 | 每轮只有一份当前FinalReview，包含五项规定内容且可手动编辑；不长期保存AI原版与用户终版两套；复盘结论不自动变正式事实 | Target / 待验 |
 | O14 | AI只提出Patch，按目标分组；接受/编辑后接受立即Apply，拒绝不写；手动正式编辑直接保存；目标或来源revision变化后提案不可直接应用 | Target / 待验 |
 | O15 | 同Company的机会共享CompanyResearch，各自OpportunityResearch隔离；公司/目录description不因关联自动进Context；机会资料不能未经明确目标与确认提升成公司结论 | Target / 待验 |
 | O16 | Timeline从Opportunity创建、Submission、Communication、Interview、Offer及result聚合；可排序/摘要/跳回源对象，无第二份事实库；不计普通保存、字号、AI重跑或接受Patch | Target / 待验 |
 | O17 | 一个机会最多一个当前Offer，条件可更新、原件不变；谈薪复用沟通；结束不自动建Employment，不引入Offer Comparison | Target / 待验 |
 | O18 | 每项AI任务声明required/optional/forbidden context、output schema、allowed patch targets、confirmation requirement、budget；捕获实际payload验证范围、当前revision、总预算及Feedback/任职私聊隔离 | Target / 待验 |
-| O19 | 历史ID、来源、版本、PDF、用途、快照、Raw/Wiki与revisions可回读；备份能隔离恢复；多Submission、多Offer、公司冲突或未知轮次不得自动删合/猜测；迁移前后内容/hash可核对 | Target / 待验 |
-| O20 | 实际页面从管线整行进入Workspace，稳定顶部＋阶段动作＋岗位情报＋投递材料＋Timeline；切换/错误后可继续；Employment/Project原入口与数据不受本期影响 | Target / 待验 |
+| O19 | 先区分真实、测试、未知记录；真实/未知内容与需保留的来源、版本、PDF、快照可追溯，明确测试对象可清理；不为旧ResumeUse/T14结构建立复杂兼容层；备份可隔离恢复，schema migration显式可测且前后hash可核对 | Target / 待验 |
+| O20 | 一级导航为Wiki/机会/项目/任职；机会行进入Workspace，稳定顶部＋阶段动作＋岗位情报＋投递材料＋Timeline；切换/错误后可继续；简历从当前机会打开完整编辑器 | Target / 待验 |
+| O21 | 保存基础资料后，所有当前ResumeDocument自动同步姓名、联系方式、个人网页和profile来源revision；新工作稿从最新资料初始化；普通版、投递版、Submission快照及既有PDF不变，经历/技能/排版不变 | Target / 待验 |
+| O22 | 简历中显示GitHub及其他个人网页的URL，文字点击指向对应HTTP(S)地址；导出PDF为可复制矢量文字，网址文字绑定原生PDF URI动作，不含JavaScript动作 | Target / 待验 |
+
+## 长期 Career 模型 — Target acceptance
+
+下列条目供 Phase B–I 逐批选用。Phase B 对应的 L02、L03 已由自动测试和两轮用户 UI 验收通过；其余条目仍为待实现/待验，不表示当前系统已具备这些行为。
+
+| ID | 场景与必须观察到的结果 | 状态 |
+| --- | --- | --- |
+| L01 | 一级导航严格为 Wiki、机会、项目、任职；简历工作台不占一级入口，机会打开的编辑器明确显示当前简历所属机会 | Target / 待验 |
+| L02 | Project 可不关联任职而独立存在；name/description/自由Tags/status/status_note 与可选 Employment 关系按长期模型工作；status 仅 active/paused/completed/canceled | PASS — Phase B（自动测试 + 用户 UI 验收；证据见 STATUS） |
+| L03 | Project 与 Employment 是可选关联而非父子；任职页跳转和项目入口指向同一个 Project 正本，不要求 Participant 才能使用个人项目 | PASS — Phase B（自动测试 + 用户 UI 验收；证据见 STATUS） |
+| L04 | Raw 中普通姓名 mention 不创建长期 Person；身份映射、Person 创建与重要人物知识写入都要求用户确认；重复提及不自动升级 | Target / 待验 |
+| L05 | 已确认身份后，Compiler 对明确要求/承诺提交普通 Wiki Patch；用户可逐条接受、编辑后接受或拒绝，不再弹同义身份确认；禁止批量接受 | Target / 待验 |
+| L06 | Raw 保存来源依据；Wiki保存当前语义、scope/tags 与 Raw source_refs；读取先看相关Wiki，确需证据时再渐进读取具体Raw | Target / 待验 |
+| L07 | Wiki Compiler 只提出 add/rewrite/retire；拒绝不改变Wiki，retire不物理删历史，Raw不被改写，当前Wiki每条知识可追溯来源 | Target / 待验 |
+| L08 | Cognition 属于Wiki，可跨Project/Employment/Opportunity复用并保留来源；不另建第二套Domain Object正本或独立Cognition数据库 | Target / 待验 |
+| L09 | Resume AI DTO 默认只有 Profile 区是否存在及字段名集合；捕获的请求不含姓名、电话、微信、邮箱值，也不读其它Opportunity或整库Raw | Target / 待验 |
+| L10 | 数据迁移先分类真实与测试对象；未知/真实数据不误删，明确测试对象可清理；schema migration 显式、安全、隔离副本可测且可恢复，不需为T14旧模型建立复杂兼容层 | Target / 待验 |
+| L11 | Phase H 先在真实浏览器/macOS核对 `⌘⇧←/→`，并由用户手工确认预期选区；之后按确认行为实现和自动回归 | Target / 待验 |
 
 完整主链按[Journey](04-journeys.md)执行，至少覆盖无简历分支、选旧版仍生成投递版、多机会隔离、多轮与模拟父级、结束及历史不变。具体批次只运行相关条目；通过证据必须指向当次版本/命令/页面，不能用目标文档或旧案例代替。
 
@@ -52,7 +72,7 @@
 ## 资料与事件
 
 - D01 自动保存只更新工作稿；主动保存产生普通版本，投递动作按O05生成特殊版本；导入/恢复不冒充普通保存或投递。
-- D02 同工作稿lineage的经历ID保留；新文件导入不自动关联旧事实。
+- D02 用户明确选择的 Wiki 知识可记录 `source_refs` 与 revision/hash；普通编辑和跨简历复制不建立隐含 copy lineage，新文件导入不自动关联旧事实。
 - D03 保存普通版本不创建投递；有简历投递按O05–O07创建并冻结实际投递版本，无简历分支可用，当前编辑不改变历史PDF。
 - D04 新求职Raw按O12覆盖当前修正版且无旧正文历史；后续改进答案不能冒充实际回答。任职原话及更正历史仍按原有模块边界保存。
 - D05 删除岗位后不再出现于活动列表或下轮采集；历史投递/面试仍可回看。
