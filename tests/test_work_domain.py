@@ -36,7 +36,7 @@ def test_episode_to_project_event_achievement_evidence_survives_restart(tmp_path
     assert c.post(f"/api/work/employments/{employment['id']}/stages", json={"name": "非法阶段", "start_date": "2022-06-02", "end_date": "2022-06-01", "idempotency_key": "stage-bad"}).status_code == 422
     project = c.post("/api/work/projects", json={"name": "迁移项目", "scope_type": "employment", "scope_id": employment["id"], "description": "项目原文", "idempotency_key": "project-1"}).json()
     source = c.post("/api/work/sources", json={"project_id": project["id"], "scope_type": "employment", "scope_id": employment["id"], "title": "任职来源", "content": "来源原文", "semantics": "用户原始记录", "idempotency_key": "source-1"}).json()
-    person = c.post("/api/work/persons", json={"name": "虚构同事", "role": "协作者", "idempotency_key": "person-1"}).json()
+    person = c.post(f"/api/work/employments/{employment['id']}/persons", json={"name": "虚构同事", "role": "协作者", "idempotency_key": "person-1"}).json()
     participant = c.post(f"/api/work/projects/{project['id']}/participants", json={"person_id": person["id"], "role": "共同负责", "idempotency_key": "participant-1"}).json()
     event = c.post("/api/work/events", json={"project_id": project["id"], "title": "交付事件", "kind": "delivery", "content": "不可变事件原文", "idempotency_key": "event-1"}).json()
     achievement = c.post("/api/work/achievements", json={"project_id": project["id"], "title": "成果", "content": "初始成果", "idempotency_key": "achievement-1"}).json()
