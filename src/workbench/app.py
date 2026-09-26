@@ -16,6 +16,7 @@ from .profile import profile_router
 from .journey import journey_router
 from .domain import domain_router
 from .knowledge import knowledge_router
+from .wiki import raw_wiki_router
 from .opportunity import router as opportunity_router
 from .work import work_router
 from .demo import demo_router
@@ -232,6 +233,7 @@ def create_app(store=None, frontend_dir=None, *, runtime_dir=None):
     app.include_router(journey_router(s))
     app.include_router(domain_router(s))
     app.include_router(knowledge_router(s))
+    app.include_router(raw_wiki_router(s))
     app.include_router(opportunity_router(s))
     app.include_router(work_router(s))
     app.include_router(demo_router(s))

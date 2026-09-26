@@ -57,13 +57,13 @@ ResumeUse与“关联已保存版本”不是目标模型；旧记录先分清�
 
 完全断网可以查看、编辑、导出已存资料并运行已安装模型；不能获得最新招聘或公司信息。电脑睡眠/关机时后台暂停，下次启动恢复。
 
-能力目标与实现状态分别判断：Opportunity 人工主链及相应任务 AI 按四份正本分批实施；Project 独立入口和工作区已在 Phase B 完成。Employment / Person 生命周期与 Wiki 处理仍待后续阶段；现有 participant/T14 能力仅保留为兼容现状，不代表新模型已实现。真实模型质量单独验收；内置语音、Offer 比较等后续能力不列为当前交付。
+能力目标与实现状态分别判断：Opportunity 人工主链及相应任务 AI 按四份正本分批实施；Project 独立入口、Employment / Person 生命周期已分别完成 Phase B、C。Phase D1 的手工 Raw 与 Wiki Semantic 已完成自动验证、Runtime 更新、两段用户 UI 验收和 Git 收口；Phase D2 已 READY，尚未开始。Compiler、Cognition 自动提炼和新 Wiki 的 AI Context 读取不在 D1。现有 participant/T14 能力继续作为旧兼容实现；具体代码、Runtime 与验收状态见 [STATUS](execution/STATUS.md)。真实模型质量单独验收；内置语音、Offer 比较等后续能力不列为当前交付。
 
 不能保证：全网招聘无人值守覆盖、无授权账号读取、领导真实心理、公司未公开内部事实、AI零幻觉、精确录用概率、谈薪结果、从任意PDF无损恢复编辑结构。外部数据不足时输出待验证问题。
 
 ## 第一轮控制范围
 
-当前新周期按 [Phase A–I 实施计划](execution/WIKI-PROJECT-RESUME-IMPLEMENTATION-PLAN.md)推进；Phase A 与 Phase B 已完成，后续阶段尚未完成，最新实际状态见 [STATUS](execution/STATUS.md)。Opportunity、Employment / Person、Raw / Wiki、Resume 与快捷键按计划逐步落地。Offer Comparison、Global Inbox、Advanced Career Intelligence 和 Automation 为 Later。复杂图谱、自动人格评分、自动发送/批量投递、全平台爬虫、云同步、通用 Agent 平台及微服务不进入本周期。
+当前新周期按 [Phase A–I 实施计划](execution/WIKI-PROJECT-RESUME-IMPLEMENTATION-PLAN.md)推进；Phase A、B、C 已完成，Phase D1 状态见 [STATUS](execution/STATUS.md)，D2 及后续阶段尚未完成。Raw / Wiki、Resume 与快捷键按计划逐步落地。Offer Comparison、Global Inbox、Advanced Career Intelligence 和 Automation 为 Later。复杂图谱、自动人格评分、自动发送/批量投递、全平台爬虫、云同步、通用 Agent 平台及微服务不进入本周期。
 
 ## MVP 轻量反馈 Capture（用户确认）
 

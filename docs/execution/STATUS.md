@@ -1,5 +1,19 @@
 # 当前状态
 
+## 2026-09-26：Phase D1 — COMPLETE / PASS
+
+- 范围与合同：完成手工 Raw、Wiki Semantic、typed `source_refs`、修订/退役；未实现 Wiki Compiler、Cognition 自动提炼、Resume AI Context 或 D2。Raw 是原始依据，有稳定 ID 和 provenance；Wiki 不复制 Raw 正文，修改 Wiki 不会反写 Raw。用户手工 Wiki 的 provenance 是 `user`，来源可为空，不伪造 Raw。Fact / Observation / Hypothesis 是 D1 唯一知识类型；scope / Tags 表达范围和分类；Opportunity 知识只在明确的 Opportunity 范围视图出现；Person scope 只接受已存在的确认人物，不创建 Person。
+- 历史合同：rewrite 以同一 Wiki ID 的新 revision 更新当前语义；retire 退出默认当前视图；既有 `current` / `revisions` 与 `source_refs` 保留历史和来源，不建立第二套 provenance、revision 或 history 系统。
+- D1 反向审查：Wiki 正文只保存语义内容，Raw 原文通过稳定引用读取；全局 Wiki 列表排除 Opportunity 知识；Person scope 要求既有已确认 Person；模块没有 Provider、Compiler 或 Raw 修改/删除入口。旧 Event / Evidence 只按原 ID 兼容读取，Achievement 不会被当作 Raw；本轮未删除这些旧对象。
+- 两段用户 UI 验收均 PASS：Raw → Wiki Fact → source_ref → 打开 Raw 原文；rewrite → retire 后历史仍可追溯且 Raw 原文完全不变。
+- 测试数据清理：删除本轮 1 条虚构 Raw、1 条 Wiki 当前对象、3 条 Wiki revision、4 条对应 D1 请求/幂等记录。验收 Project `demo-b5-project` 在 D1 前已存在，已保留；其 ID、revision 与内容摘要清理前后不变。D1 测试对象无残留。
+- 清理后正式数据：`/healthz=ok`、SQLite `quick_check=ok`、schema v6、data instance `42ff565e28a08e31414442521540ac3e` 不变；`ai_operations` 仍为 15 项，`ai_audit` dispatch 仍为 16 条（connection_test 1、research_search 7、research_update 6、resume_optimization 2），与 D1 前记录相同，DeepSeek / Tavily outbound 增量均为 0。真实 Provider 本轮未调用，供应商质量未验收；未读取、显示或记录 Secret。
+- 最终自动回归：D1 聚焦 `tests/test_wiki_d1.py` 为 8 passed；全量 pytest 为 441 passed（47.18s）。前端导航 8 passed、本地请求 3 passed，其余 Employment/Person、Project collaboration、workspace mutation、Wiki semantic 测试通过；typecheck 和 `/tmp/career-d1-build-closeout` 临时构建通过，未覆盖正式 `frontend/dist`。`pip check` 通过；`npm ls --depth=0` exit 0（23 项为现有 extraneous 包）；secret scan、文档链接检查和 `git diff --check` 通过。
+- Runtime：PID `9270` 未重启，仍只监听 `127.0.0.1:8765` 且 `/healthz=ok`。它继续运行通过 D1 UI 验收的 working-tree baseline；Git commit / push 后仍不更新 Runtime。
+- README 保护：`src/workbench/README.md` 以及开工前记录的 13 份用户旧 Resume 文件 SHA-256 全部逐字节一致；没有修改受保护文件。
+- Git ownership：本次提交只含精确核验过的 20 个 D1 文件。13 份 Resume 用户改动保持 unstaged；`AGENTS.md` 4 行作为 pre-existing / unknown ownership tracked diff 保持 unstaged；`.agents/skills/`、`docs/agents/` 本机配置保持 untracked。D1 提交不包含它们；不要求工作区 clean。提交信息为 `Add Raw and semantic Wiki foundation`。Git 后仍使用已验收的 PID `9270`，不重启 Runtime。
+- 最终门槛：D1 功能、自动/用户验收、数据清理和 Git 收口均通过；Phase D1 `COMPLETE / PASS`，Phase D2 `READY`，没有进入 D2。
+
 ## 2026-09-26：Phase C — COMPLETE / PASS
 
 - 用户验收：人物创建、编辑补充、页面即时刷新，以及 Project A/B 关联人物和跨任职隔离均 PASS。Person 的 Employment `role` 与每个 Project 自由填写的 `project_role` 独立。

@@ -50,6 +50,8 @@
 | L09 | Resume AI DTO 默认只有 Profile 区是否存在及字段名集合；捕获的请求不含姓名、电话、微信、邮箱值，也不读其它Opportunity或整库Raw | Target / 待验 |
 | L10 | 数据迁移先分类真实与测试对象；未知/真实数据不误删，明确测试对象可清理；schema migration 显式、安全、隔离副本可测且可恢复，不需为T14旧模型建立复杂兼容层 | Target / 待验 |
 | L11 | Phase H 先在真实浏览器/macOS核对 `⌘⇧←/→`，并由用户手工确认预期选区；之后按确认行为实现和自动回归 | Target / 待验 |
+| L12 | D1 Raw 有稳定ID、类型、范围、时间、正文/引用、revision/hash 与 provenance；已有原件按原ID引用，不复制；Wiki 改动不能改变 Raw；机会私有资料不会进入其他机会或通用长期范围视图 | PASS — Phase D1（自动测试 + 两段用户 UI 验收；Raw 原文未被 Wiki 改写；证据见 STATUS） |
+| L13 | D1 Wiki 只用 Fact/Observation/Hypothesis，可手工创建/编辑；source_refs 是经服务端核对的稳定来源多对多引用；current/retired 与历史共用既有 revision/CAS；Person 范围只接受已确认 Person；D1 不调用 Provider、不生成 Compiler Patch | PASS — Phase D1（自动测试 + 两段用户 UI 验收；rewrite/retire 历史和来源可追溯；证据见 STATUS） |
 
 完整主链按[Journey](04-journeys.md)执行，至少覆盖无简历分支、选旧版仍生成投递版、多机会隔离、多轮与模拟父级、结束及历史不变。具体批次只运行相关条目；通过证据必须指向当次版本/命令/页面，不能用目标文档或旧案例代替。
 

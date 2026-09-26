@@ -35,6 +35,14 @@ Raw 是原始依据，保留来源内容或受控更正后的当前文本，以�
 
 Raw 回答“原来到底发生了什么”，不负责解释全部业务含义，也不自动创建长期人物。普通名字 mention 只在本次 Raw/分析范围内使用，不因此成为 Person。
 
+### D1 Raw 与来源引用合同
+
+D1 手工新增的 Raw 保存标题、正文、来源类型、所属范围、创建时间、用户 provenance、revision 与内容摘要，并有稳定 ID；写入后不提供普通编辑或删除入口。Raw 是原始依据，不是 Wiki 的第二份正文库。Wiki 只保存语义和来源指针；任何 Wiki 新建、改写、退役或恢复都不能反写或改变 Raw。将来需要更正时由明确业务入口定义更正规则。
+
+已有原始记录按原 ID 引用，不复制正文来制造统一副本。`source_ref` 是稳定类型化指针：`kind + id + revision + hash`。读取时检查版本与摘要；如果旧记录只保留当前正文且已经变化，系统拒绝把新正文冒充为旧版本。现有事件、证据、面试转写、任职/机会原话、沟通和资料原件可作为 Raw 来源；AI 复盘、Research 派生结论、Achievement 与 Wiki 不属于 Raw。
+
+Raw 的范围由 Career 正式对象拥有。Person 范围只能指向已确认人物；机会材料只在同一 Opportunity 内可见，通用 Wiki / Cognition 读取不得预装机会私有知识。Cognition 可以引用个人、Project、Employment 与已确认 Person 的资料，但本期不自动提炼 Cognition。
+
 ## Domain Objects
 
 ### Project
@@ -68,6 +76,14 @@ Raw 中出现姓名或代称，不创建长期 Person。身份映射、长期 Pe
 ## Wiki Semantic Layer 与 Cognition
 
 Wiki 是 Raw 与 Domain Objects 之上的持续语义知识层，保存当前有效的含义、范围、标签、时间状态和 Raw `source_refs`。它可以描述项目知识、任职协作、人物、决策、当前目标/状态、风险、结果、未解决问题及 Cognition。
+
+### D1 Wiki Knowledge 合同
+
+第一版语义类型只用 `Fact`、`Observation`、`Hypothesis`：Fact 是用户当前确认、由原始材料支持的事实；Observation 是从材料中观察到、尚未升格为绝对事实的模式；Hypothesis 是仍待验证的推断。类型不带 AI confidence 分数。用户可以直接写 Wiki；这种记录的 provenance 明确标记为 `user`，来源列表为空，不伪造 Raw 引用，也不建立第二套来源账本。
+
+每条 Wiki Knowledge 属于一个明确的 Project、Employment、Opportunity、已确认 Person、Personal 或 Cognition 范围，可带自由 Tags 和 0..N 个稳定 `source_refs`。Person 范围必须引用已存在且身份已确认的 Person；Wiki 写入不创建 Person。一份 Raw 可以支持多条知识，一条知识也可引用多份 Raw。写入和改动只保存引用，不复制原文。Opportunity A 的知识只能在 A 的显式范围中显示；“全部长期范围”视图不读取 Opportunity 私有知识。Cognition 只保留手工记录能力，不在 D1 自动归纳。
+
+Wiki Knowledge 的状态为 `current` 或 `retired`。新建、编辑、退役与恢复都使用同一对象 ID，沿用 Career 的 `current` / `revisions` 版本机制与 CAS；改写以新修订更新当前语义，默认读取当前知识，历史视图保留旧版本。退役只让知识退出默认当前视图，不物理删除内容、修订或来源引用。来源与版本历史沿用这套现有机制，不另建第二套 provenance、archive 或 history 系统。D1 没有 Compiler：所有写入均由用户手工创建或编辑，不调用 Provider。
 
 Wiki 不创建第二套 Project、Employment、Opportunity 或 Person 正本。对象的身份、主字段、状态及真实关系由 Domain Object 拥有；Wiki 保存需要跨材料理解的语义。业务含义优先使用 `scope` 与自由 `tags` 表达，不为 Decision、Commitment、Risk、Achievement 等词各造一套实体表。知识语义优先收敛到 `Fact`、`Observation`、`Hypothesis`。
 

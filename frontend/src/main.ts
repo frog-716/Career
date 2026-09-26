@@ -12,6 +12,8 @@ import { isJsonObject, parseInterviewSessions, parseJsonEnvelope, parseResearchV
 import { mountResumeWorkspaceEditor, type ResumeEditorController } from "./resume-workspace";
 import { eligiblePeopleForProject } from "./person-relations";
 import { mutateAndRefreshWorkspace } from "./workspace-mutation";
+import { bindWikiSemantic } from "./wiki-semantic-bindings";
+import { semanticWikiUI } from "./wiki-semantic-ui";
 
 type Obj = Record<string, any>;
 type Page =
@@ -48,6 +50,8 @@ let state: Obj = {
 let journey: Obj = { plans: [], episodes: [], notes: [] };
 let editorVersions: Obj[] = [];
 let knowledge: Obj = { sources: [], candidates: [], entries: [] };
+let wikiSemantic: Obj = { items: [], raw: [] };
+let projectWiki: Obj = { knowledge: [], retired: [], raw: [] };
 let domain: Obj = { objects: [], opportunities: [], resume_uses: [] };
 let workDomain: Obj = { employments: [], projects: [], sources: [], persons: [], participants: [], events: [], achievements: [], evidence: [], evidence_links: [] };
 let opportunityCommunications: Obj[] = [];
@@ -221,6 +225,30 @@ async function load() {
     runs: state.runs,
     resume_documents: state.resume_documents,
   };
+  const loadSemanticWiki = async () => {
+    const query = new URLSearchParams({ status: semanticWikiUI.status, limit: "50" });
+    const [scopeType, scopeId] = semanticWikiUI.scope.includes(":")
+      ? [semanticWikiUI.scope.slice(0, semanticWikiUI.scope.indexOf(":")), semanticWikiUI.scope.slice(semanticWikiUI.scope.indexOf(":") + 1)]
+      : [semanticWikiUI.scope, ""];
+    query.set("scope_type", scopeType);
+    query.set("scope_id", scopeId);
+    const [journeyResult, workResult, wikiResult, rawResult] = await Promise.all([
+      api("/journey?summary=true"),
+      api("/work-domain"),
+      api("/wiki?" + query.toString()),
+      semanticWikiUI.scope === "all"
+        ? Promise.resolve({ items: [] })
+        : api(`/raw?scope_type=${encodeURIComponent(scopeType)}&scope_id=${encodeURIComponent(scopeId)}`),
+    ]);
+    if (!current()) return;
+    journey = journeyResult;
+    workDomain = workResult;
+    wikiSemantic = {
+      items: wikiResult.items || wikiResult,
+      raw: rawResult.items || [],
+      next_cursor: wikiResult.next_cursor || "",
+    };
+  };
   try {
     if (targetPage === "jobs" || targetPage === "progress") {
       const [journeyResult, domainResult, opportunityState] = await Promise.all([
@@ -247,10 +275,21 @@ async function load() {
       const workResult = await api("/work-domain");
       if (!current()) return;
       workDomain = workResult;
+      const route = readRoute();
+      const routeProjectId = route.p === "projects" ? route.id : "";
+      const selectedProjectId = ui.projectId || routeProjectId || workResult.projects?.[0]?.id || "";
+      ui.projectId = selectedProjectId;
+      projectWiki = selectedProjectId
+        ? await api(`/wiki/workspace?scope_type=project&scope_id=${encodeURIComponent(selectedProjectId)}`)
+        : { knowledge: [], retired: [], raw: [] };
     } else if (targetPage === "wiki") {
       if (knowledgeUI.tab === "profile") {
-        knowledgeUI.nextCursor = "";
-      } else {
+        if (semanticWikiUI.legacyView) {
+          knowledgeUI.nextCursor = "";
+        } else {
+          await loadSemanticWiki();
+        }
+      } else if (semanticWikiUI.legacyView) {
         const params = new URLSearchParams({
           scope: knowledgeUI.scope,
           tab: knowledgeUI.tab,
@@ -266,7 +305,7 @@ async function load() {
         journey = journeyResult;
         knowledge = {...knowledge, [knowledgeUI.tab]: knowledgeResult.items || knowledgeResult[knowledgeUI.tab] || [], page_scope: knowledgeResult.scope};
         knowledgeUI.nextCursor = knowledgeResult.next_cursor || "";
-      }
+      } else await loadSemanticWiki();
     } else if (targetPage === "directory") {
       domain = await api("/domain");
     } else if (targetPage === "resume") {
@@ -590,6 +629,9 @@ function render() {
       {
         state,
         knowledge,
+        wikiSemantic,
+        projectWiki,
+        page,
         domain,
         workDomain,
         projectId: ui.projectId,
@@ -1542,6 +1584,15 @@ function bind() {
       editorVersions,
       page,
     }),
+  });
+  bindWikiSemantic({
+    api,
+    modal,
+    modalError,
+    render,
+    load,
+    failure,
+    getData: () => ({ state, journey, workDomain, wikiSemantic, projectWiki, page }),
   });
   $("#toggle-sidebar")!.onclick = () => {
     ui.sidebar = !ui.sidebar;
