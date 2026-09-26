@@ -276,9 +276,9 @@ def test_frozen_resume_version_is_unchanged_after_future_revoke(tmp_path):
 
 def test_resume_and_context_never_expand_into_people_or_private_evidence(tmp_path):
     client, store = make_client(tmp_path)
-    _, _, project, achievement, evidence, _ = work_fixture(client)
+    _, employment, project, achievement, evidence, _ = work_fixture(client)
     person = client.post(
-        "/api/work/persons",
+        f"/api/work/employments/{employment['id']}/persons",
         json={"name": "T14 私聊人物 PRIVATE_PERSON_CANARY", "role": "内部协作", "idempotency_key": "t14-person"},
     ).json()
     participant = client.post(

@@ -1,5 +1,14 @@
 # 当前状态
 
+## 2026-09-26：Phase C — COMPLETE / PASS
+
+- 用户验收：人物创建、编辑补充、页面即时刷新，以及 Project A/B 关联人物和跨任职隔离均 PASS。Person 的 Employment `role` 与每个 Project 自由填写的 `project_role` 独立。
+- 权威规则已补齐：手工创建即确认；Raw mention 不建 Person；未解决身份留给未来 Raw / Wiki Compiler；正常 UI 隐藏技术状态；任职结束后人物历史仍可读；人物语义进入 Wiki，不扩 Person 字段。
+- 清理正式库中本轮专属虚构数据：2 段 Employment、4 个 Person、2 个 Project、3 条人物关系、10 条 revision、11 条测试幂等请求。其他业务行摘要不变；无 Phase C ID/标记残留；health `ok`、SQLite `quick_check=ok`、schema v6、无 migration，data-instance 仍为 `42ff565e28a08e31414442521540ac3e`。
+- 回归：Phase C 聚焦 14 passed，全量 pytest 433 passed；前端人物、协作、刷新测试通过，导航 8 passed、本地请求 3 passed；typecheck、`/tmp` build、`pip check`、`npm ls`、secret scan、Markdown 链接及 `git diff --check` 通过。`npm ls` 仅有既有 extraneous 条目。
+- Runtime 未重启，仍为 PID `98210`、仅监听 `127.0.0.1:8765`、health `ok`；Provider 账本仍为 15 条，DeepSeek / Tavily outbound 增量均为 0；未读取或泄露 Secret。
+- Git ownership：Phase C 文件及 README 单独 hunk 已与 13 份用户旧 Resume 文件/README 旧 hunk 区分；旧内容逐字保持，未 stage。Phase C 精确提交并 push 作为本次收尾最后一步。
+
 ## 2026-09-26：Phase B — COMPLETE / PASS
 
 - 实现内容：增加 Project 一级入口及左右工作区；Project 可独立新建/编辑，支持名称、说明、用户自建 Tags、`active / paused / completed / canceled`、`status_note` 和可选 Employment 关联。任职页展示关联项目并提供轻量关联/新建入口，两处打开同一 Project 正本。简历工作台一级入口保留；旧 Event/Achievement/Evidence/Participant 仍在折叠兼容区；未改 Person、Resume AI，未进入 Phase C。

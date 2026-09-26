@@ -43,7 +43,7 @@ Project 是独立的长期对象，可以代表公司项目、个人项目、黑
 
 `status` 只允许 `active`、`paused`、`completed`、`canceled`。不加 `stopped`，也不建 `merged_into`、`replaced_by`、`fork`、`predecessor`、`successor` 等关系图。取消、合并或替代说明放 `status_note`。标签只是分类，不能代替 Employment 等真实关系。
 
-Project 不属于 Employment。非任职 Project 默认用户是唯一负责人，不强制维护 Participant。任职中的 Project 可选关联对应 Employment；任职页可以显示相关 Project，但打开和修改的始终是同一个 Project 正本。任职公司的协作者按需引用该 Employment 中已确认的 Person。
+Project 不属于 Employment。非任职 Project 默认用户是唯一负责人，不强制维护 Participant。任职中的 Project 可选关联对应 Employment；任职页可以显示相关 Project，但打开和修改的始终是同一个 Project 正本。任职公司的协作者按需引用该 Employment 中已确认的 Person。每个 Project 与 Person 的协作关系有自己的 `project_role`，由用户自由填写，不设固定枚举；它与 Person 在 Employment 中的 `role` 完全独立。同一个人在不同 Project 可以分别担任 Reviewer、Sponsor 等角色；修改其中一项不会修改另一项。
 
 用户认为项目仍是同一个项目时，改名或转方向只更新同一 Project 的当前名称、描述和 Wiki 认知，不新建 pivot 或替代项目实体。
 
@@ -51,7 +51,7 @@ Project 不属于 Employment。非任职 Project 默认用户是唯一负责人�
 
 Employment 表示一段真实任职环境，拥有公司/职位/时间、当前目标、长期协作人物、关联 Project、工作 Raw 和该任职范围的 Wiki 知识。它与 Project 是可选关联，不是父子容器。
 
-Employment 结束后成为历史工作环境。其 People 知识、当时目标、承诺和组织环境保留为历史语义，不再冒充当前状态。关于用户自身、可跨环境复用的方法或规律，经 Wiki Patch 审批后可进入 Cognition。
+Employment 结束后成为历史工作环境。其 Person、人物关系和任职角色继续保留并可读；当时目标、承诺和组织环境也保留为历史语义，不再冒充当前状态。关于用户自身、可跨环境复用的方法或规律，经 Wiki Patch 审批后可进入 Cognition。
 
 ### Opportunity
 
@@ -59,11 +59,11 @@ Opportunity 是一次具体求职尝试，并拥有自己的 JD、阶段与结�
 
 ### Person
 
-Person 不是全局 CRM。Person 主要属于某一段 Employment；同一姓名在不同工作期不自动视为同一身份。Person 本体保持轻，协作含义与来源放在 Wiki。
+Person 不是全局 CRM。Person 主要属于某一段 Employment；同一姓名在不同工作期不自动视为同一身份。Person 本体保持轻，只记录这个人在该 Employment 中的身份资料（姓名、任职角色等），协作含义与来源放在 Wiki。
 
-Raw 中出现姓名或代称，不创建长期 Person。身份映射、长期 Person 创建，以及重要人物知识写入必须由用户确认；重复出现也不改变这条规则。未经确认的名字只能作为临时 mention 留在当前材料中。
+Raw 中出现姓名或代称，不创建长期 Person。身份映射、长期 Person 创建，以及重要人物知识写入必须由用户确认；用户手工创建 Person 本身就是身份确认，不再要求第二次确认；重复出现也不改变这条规则。未经确认的名字只能作为临时 mention 留在当前材料中，待解决身份由未来的 Raw / Wiki Compiler 链处理。本阶段正常人物卡片不显示 `identity confirmed` 等技术状态。
 
-人物知识使用 Fact、Observation、Hypothesis，并带 Raw `source_refs` 与适用范围；不做性格分类、心理诊断或信任度/权力指数。对已经由用户确认身份的 Person，Compiler 从 Raw 提出的明确要求、承诺等可以直接作为普通 Wiki Patch 逐条交给用户审批，无须再做一次同义的身份确认。用户逐条接受、编辑后接受或拒绝；不得批量接受。
+人物的明确要求、承诺、Fact、Observation、Hypothesis 都属于 Wiki Semantic Layer，按范围和来源记录，不扩成 Person 本体字段。人物知识带 Raw `source_refs` 与适用范围；不做性格分类、心理诊断或信任度/权力指数。对已经由用户确认身份的 Person，Compiler 从 Raw 提出的明确要求、承诺等可以直接作为普通 Wiki Patch 逐条交给用户审批，无须再做一次同义的身份确认。用户逐条接受、编辑后接受或拒绝；不得批量接受。
 
 ## Wiki Semantic Layer 与 Cognition
 

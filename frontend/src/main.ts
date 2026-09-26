@@ -10,6 +10,8 @@ import { closeDialogIfAllowed, guardOpenDialog } from "./edit-session";
 import { requestLocal } from "./local-request";
 import { isJsonObject, parseInterviewSessions, parseJsonEnvelope, parseResearchView, parseResumeDocuments } from "./contracts";
 import { mountResumeWorkspaceEditor, type ResumeEditorController } from "./resume-workspace";
+import { eligiblePeopleForProject } from "./person-relations";
+import { mutateAndRefreshWorkspace } from "./workspace-mutation";
 
 type Obj = Record<string, any>;
 type Page =
@@ -241,6 +243,10 @@ async function load() {
       if (!current()) return;
       journey = journeyResult;
       workDomain = workResult;
+    } else if (targetPage === "projects") {
+      const workResult = await api("/work-domain");
+      if (!current()) return;
+      workDomain = workResult;
     } else if (targetPage === "wiki") {
       if (knowledgeUI.tab === "profile") {
         knowledgeUI.nextCursor = "";
@@ -325,6 +331,27 @@ function inform(text: string) {
 function failure(error: unknown) {
   inform(error instanceof Error ? error.message : "操作失败，请重试");
   if (root.innerHTML) render();
+}
+async function refreshWorkspaceAfterMutation<T>(
+  mutation: () => Promise<T>,
+  afterSave?: (value: T, context: { routeChangedDuringMutation: boolean }) => void,
+) {
+  return mutateAndRefreshWorkspace(mutation, {
+    captureRoute: () => ({
+      page,
+      projectId: ui.projectId,
+      employmentId: ui.episodeId,
+      hash: location.hash,
+    }),
+    reload: load,
+    restoreRoute: (route) => {
+      if (route.page === "projects") ui.projectId = route.projectId;
+      if (route.page === "work") ui.episodeId = route.employmentId;
+    },
+    render,
+    afterSave,
+    onRefreshError: () => inform("保存已完成，但页面暂时没能更新。请点页面上的「重试」；不要重复保存。"),
+  });
 }
 function isDirty() {
   return (
@@ -848,7 +875,6 @@ function editEpisode(id?: string) {
   const e = id ? journey.episodes.find((x: Obj) => x.id === id) : {};
   if (!e) return;
   let expected = e.revision;
-  let saved = false;
   modal(
     id ? "编辑工作卡" : "新建工作卡",
     `<form id="episode-form"><fieldset>${episodeFields(e)}</fieldset><div id="episode-conflict"></div><button class="primary full" type="submit">${id ? "保存修改" : "保存工作卡"}</button></form>`,
@@ -866,24 +892,34 @@ function editEpisode(id?: string) {
         button.disabled = true;
         fields.disabled = true;
         try {
-          if (!saved) {
-            const result = await api(
+          const outcome = await refreshWorkspaceAfterMutation(
+            () => api(
               "/journey/episodes" + (id ? "/" + id : ""),
               { ...mine, expected_revision: expected },
-            );
-            ui.episodeId = result.id;
-          }
-          page = "work";
-          saved = true;
-          await load();
-          dialog.close();
-          history.replaceState(null, "", "#work/" + ui.episodeId);
-          render();
-          inform("工作卡已保存。");
+            ),
+            (result, { routeChangedDuringMutation }) => {
+              dialog.close();
+              if (!routeChangedDuringMutation) {
+                ui.episodeId = result.id;
+                page = "work";
+                history.replaceState(null, "", "#work/" + ui.episodeId);
+              }
+            },
+          );
+          if (outcome.status !== "refresh_failed") inform("任职已保存。");
         } catch (error) {
           if (error instanceof ApiError && error.status === 409 && id) {
-            await load();
+            try {
+              await load();
+            } catch {
+              modalError(new Error("任职已被其他窗口修改。你的输入仍保留；请先重试页面加载，再比较最新内容。"));
+              return;
+            }
             const latest = journey.episodes.find((x: Obj) => x.id === id);
+            if (!latest) {
+              modalError(new Error("任职已被其他窗口移除，当前无法比较。你的输入仍保留。"));
+              return;
+            }
             const box = dialog.querySelector("#episode-conflict")!;
             const description = (v: Obj) =>
               `${v.company} · ${v.role}\n${v.start_date || "未设开始日期"} — ${v.end_date || "至今"}\n${v.focus}`;
@@ -893,18 +929,11 @@ function editEpisode(id?: string) {
               box.innerHTML = "";
             };
           } else {
-            modalError(
-              saved
-                ? new Error(
-                    "工作卡已写入本机，但刷新失败。输入暂时锁定，请重试刷新已保存内容。",
-                  )
-                : error,
-            );
-            if (saved) button.textContent = "刷新已保存的工作卡";
+            modalError(error);
           }
         } finally {
           button.disabled = false;
-          fields.disabled = saved;
+          fields.disabled = false;
         }
       };
     },
@@ -1003,20 +1032,27 @@ function addJourneyNote(scope: string, id: string, kind?: string) {
     },
   );
 }
-function workForm(title: string, fields: string, submit: string, save: (values: Obj) => Promise<void>) {
-  modal(title, `<form data-work-form><fieldset>${fields}</fieldset><p class="muted">成果和证据不会自动进入个人 Wiki；需要后续显式整理并确认。</p><button class="primary full" type="submit">${submit}</button></form>`, (dialog) => {
+function workForm(title: string, fields: string, submit: string, save: (values: Obj) => Promise<void>, note = "成果和证据不会自动进入个人 Wiki；需要后续显式整理并确认。") {
+  modal(title, `<form data-work-form><fieldset>${fields}</fieldset><p class="muted">${esc(note)}</p><button class="primary full" type="submit">${submit}</button></form>`, (dialog) => {
     const form = dialog.querySelector<HTMLFormElement>("form")!;
     form.onsubmit = async (event) => {
       event.preventDefault();
       const button = form.querySelector<HTMLButtonElement>("button[type=submit]")!;
       if (button.disabled) return;
       button.disabled = true;
-      try { await save(Object.fromEntries(new FormData(form).entries())); await load(); dialog.close(); render(); inform("已保存工作域记录。"); }
+      try {
+        const outcome = await refreshWorkspaceAfterMutation(
+          () => save(Object.fromEntries(new FormData(form).entries())),
+          () => dialog.close(),
+        );
+        if (outcome.status !== "refresh_failed") inform("已保存工作域记录。");
+      }
       catch (error) { modalError(error); button.disabled = false; }
     };
   });
 }
 function editWorkProject(project?: Obj, defaultEmploymentId = "") {
+  const requestKey = crypto.randomUUID();
   const employmentId = project?.employment_id || defaultEmploymentId;
   const employments = workDomain.employments || [];
   const fields = `<label>项目名称<input name="name" required maxlength="500" value="${esc(project?.name || "")}"></label><label>项目说明<textarea name="description" maxlength="100000">${esc(project?.description || "")}</textarea></label><label>Tags（每行一个，可自行填写）<textarea name="tags" placeholder="#AI\n#黑客松\n#个人项目">${esc((project?.tags || []).join("\n"))}</textarea></label><label>状态<select name="status">${[["active", "进行中"], ["paused", "已暂停"], ["completed", "已完成"], ["canceled", "已取消"]].map(([value, label]) => `<option value="${value}" ${value === (project?.status || "active") ? "selected" : ""}>${label}</option>`).join("")}</select></label><label>状态说明（可选）<textarea name="status_note" maxlength="10000">${esc(project?.status_note || "")}</textarea></label><label>关联任职（可选）<select name="employment_id"><option value="">不关联任职</option>${employments.map((item: Obj) => `<option value="${esc(item.id)}" ${item.id === employmentId ? "selected" : ""}>${esc(item.company)} · ${esc(item.role)}</option>`).join("")}</select></label>`;
@@ -1036,20 +1072,34 @@ function editWorkProject(project?: Obj, defaultEmploymentId = "") {
         status: values.status,
         status_note: values.status_note || "",
         employment_id: values.employment_id || null,
-        idempotency_key: crypto.randomUUID(),
+        idempotency_key: requestKey,
       };
       try {
-        const saved = project
-          ? await api(`/work/projects/${encodeURIComponent(project.id)}`, { ...body, expected_revision: project.revision })
-          : await api("/work/projects", body);
-        dialog.close();
-        ui.projectId = saved.id;
-        if (!project) await navigate("projects", saved.id);
-        else { await load(); render(); }
-        inform(project ? "项目已保存。" : "项目已创建，可以独立使用。");
+        if (project) {
+          const outcome = await refreshWorkspaceAfterMutation(
+            () => api(`/work/projects/${encodeURIComponent(project.id)}`, { ...body, expected_revision: project.revision }),
+            () => dialog.close(),
+          );
+          if (outcome.status !== "refresh_failed") inform("项目已保存。");
+        } else {
+          const outcome = await refreshWorkspaceAfterMutation(
+            () => api("/work/projects", body),
+            (saved, { routeChangedDuringMutation }) => {
+              dialog.close();
+              if (!routeChangedDuringMutation) {
+                page = "projects";
+                ui.projectId = saved.id;
+                history.replaceState(null, "", "#projects/" + encodeURIComponent(saved.id));
+              }
+            },
+          );
+          if (outcome.status !== "refresh_failed") inform("项目已创建，可以独立使用。");
+        }
       } catch (error) {
-        modalError(error);
-        button.disabled = false;
+        if (dialog.isConnected) {
+          modalError(error);
+          button.disabled = false;
+        } else failure(error);
       }
     };
   });
@@ -1058,6 +1108,7 @@ function createWorkProject(employmentId = "") {
   editWorkProject(undefined, employmentId);
 }
 function linkExistingProject(employmentId: string) {
+  const requestKey = crypto.randomUUID();
   const available = (workDomain.projects || []).filter((project: Obj) => !project.employment_id);
   if (!available.length) { inform("目前没有未关联任职的项目可以关联。"); return; }
   modal("关联已有项目", `<form data-project-link-form><fieldset><label>选择项目<select name="project_id" required>${available.map((project: Obj) => `<option value="${esc(project.id)}">${esc(project.name)}</option>`).join("")}</select></label></fieldset><button class="primary full" type="submit">关联项目</button></form>`, (dialog) => {
@@ -1071,15 +1122,15 @@ function linkExistingProject(employmentId: string) {
       const project = available.find((item: Obj) => item.id === projectId);
       if (!project) { modalError(new Error("所选项目已不存在，请重新载入。")); button.disabled = false; return; }
       try {
-        await api(`/work/projects/${encodeURIComponent(project.id)}/employment`, {
-          employment_id: employmentId,
-          expected_revision: project.revision,
-          idempotency_key: crypto.randomUUID(),
-        });
-        dialog.close();
-        await load();
-        render();
-        inform("已关联项目正本。");
+        const outcome = await refreshWorkspaceAfterMutation(
+          () => api(`/work/projects/${encodeURIComponent(project.id)}/employment`, {
+            employment_id: employmentId,
+            expected_revision: project.revision,
+            idempotency_key: requestKey,
+          }),
+          () => dialog.close(),
+        );
+        if (outcome.status !== "refresh_failed") inform("已关联项目正本。");
       } catch (error) { modalError(error); button.disabled = false; }
     };
   });
@@ -1158,8 +1209,71 @@ function linkWorkEvidence(projectId: string) {
   if (!achievements.length || !evidence.length) { inform("请先记录成果和项目证据。"); return; }
   workForm("关联成果证据", `<label>成果<select name="achievement_id">${achievements.map((a: Obj) => `<option value="${esc(a.id)}">${esc(a.title)}</option>`).join("")}</select></label><label>证据<select name="evidence_id">${evidence.map((x: Obj) => `<option value="${esc(x.id)}">${esc(x.title)}</option>`).join("")}</select></label>`, "关联证据", (v) => api("/work/evidence-links", { ...v, idempotency_key: crypto.randomUUID() }));
 }
-function addWorkPerson(projectId: string) {
-  workForm("添加项目参与者", `<label>姓名<input name="name" required maxlength="500"></label><label>角色<input name="role" maxlength="500"></label><label>项目内职责<input name="participant_role" maxlength="500"></label>`, "保存参与者", async (v) => { const person = await api("/work/persons", { name: v.name, role: v.role, idempotency_key: crypto.randomUUID() }); return api("/work/projects/" + encodeURIComponent(projectId) + "/participants", { person_id: person.id, role: v.participant_role || "", idempotency_key: crypto.randomUUID() }); });
+function addEmploymentPerson(employmentId: string) {
+  if (!employmentId) return;
+  const requestKey = crypto.randomUUID();
+  modal("添加任职人物", `<form data-employment-person-form><fieldset><label>姓名<input name="name" required maxlength="500"></label><label>角色 / 职位（可选）<input name="role" maxlength="500"></label></fieldset><p class="muted">保存就表示你决定在这段任职里长期维护这个人。</p><button class="primary full" type="submit">保存人物</button></form>`, (dialog) => {
+    const form = dialog.querySelector<HTMLFormElement>("form")!;
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const button = form.querySelector<HTMLButtonElement>("button[type=submit]")!;
+      if (button.disabled) return;
+      button.disabled = true;
+      const values = Object.fromEntries(new FormData(form).entries());
+      try {
+        const outcome = await refreshWorkspaceAfterMutation(
+          () => api(`/work/employments/${encodeURIComponent(employmentId)}/persons`, {
+            name: values.name, role: values.role || "", identity_status: "confirmed",
+            idempotency_key: requestKey,
+          }),
+          () => dialog.close(),
+        );
+        if (outcome.status !== "refresh_failed") inform("人物已保存到这段任职。");
+      } catch (error) { modalError(error); button.disabled = false; }
+    };
+  });
+}
+function editEmploymentPerson(employmentId: string, personId: string, revision: string) {
+  const person = workDomain.persons.find((item: Obj) => item.id === personId);
+  if (!person || person.employment_id !== employmentId) return;
+  const requestKey = crypto.randomUUID();
+  workForm(
+    "编辑人物",
+    `<label>姓名<input name="name" required maxlength="500" value="${esc(person.name)}"></label><label>角色 / 职位（可选）<input name="role" maxlength="500" value="${esc(person.role || "")}"></label>`,
+    "保存修改",
+    async (values) => {
+      await api(`/work/employments/${encodeURIComponent(employmentId)}/persons/${encodeURIComponent(personId)}`, {
+        name: values.name, role: values.role || "",
+        expected_revision: Number(revision), idempotency_key: requestKey,
+      });
+    },
+    "只修改姓名和角色；已有项目关联会保留。",
+  );
+}
+function confirmWorkPerson(personId: string, revision: string) {
+  const person = workDomain.persons.find((item: Obj) => item.id === personId);
+  if (!person?.employment_id) return;
+  void (async () => {
+    const outcome = await refreshWorkspaceAfterMutation(
+      () => api(`/work/employments/${encodeURIComponent(person.employment_id)}/persons/${encodeURIComponent(personId)}`, {
+        name: person.name, role: person.role || "", identity_status: "confirmed",
+        expected_revision: Number(revision), idempotency_key: crypto.randomUUID(),
+      }),
+    );
+    if (outcome.status !== "refresh_failed") inform("人物已更新。");
+  })().catch(failure);
+}
+function addWorkParticipant(projectId: string) {
+  const project = workDomain.projects.find((item: Obj) => item.id === projectId);
+  if (!project?.employment_id) { inform("个人项目不需要关联任职人物。"); return; }
+  const people = eligiblePeopleForProject(project, workDomain.persons || []);
+  if (!people.length) { inform("这段任职还没有人物，可以先到任职页面添加人物。"); return; }
+  const requestKey = crypto.randomUUID();
+  workForm("关联人物", `<label>人物<select name="person_id" required>${people.map((person) => `<option value="${esc(person.id)}">${esc(person.name)}${person.role ? ` · ${esc(person.role)}` : ""}</option>`).join("")}</select></label><label>项目内角色（可选）<input name="role" maxlength="500" placeholder="例如：决策者、Reviewer"></label>`, "关联人物", async (values) => {
+    await api(`/work/projects/${encodeURIComponent(projectId)}/participants`, {
+      person_id: values.person_id, role: values.role || "", idempotency_key: requestKey,
+    });
+  }, "这里只能选择这段任职里的人；项目角色只说明他在这个项目里的作用。");
 }
 async function changeJobStatus(status: string) {
   const j = currentJob();
@@ -1621,7 +1735,10 @@ function bind() {
   document.querySelectorAll<HTMLElement>("[data-work-revoke]").forEach((el) => (el.onclick = () => revokeWorkReuse(el.dataset.workRevoke!, el.dataset.workRevokeRevision!)));
   document.querySelectorAll<HTMLElement>("[data-work-evidence]").forEach((el) => (el.onclick = () => createWorkEvidence(el.dataset.workEvidence!)));
   document.querySelectorAll<HTMLElement>("[data-work-link-evidence]").forEach((el) => (el.onclick = () => linkWorkEvidence(el.dataset.workLinkEvidence!)));
-  document.querySelectorAll<HTMLElement>("[data-work-person]").forEach((el) => (el.onclick = () => addWorkPerson(el.dataset.workPerson!)));
+  document.querySelectorAll<HTMLElement>("[data-work-participant]").forEach((el) => (el.onclick = () => addWorkParticipant(el.dataset.workParticipant!)));
+  document.querySelectorAll<HTMLElement>("[data-add-employment-person]").forEach((el) => (el.onclick = () => addEmploymentPerson(el.dataset.addEmploymentPerson!)));
+  document.querySelectorAll<HTMLElement>("[data-edit-employment-person]").forEach((el) => (el.onclick = () => editEmploymentPerson(el.dataset.employmentId!, el.dataset.editEmploymentPerson!, el.dataset.personRevision!)));
+  document.querySelectorAll<HTMLElement>("[data-confirm-work-person]").forEach((el) => (el.onclick = () => confirmWorkPerson(el.dataset.confirmWorkPerson!, el.dataset.personRevision!)));
   document
     .querySelectorAll<HTMLElement>("[data-episode]")
     .forEach((el) => (el.onclick = () => editEpisode(el.dataset.episode!)));

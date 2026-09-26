@@ -23,6 +23,7 @@ IMMUTABLE = {
     "evidence_link": "work_evidence_link",
 }
 PROJECT_STATUSES = {"active", "paused", "completed", "canceled"}
+PERSON_IDENTITY_STATUSES = {"confirmed", "unresolved"}
 
 
 def _text(value, field, limit=100000):
@@ -138,6 +139,25 @@ def _stage_values(body, employment):
     if status not in {"planned", "active", "completed", "paused"}:
         raise Invalid("阶段状态不合法")
     return dict(name=name, start_date=start, end_date=end, focus=focus, status=status)
+
+
+def _person_values(body, old=None):
+    name = _text(body.get("name"), "人物姓名", 500)
+    role = body.get("role", (old or {}).get("role", ""))
+    if not isinstance(role, str) or len(role) > 500:
+        raise Invalid("人物角色超出长度限制")
+    identity_status = body.get("identity_status", (old or {}).get("identity_status", "confirmed"))
+    if not isinstance(identity_status, str) or identity_status not in PERSON_IDENTITY_STATUSES:
+        raise Invalid("人物身份状态不合法")
+    return dict(name=name, role=role, identity_status=identity_status)
+
+
+def _domain_persons(persons, employment_ids):
+    """Expose only explicitly Employment-owned people to the current domain UI."""
+    return [person for person in persons
+            if isinstance(person.get("employment_id"), str) and person.get("employment_id") in employment_ids
+            and isinstance(person.get("identity_status"), str)
+            and person.get("identity_status") in PERSON_IDENTITY_STATUSES]
 
 
 def _request(store, c, key, action, payload):
@@ -341,12 +361,18 @@ def work_router(store):
     def read_domain(kind: str | None = None, scope_type: str = "all", scope_id: str = "", limit: int | None = None, cursor: str | None = None):
         with store.connect(False) as c:
             from .employment import current_employments
+            employments = current_employments(store, c)
             result = {
-                "employments": current_employments(store, c),
+                "employments": employments,
                 "stages": store._current(c, CURRENT["stage"]),
                 "projects": [_project_view(item) for item in store._current(c, CURRENT["project"])],
                 "sources": store._records(c, IMMUTABLE["source"]),
-                "persons": store._current(c, CURRENT["person"]),
+                # Legacy global rows stay stored for review/recovery, but are not
+                # silently assigned to an Employment or exposed as current People.
+                "persons": _domain_persons(
+                    store._current(c, CURRENT["person"]),
+                    {item["id"] for item in employments},
+                ),
                 "participants": store._records(c, IMMUTABLE["participant"]),
                 "events": store._records(c, IMMUTABLE["event"]),
                 "achievements": [],
@@ -484,17 +510,37 @@ def work_router(store):
             _remember(store, c, key, fingerprint, result)
             return result
 
-    @router.post("/api/work/persons")
-    def create_person(body: dict):
-        name = _text(body.get("name"), "人物姓名", 500)
-        role = body.get("role", "")
-        if not isinstance(role, str) or len(role) > 500:
-            raise Invalid("人物角色超出长度限制")
+    @router.post("/api/work/employments/{employment_id}/persons")
+    def create_person(employment_id: str, body: dict):
         with store.connect() as c:
-            previous, key, fingerprint = _request(store, c, body.get("idempotency_key"), "create_person", body)
+            employment = _employment(store, c, employment_id)
+            values = _person_values(body)
+            payload = dict(employment_id=employment["id"], **values)
+            previous, key, fingerprint = _request(store, c, body.get("idempotency_key"), "create_person", payload)
             if previous is not None:
                 return previous
-            result = _create_current(store, c, "person", body, dict(name=name, role=role))
+            result = _create_current(store, c, "person", body, payload)
+            _remember(store, c, key, fingerprint, result)
+            return result
+
+    @router.post("/api/work/employments/{employment_id}/persons/{person_id}")
+    def update_person(employment_id: str, person_id: str, body: dict):
+        expected = _expected(body.get("expected_revision"))
+        if "employment_id" in body:
+            raise Invalid("人物所属任职不能直接修改")
+        with store.connect() as c:
+            employment = _employment(store, c, employment_id)
+            old = store._get(c, person_id, CURRENT["person"])
+            if old.get("employment_id") != employment["id"]:
+                raise Invalid("人物不属于这段任职，不能编辑")
+            values = _person_values(body, old)
+            if old.get("identity_status") == "confirmed" and values["identity_status"] != "confirmed":
+                raise Invalid("已确认身份不能通过普通编辑撤销")
+            payload = dict(person_id=person_id, expected_revision=expected, **values)
+            previous, key, fingerprint = _request(store, c, body.get("idempotency_key"), "update_person", payload)
+            if previous is not None:
+                return previous
+            result = store._save(c, CURRENT["person"], dict(old, **values), expected)
             _remember(store, c, key, fingerprint, result)
             return result
 
@@ -502,12 +548,20 @@ def work_router(store):
     def add_participant(project_id: str, body: dict):
         person_id = required(body.get("person_id"), "人物", 500)
         with store.connect() as c:
-            store._get(c, project_id, CURRENT["project"])
+            project = _project_view(store._get(c, project_id, CURRENT["project"]))
             person = store._get(c, person_id, CURRENT["person"])
             payload = dict(project_id=project_id, person_id=person_id, role=body.get("role", ""))
             previous, key, fingerprint = _request(store, c, body.get("idempotency_key"), "add_participant", payload)
             if previous is not None:
                 return previous
+            project_employment_id = _project_employment_id(project)
+            if not project_employment_id:
+                raise Invalid("个人项目不需要人物参与关系")
+            project_employment_id = _employment(store, c, project_employment_id)["id"]
+            if person.get("identity_status") != "confirmed":
+                raise Invalid("只能关联已确认身份的人物")
+            if person.get("employment_id") != project_employment_id:
+                raise Invalid("人物必须属于项目关联的同一任职")
             if not isinstance(payload["role"], str) or len(payload["role"]) > 500:
                 raise Invalid("参与角色超出长度限制")
             exists = c.execute("SELECT body FROM records WHERE kind=? AND json_extract(body,'$.project_id')=? AND json_extract(body,'$.person_id')=?", (IMMUTABLE["participant"], project_id, person_id)).fetchone()
