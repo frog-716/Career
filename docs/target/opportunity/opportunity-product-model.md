@@ -89,22 +89,22 @@ accepted
 如果需要简历：
 
 ```text
-导入 / 复制已有简历
+选择已有版本并复制当前内容（如已有）
 ↓
 编辑
 ↓
 AI 辅助 optional
 ```
 
+没有已有 Resume/Version 时，直接创建长期 Career 模型规定的 A4 基础模板并进入编辑；有版本时，用户选定后只复制当前内容并立即进入编辑。Resume Editor 从当前 Opportunity 打开，不设一级导航入口。
+
 普通编辑可以自动持久化，但不会自动产生历史版本。
 
-只有用户主动：
+普通草稿自动保存。用户按 `⌘S` 并确认版本名称后：
 
 ```text
-[保存版本]
+创建 ResumeVersion
 ```
-
-才产生普通 ResumeVersion。
 
 ## 3.2 打招呼语
 
@@ -528,7 +528,7 @@ OpportunityResearch
 
 这些内容不可修改。
 
-简历历史统一去 Resume Workspace 查看。
+简历历史在所属 Opportunity 的 Resume Editor 中查看。
 
 ## 10.5 Timeline
 
@@ -588,7 +588,7 @@ Timeline 展示完整求职活动流，包括：
 
 # 你怎么用
 
-这份文档未来是 Opportunity 的产品定义。
+这份文档是 Opportunity 内部流程的产品定义；长期跨模块对象边界以[长期 Career 模型](../long-term-career-model.md)为准。
 
 任何前端新功能先问：
 

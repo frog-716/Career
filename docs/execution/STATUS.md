@@ -1,5 +1,28 @@
 # 当前状态
 
+## 2026-09-26：Phase B — COMPLETE / PASS
+
+- 实现内容：增加 Project 一级入口及左右工作区；Project 可独立新建/编辑，支持名称、说明、用户自建 Tags、`active / paused / completed / canceled`、`status_note` 和可选 Employment 关联。任职页展示关联项目并提供轻量关联/新建入口，两处打开同一 Project 正本。简历工作台一级入口保留；旧 Event/Achievement/Evidence/Participant 仍在折叠兼容区；未改 Person、Resume AI，未进入 Phase C。
+- 自动验证：定向 `tests/test_work_domain.py tests/test_t14_reuse.py` 17 passed；全量 pytest 425 passed；前端 typecheck 通过；导航测试 8 passed；Vite 临时构建通过；`pip check`、`npm ls --depth=0`、secret scan、Markdown 本地链接和 `git diff --check` 通过。`npm ls` 有既有 extraneous 项但 exit 0。Phase B 没有 SQL schema migration；字段保存在既有 JSON body，正式数据库 schema 保持 v6。
+- Runtime Rebaseline：HEAD、`main`、`origin/main` 均为 `5cbb21b74524527385cf46013095195e9663e81c`；working tree dirty，包含用户原有、Phase A/B 的 tracked 改动。运行后端来自 `/Users/frog/Projects/Career` 当前 working tree（不是 HEAD），运行源码清单 SHA-256=`bcff9f766e102c520078142e89c7a7ab1ed1808c9857db105627f9f7e9512ceb`。旧 PID `38721` 已由正式启动器停止，新 PID=`76246`；服务健康 `ok`，仅监听 `127.0.0.1:8765`，模式为显式 `AI_ENABLED`。SQLite `quick_check=ok`、schema v6 且摘要不变，正式数据实例身份不变。
+- 前端正式产物：两次 `/tmp` 构建逐文件一致；随后正式生成 `frontend/dist`，11 个文件与临时构建一致，manifest SHA-256=`e6922a3ad14c08d3a9bdfe49625f6b485bd905ef0278a8ced1dd4090b31534d7`。重启后 HTTP 提供的 11 个文件均与该目录逐字节一致。旧 dist 未尝试恢复；它是可再生成的构建产物。
+- AI/Provider 范围：真实 Provider 质量未验收；本轮 Git 收口没有调用 Provider，DeepSeek 与 Tavily outbound 增量仍为 0。
+- 用户 UI 验收：两轮均由用户确认 PASS。第一轮：从「项目」创建不关联 Employment 的虚构 Project，两个自定义 Tags 保存成功。第二轮：从 Employment 关联该 Project 后打开同一正本，Tags 保留，未生成第二个同名 Project。
+- 测试数据清理与正式库复核：只删除本轮新建的 `TEST-PROJECT` 正本、5 条对应 revision 和 5 条仅含该 Project ID 的幂等请求记录；清理后 Project ID 集合恢复为 UI 验收前基线。关联的 Employment 早于本轮创建，已保留；Employment 与其 episode 内容摘要未变化。清理后 `/healthz=ok`、SQLite `quick_check=ok`、schema v6、正式数据实例身份正常。DeepSeek model dispatch 增量 0、Tavily search dispatch 增量 0；没有显示、复制或记录 Secret。
+- 构建纪律：普通 frontend build、CI 和验证输出到临时目录，不覆盖正式 `frontend/dist`；只有明确执行正式 runtime update 才生成正式 dist。`frontend/dist` 是 generated artifact，未知旧文件不作为需长期维护的业务状态。
+- Git ownership：可安全选择的 Phase A/B 文件分两组。模型文档组：`README.md`、`docs/00-authority.md`、`docs/target/long-term-career-model.md`、`docs/target/opportunity-README.md`、`docs/target/opportunity/context-ingestion.md`、`docs/target/opportunity/opportunity-domain-model.md`、`docs/target/opportunity/opportunity-product-model.md`、`docs/target/opportunity/opportunity-ui-flow.md`。Project 工作区组：`src/workbench/work.py`、`tests/test_work_domain.py`、`frontend/src/main.ts`、`frontend/src/sidebar-model.ts`、`frontend/src/style.css`、`frontend/src/workspace.ts`、`frontend/tests/sidebar-model.test.mjs`、`docs/07-roadmap.md`、`docs/execution/STATUS.md`、`docs/execution/WIKI-PROJECT-RESUME-IMPLEMENTATION-PLAN.md`。建议按这两组各自成 commit；本轮未 stage 或 commit。原用户业务修改文件为 `frontend/README.md`、`frontend/index.html`、`frontend/src/editor/legacy-app.js`、`frontend/src/editor/legacy.css`、`src/workbench/README.md`、`src/workbench/profile.py`、`src/workbench/resume_documents.py`、`src/workbench/resume_pdf.py`、`tests/test_profile_ownership.py`、`tests/test_record_submitted.py`、`tests/test_resume_documents.py`、`tests/test_resume_pdf.py`、`tests/test_t15_navigation.py`；均未编辑、回滚或格式化。`docs/01-product.md` 至 `docs/05-acceptance.md` 是 Phase A 前已脏的 5 份权威文档，原有用户内容与 Phase A 对齐内容在同一文件改动中交织，且没有 Phase A 前逐 hunk 快照，无法安全分开，暂列 D。`frontend/dist`、`.career-runtime/` 和 `/tmp` 的构建、清单与清理核验文件属于生成物/运行产物，不作为提交候选；没有被本轮清理。
+- 最终状态：Phase B `COMPLETE / PASS`。本轮到此停止，不进入 Phase C。
+
+## 2026-09-25：Phase A — 长期 Career 模型与权威文档对齐（完成）
+
+- GitHub 仓库已按用户要求从 Public 改为 Private；没有公开发布，也没有为此推送代码。
+- 当前计划：[WIKI-PROJECT-RESUME-IMPLEMENTATION-PLAN](WIKI-PROJECT-RESUME-IMPLEMENTATION-PLAN.md)。用户已批准计划并确认四项修正；Phase A 已新增唯一长期模型正本、对齐现行权威摘要，未改业务代码。随后用户已批准 Phase B；当前进展见本文顶部。
+- Phase A 范围：只修改目标/导航/验收/路线图/状态等 Markdown；`docs/audit/`、`docs/archive/` 未改。没有修改开始前已脏的业务代码、测试、前端页面及实现README；其中 5 份已脏权威产品文档仅做本阶段必要对齐，原有用户改动保留。
+- Phase A 检查：`.venv/bin/python scripts/review_checks.py --docs-only` exit 0；对本轮全部 18 个改动/新建 Markdown 文件执行本地链接与尾随空白检查 exit 0；`git diff --check` exit 0。没有运行业务测试，因为本轮没有代码改动。
+- 盘点基线：main 与 origin/main 均为 5cbb21b74524527385cf46013095195e9663e81c；Phase A 开始前工作区已有 18 个未提交改动，代码/测试保持不动，必要的文档对齐见本状态与实施计划。
+- 当前工作区基线测试：.venv/bin/python -m pytest -q，421 passed（22.63s）。
+- 生产 SQLite schema 只读检查为 v6；未读取业务记录。当前本机服务仍在 127.0.0.1:8765，构建标识 career-0.7.0-batch-f；运行源码与未提交改动不能由该标识完全证明一致。
+
 最后整理：2026-09-24（T00–T15 implementation tasks = `COMPLETE`；Review stabilization / implementation program = `CLOSED`）。本文顶部只维护当前源码/运行身份、阶段状态、阻断项、下一动作和证据位置；历史批次的过程和证据留在下方既有章节及各自文档。
 
 ## 2026-09-24：个人本机版取消配对与浏览器登录

@@ -22,6 +22,7 @@ IMMUTABLE = {
     "participant": "work_project_participant",
     "evidence_link": "work_evidence_link",
 }
+PROJECT_STATUSES = {"active", "paused", "completed", "canceled"}
 
 
 def _text(value, field, limit=100000):
@@ -63,6 +64,61 @@ def _employment(store, c, employment_id):
                 start_date=episode.get("start_date"), end_date=episode.get("end_date"),
                 focus=episode.get("focus", ""), revision=episode.get("revision", 0),
                 created_at=episode.get("created_at"))
+
+
+def _project_employment_id(project):
+    """Read the new optional Employment relation, projecting old records without writing them."""
+    if "employment_id" in project:
+        return project.get("employment_id") or None
+    scope_type, scope_id = project.get("scope_type"), project.get("scope_id")
+    if scope_type == "employment" and isinstance(scope_id, str) and scope_id:
+        return scope_id if scope_id.startswith("employment:") else "employment:" + scope_id
+    if scope_type == "episode" and isinstance(scope_id, str) and scope_id:
+        return "employment:" + scope_id
+    return None
+
+
+def _project_view(project):
+    """Return the user-facing Project contract, hiding legacy scope storage fields."""
+    result = {key: value for key, value in project.items() if key not in {"scope_type", "scope_id"}}
+    result.setdefault("tags", [])
+    result.setdefault("status", "active")
+    result.setdefault("status_note", "")
+    result["employment_id"] = _project_employment_id(project)
+    return result
+
+
+def _project_values(body, old=None):
+    name = _text(body.get("name"), "项目名称", 500)
+    description = body.get("description", (old or {}).get("description", ""))
+    if not isinstance(description, str) or len(description) > 100000:
+        raise Invalid("项目说明超出长度限制")
+    raw_tags = body.get("tags", (old or {}).get("tags", []))
+    if not isinstance(raw_tags, list) or len(raw_tags) > 100:
+        raise Invalid("项目标签必须是最多 100 个标签的列表")
+    tags = []
+    seen = set()
+    for tag in raw_tags:
+        if not isinstance(tag, str) or not tag.strip() or len(tag.strip()) > 100:
+            raise Invalid("项目标签不能为空或超出长度限制")
+        normalized = tag.strip()
+        if normalized in seen:
+            raise Invalid("项目标签不能重复")
+        seen.add(normalized)
+        tags.append(normalized)
+    status = body.get("status", (old or {}).get("status", "active"))
+    if not isinstance(status, str) or status not in PROJECT_STATUSES:
+        raise Invalid("项目状态不合法")
+    status_note = body.get("status_note", (old or {}).get("status_note", ""))
+    if not isinstance(status_note, str) or len(status_note) > 10000:
+        raise Invalid("项目状态说明超出长度限制")
+    employment_id = body.get("employment_id", (old or {}).get("employment_id"))
+    if employment_id == "":
+        employment_id = None
+    if employment_id is not None and (not isinstance(employment_id, str) or not employment_id):
+        raise Invalid("任职标识不合法")
+    return dict(name=name, description=description, tags=tags, status=status,
+                status_note=status_note, employment_id=employment_id)
 
 
 def _stage_values(body, employment):
@@ -197,11 +253,9 @@ def _reuse_summary(store, c, achievement_id):
 
 
 def _employment_owner(store, c, project):
-    scope_type, scope_id = project.get("scope_type"), project.get("scope_id")
-    if scope_type == "employment":
-        return {"kind": "employment", "id": scope_id}
-    if scope_type == "episode":
-        return {"kind": "employment", "id": "employment:" + scope_id}
+    employment_id = _project_employment_id(project)
+    if employment_id:
+        return {"kind": "employment", "id": employment_id}
     return {"kind": "project", "id": project["id"]}
 
 
@@ -290,7 +344,7 @@ def work_router(store):
             result = {
                 "employments": current_employments(store, c),
                 "stages": store._current(c, CURRENT["stage"]),
-                "projects": store._current(c, CURRENT["project"]),
+                "projects": [_project_view(item) for item in store._current(c, CURRENT["project"])],
                 "sources": store._records(c, IMMUTABLE["source"]),
                 "persons": store._current(c, CURRENT["person"]),
                 "participants": store._records(c, IMMUTABLE["participant"]),
@@ -343,37 +397,71 @@ def work_router(store):
 
     @router.post("/api/work/projects")
     def create_project(body: dict):
-        name = _text(body.get("name"), "项目名称", 500)
-        description = body.get("description", "")
-        if not isinstance(description, str) or len(description) > 100000:
-            raise Invalid("项目说明超出长度限制")
-        scope_type = body.get("scope_type")
-        scope_id = body.get("scope_id", "")
+        legacy_scope = "scope_type" in body or "scope_id" in body
+        if legacy_scope and any(key in body for key in ("employment_id", "tags", "status", "status_note")):
+            raise Invalid("新项目请使用可选任职关联和项目状态字段")
         with store.connect() as c:
             previous, key, fingerprint = _request(store, c, body.get("idempotency_key"), "create_project", body)
             if previous is not None:
                 return previous
-            if scope_type is not None:
+            if legacy_scope:
+                scope_type = body.get("scope_type")
+                scope_id = body.get("scope_id", "")
                 _scope(store, c, scope_type, scope_id, {"personal", "episode", "employment"})
-            result = _create_current(store, c, "project", body, dict(name=name, description=description,
-                scope_type=scope_type, scope_id=scope_id if scope_type else ""))
+                description = body.get("description", "")
+                if not isinstance(description, str) or len(description) > 100000:
+                    raise Invalid("项目说明超出长度限制")
+                result = _create_current(store, c, "project", body, dict(
+                    name=_text(body.get("name"), "项目名称", 500),
+                    description=description,
+                    scope_type=scope_type, scope_id=scope_id,
+                ))
+            else:
+                values = _project_values(body)
+                if values["employment_id"] is not None:
+                    values["employment_id"] = _employment(store, c, values["employment_id"])["id"]
+                result = _create_current(store, c, "project", body, values)
+                result = _project_view(result)
             _remember(store, c, key, fingerprint, result)
             return result
 
     @router.post("/api/work/projects/{project_id}")
     def update_project(project_id: str, body: dict):
         expected = _expected(body.get("expected_revision"))
-        name = _text(body.get("name"), "项目名称", 500)
-        description = body.get("description", "")
-        if not isinstance(description, str) or len(description) > 100000:
-            raise Invalid("项目说明超出长度限制")
         with store.connect() as c:
             old = store._get(c, project_id, CURRENT["project"])
-            payload = dict(project_id=project_id, expected_revision=expected, name=name, description=description)
+            values = _project_values(body, _project_view(old))
+            if values["employment_id"] is not None:
+                values["employment_id"] = _employment(store, c, values["employment_id"])["id"]
+            payload = dict(project_id=project_id, expected_revision=expected, **values)
             previous, key, fingerprint = _request(store, c, body.get("idempotency_key"), "update_project", payload)
             if previous is not None:
                 return previous
-            result = store._save(c, CURRENT["project"], dict(old, name=name, description=description), expected)
+            normalized = {key: value for key, value in old.items() if key not in {"scope_type", "scope_id"}}
+            result = store._save(c, CURRENT["project"], dict(normalized, **values), expected)
+            result = _project_view(result)
+            _remember(store, c, key, fingerprint, result)
+            return result
+
+    @router.post("/api/work/projects/{project_id}/employment")
+    def update_project_employment(project_id: str, body: dict):
+        expected = _expected(body.get("expected_revision"))
+        employment_id = body.get("employment_id")
+        if employment_id == "":
+            employment_id = None
+        if employment_id is not None and (not isinstance(employment_id, str) or not employment_id):
+            raise Invalid("任职标识不合法")
+        with store.connect() as c:
+            old = store._get(c, project_id, CURRENT["project"])
+            if employment_id is not None:
+                employment_id = _employment(store, c, employment_id)["id"]
+            payload = dict(project_id=project_id, employment_id=employment_id, expected_revision=expected)
+            previous, key, fingerprint = _request(store, c, body.get("idempotency_key"), "update_project_employment", payload)
+            if previous is not None:
+                return previous
+            normalized = {key: value for key, value in old.items() if key not in {"scope_type", "scope_id"}}
+            result = store._save(c, CURRENT["project"], dict(normalized, employment_id=employment_id), expected)
+            result = _project_view(result)
             _remember(store, c, key, fingerprint, result)
             return result
 

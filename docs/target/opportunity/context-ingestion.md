@@ -532,11 +532,11 @@ AI 面试官自己生成的信息：
 
 ---
 
-# 18. 与未来 Employment / Project 的关系
+# 18. 与 Employment / Project 的关系
 
-本周期只要求：
+跨模块长期对象的目标规格由[长期 Career 模型](../long-term-career-model.md)统一定义。Opportunity / Resume / Interview 通过受控接口读取相关目标对象，不递归读取任职私聊或所有项目资料。
 
-Opportunity / Resume / Interview 不要直接依赖未来 Employment / Project 的具体数据库结构。
+Opportunity / Resume / Interview 不直接依赖 Employment / Project 的具体数据库结构。
 
 统一通过：
 
@@ -548,11 +548,7 @@ ContextCompiler
 各 Skill
 ```
 
-未来下个周期重构 Employment / Project 时：
-
-只需要继续向这一层提供职业资料。
-
-Opportunity 不应该因此整体重写。
+Project、Employment、Person 当前已属于 Career 长期模型目标；其实现仍按各自批次增量演进。Opportunity 不因此整体重写。
 
 ---
 

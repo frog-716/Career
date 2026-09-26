@@ -23,6 +23,7 @@ export const ui = {
   workTab: "action",
   materialTab: "versions",
   episodeId: "",
+  projectId: "",
   selectedNote: "",
   selectedFeedback: "",
   jobFilter: "active",
@@ -69,6 +70,7 @@ const icons: Row = {
   jobs: "M4 7h16v14H4z M8 7V3h8v4 M4 12h16 M10 12v3h4v-3",
   resume: "M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h7",
   work: "M3 7h7l2 2h9v11H3z M3 7V4h7l2 3",
+  projects: "M4 5h16v4H4z M4 11h7v8H4z M13 11h7v8h-7z",
   practice:
     "M12 3l2.8 5.7L21 10l-4.5 4.4 1 6.2L12 17.7l-5.5 2.9 1-6.2L3 10l6.2-1.3z",
   footprint: "M12 3a9 9 0 1 0 9 9 M12 6v6l4 2 M17 3h4v4",
@@ -86,9 +88,28 @@ const title = (name: string, actions = "") =>
   `<div class="pane-heading"><h2>${e(name)}</h2><div class="actions">${actions}</div></div>`;
 const addNote = (scope: string, id: string, kind: string) =>
   `<button class="primary" data-add-note="${scope}:${e(id)}:${kind}">${icon("plus")}记录${noteNames[kind]}</button>`;
+const projectStatusNames: Row = {
+  active: "进行中", paused: "已暂停", completed: "已完成", canceled: "已取消",
+};
+const projectTagLabel = (tag: string) => tag.startsWith("#") ? tag : "#" + tag;
+function legacyProjectHTML(project: Row, workDomain: Row): string {
+  const events = workDomain.events.filter((item: Row) => item.target_type === "project" && item.target_id === project.id);
+  const achievements = workDomain.achievements.filter((item: Row) => item.project_id === project.id);
+  const evidence = workDomain.evidence.filter((item: Row) => item.scope_type === "project" && item.scope_id === project.id);
+  const achievementCards = achievements.length ? achievements.map((achievement: Row) => {
+    const links = workDomain.evidence_links.filter((item: Row) => item.achievement_id === achievement.id);
+    const linkedEvidence = links.map((link: Row) => evidence.find((item: Row) => item.id === link.evidence_id)).filter(Boolean);
+    const reuse = achievement.resume_reuse;
+    const reuseAction = reuse?.status === "approved"
+      ? `<span class="pill">已允许求职复用</span><button class="text-btn" data-work-revoke="${e(reuse.id)}" data-work-revoke-revision="${e(reuse.revision)}">撤销未来复用</button>`
+      : `<button class="text-btn" data-work-reuse="${e(achievement.id)}">${reuse?.status === "revoked" ? "重新允许求职复用" : "整理为求职复用"}</button>`;
+    return `<article class="work-achievement"><div class="pane-heading"><div><h4>${e(achievement.title)}</h4><p class="preserve">${e(achievement.content)}</p></div><div class="actions">${reuseAction}</div></div><div class="work-evidence-pointers">${linkedEvidence.length ? linkedEvidence.map((item: Row) => `<details><summary>查看证据 · ${e(item.title)}</summary><p class="preserve">${e(item.content)}</p></details>`).join("") : `<span class="muted">尚未关联证据</span>`}</div></article>`;
+  }).join("") : empty("还没有旧成果记录。");
+  return `<details class="work-domain-card project-compatibility"><summary>旧工作记录（兼容） · ${events.length} 个事件 · ${achievements.length} 项成果 · ${evidence.length} 条证据</summary><div class="work-achievements">${achievementCards}</div><div class="actions"><button class="secondary" data-work-event="${e(project.id)}">记录事件</button><button class="secondary" data-work-achievement="${e(project.id)}">记录成果</button><button class="secondary" data-work-evidence="${e(project.id)}">添加证据</button><button class="text-btn" data-work-link-evidence="${e(project.id)}">关联证据</button><button class="text-btn" data-work-person="${e(project.id)}">添加参与者</button></div></details>`;
+}
 export const SIDEBAR_MODULES: [string, string][] = [
   ["wiki", "Wiki"], ["jobs", "机会"],
-  ["resume", "简历工作台"], ["work", "任职"],
+  ["projects", "项目"], ["resume", "简历工作台"], ["work", "任职"],
 ];
 const sidebarStorageKey = "career.sidebar.module-order.v1";
 const sidebarHomeStorageKey = "career.sidebar.home.v1";
@@ -521,17 +542,23 @@ export function view(page: string, d: Row, h: Row): string {
         .join("") || empty("暂无机会")
     }</div></section><section class="detail-pane">${job ? `<div class="entity-heading"><div><small>${e(job.company)}</small><h2>${e(job.title)}</h2></div><details class="more-menu"><summary aria-label="机会操作">···</summary><div>${job.status === "active" ? '<button data-job-status="excluded">排除机会</button><button data-job-status="deleted">删除机会</button>' : '<button data-job-status="active">恢复机会</button>'}</div></details></div><div class="next-strip opportunity-next"><span class="pill">${e(stageNames[plan.stage] || "筛选")}</span><div class="next-text">${primary || e(plan.next_action || "选择一个机会")}</div><small>${e(plan.due_date || "")}</small><button class="text-btn" id="edit-plan" ${job.status === "active" ? "" : "disabled"}>编辑计划</button></div>${tabs("jobTab", [["jd", "机会"], ["analysis", "评估"], ["research", "研究"], ["resume", "简历"], ["communication", "沟通"], ["interview", "面试"], ["offer", "Offer"], ...["action", "reflection"].filter((kind) => notes.some((n) => n.scope_type === "job" && n.scope_id === job.id && n.kind === kind)).map((kind) => [kind, noteNames[kind]])], ui.jobTab)}<div class="module-content">${content}</div>` : empty("选择或添加一个机会")}</section></div>`;
   }
+  if (page === "projects") {
+    const projects = workDomain.projects as Row[];
+    const selected = projects.find((item) => item.id === ui.projectId) || projects[0];
+    if (selected) ui.projectId = selected.id;
+    const employment = selected?.employment_id
+      ? workDomain.employments?.find((item: Row) => item.id === selected.employment_id)
+      : null;
+    return `<div class="split"><section class="entity-rail"><div class="rail-heading"><h2>项目</h2><button class="icon-button" id="add-project" aria-label="新建项目">${icon("plus")}</button></div><div class="scroll rail-list">${projects.map((item) => `<button class="entity-row ${selected?.id === item.id ? "selected" : ""}" data-open-project="${e(item.id)}"><b>${e(item.name)}</b><span>${e(projectStatusNames[item.status] || "进行中")}</span><small>${item.tags?.length ? item.tags.map((tag: string) => e(projectTagLabel(tag))).join(" · ") : "暂无标签"}</small></button>`).join("") || empty("还没有项目。点击右上角 + 新建一个独立项目。")}</div></section><section class="detail-pane"><div class="scroll">${selected ? `<div class="entity-heading"><div><small>项目</small><h2>${e(selected.name)}</h2></div><div class="actions"><button class="secondary" data-edit-project="${e(selected.id)}">编辑项目</button></div></div><section class="work-domain-card project-summary"><p class="preserve">${e(selected.description || "还没有项目说明。")}</p><div class="actions project-tags">${selected.tags?.length ? selected.tags.map((tag: string) => `<span class="pill">${e(projectTagLabel(tag))}</span>`).join("") : `<span class="muted">暂无标签</span>`}</div><div class="setting-row"><span>状态</span><span class="pill">${e(projectStatusNames[selected.status] || "进行中")}</span></div>${selected.status_note ? `<div class="setting-row"><span>状态说明</span><span class="preserve">${e(selected.status_note)}</span></div>` : ""}<div class="setting-row"><span>关联任职</span>${employment ? `<button class="text-btn" data-open-employment="${e(employment.legacy_episode_id)}">${e(employment.company)} · ${e(employment.role)} ${icon("arrow")}</button>` : `<span class="muted">未关联任职</span>`}</div></section>${legacyProjectHTML(selected, workDomain)}` : `<div class="empty">还没有项目。点击左侧 + 新建一个项目，它可以独立存在，不需要先创建任职。</div>`}</div></section></div>`;
+  }
   if (page === "work") {
     const selected = episodes.find((x) => x.id === ui.episodeId) || episodes[0];
     const employmentId = selected
       ? workDomain.employments?.find((x: Row) => x.legacy_episode_id === selected.id)?.id || "employment:" + selected.id
       : "";
-    const projects = selected ? workDomain.projects.filter((p: Row) =>
-      (p.scope_type === "episode" && p.scope_id === selected.id) ||
-      (p.scope_type === "employment" && p.scope_id === employmentId),
-    ) : [];
-    const projectWorkspace = selected ? `<section class="work-domain-card"><div class="pane-heading"><div><h2>项目与成果</h2><p class="muted">记录项目进展、成果和证据。成果与证据不会自动进入个人 Wiki。</p></div><button class="primary" data-work-project="${e(selected.id)}">新建项目</button></div>${projects.length ? projects.map((p: Row) => { const events = workDomain.events.filter((x: Row) => x.target_type === "project" && x.target_id === p.id); const achievements = workDomain.achievements.filter((x: Row) => x.project_id === p.id); const evidence = workDomain.evidence.filter((x: Row) => x.scope_type === "project" && x.scope_id === p.id); const achievementCards = achievements.length ? achievements.map((a: Row) => { const links = workDomain.evidence_links.filter((x: Row) => x.achievement_id === a.id); const linkedEvidence = links.map((link: Row) => evidence.find((x: Row) => x.id === link.evidence_id)).filter(Boolean); const reuse = a.resume_reuse; const reuseAction = reuse?.status === "approved" ? `<span class="pill">已允许求职复用</span><button class="text-btn" data-work-revoke="${e(reuse.id)}" data-work-revoke-revision="${e(reuse.revision)}">撤销未来复用</button>` : `<button class="text-btn" data-work-reuse="${e(a.id)}">${reuse?.status === "revoked" ? "重新允许求职复用" : "整理为求职复用"}</button>`; return `<article class="work-achievement"><div class="pane-heading"><div><h4>${e(a.title)}</h4><p class="preserve">${e(a.content)}</p></div><div class="actions">${reuseAction}</div></div><div class="work-evidence-pointers">${linkedEvidence.length ? linkedEvidence.map((x: Row) => `<details><summary>查看证据 · ${e(x.title)}</summary><p class="preserve">${e(x.content)}</p></details>`).join("") : `<span class="muted">尚未关联证据</span>`}</div></article>`; }).join("") : empty("先记录一项成果，再关联证据。"); return `<article class="work-project"><div><h3>${e(p.name)}</h3><p class="preserve">${e(p.description || "暂无项目说明")}</p></div><div class="work-project-meta"><span>${events.length} 个事件</span><span>${achievements.length} 项成果</span><span>${evidence.length} 条证据</span></div><div class="work-achievements">${achievementCards}</div><div class="actions"><button class="secondary" data-work-event="${e(p.id)}">记录事件</button><button class="secondary" data-work-achievement="${e(p.id)}">记录成果</button><button class="secondary" data-work-evidence="${e(p.id)}">添加证据</button><button class="text-btn" data-work-link-evidence="${e(p.id)}">关联证据</button><button class="text-btn" data-work-person="${e(p.id)}">添加参与者</button></div></article>`; }).join("") : empty("先建立一个项目，再记录当前进展。")}</section>` : "";
-    return `<div class="split"><section class="entity-rail"><div class="rail-heading"><h2>任职</h2><button class="icon-button" id="add-episode" aria-label="新建任职">${icon("plus")}</button></div><div class="scroll rail-list">${episodes.map((x) => `<button class="entity-row ${selected?.id === x.id ? "selected" : ""}" data-open-episode="${e(x.id)}"><b>${e(x.company)}</b><span>${e(x.role)}</span><small>${e(x.start_date || "")} — ${e(x.end_date || "至今")}</small></button>`).join("") || empty("新建一份任职，开始记录当前进展。")}</div></section><section class="detail-pane">${selected ? `<div class="entity-heading"><div><small>${e(selected.company)}</small><h2>${e(selected.role)}</h2></div><div class="actions"><button class="quiet" data-open-wiki="episode:${e(selected.id)}">项目与 Wiki</button><button class="quiet" data-episode="${e(selected.id)}">编辑</button><button class="quiet" data-export-episode="${e(selected.id)}">导出</button></div></div><div class="focus-line" title="${e(selected.focus)}">${e(selected.focus || "尚未填写当前进展")}</div>${projectWorkspace}${tabs("workTab", [["action", "事项"], ["collaboration", "协作"], ["reflection", "收获"], ...(notes.some((n) => n.scope_type === "episode" && n.scope_id === selected.id && n.kind === "interview") ? [["interview", "历史面试"]] : [])], ui.workTab)}<div class="module-content">${title("当前进展", addNote("episode", selected.id, ui.workTab))}${records(notes.filter((n) => n.scope_type === "episode" && n.scope_id === selected.id && n.kind === ui.workTab))}</div>` : empty("新建一份任职，开始记录当前进展。")}</section></div>`;
+    const projects = selected ? workDomain.projects.filter((project: Row) => project.employment_id === employmentId) : [];
+    const projectWorkspace = selected ? `<section class="work-domain-card"><div class="pane-heading"><div><h2>关联项目</h2><p class="muted">这里打开的是项目正本，任职页不会另存一份。</p></div><div class="actions"><button class="secondary" data-link-existing-project="${e(employmentId)}">关联已有项目</button><button class="primary" data-work-project-employment="${e(employmentId)}">新建关联项目</button></div></div>${projects.length ? `<div class="project-list">${projects.map((project: Row) => `<button class="entity-row" data-open-project="${e(project.id)}"><b>${e(project.name)}</b><span>${e(projectStatusNames[project.status] || "进行中")}</span><small>${project.tags?.length ? project.tags.map((tag: string) => e(projectTagLabel(tag))).join(" · ") : "暂无标签"}</small></button>`).join("")}</div>` : empty("这段任职还没有关联项目。你可以关联已有项目，或新建一个项目。")}</section>` : "";
+    return `<div class="split"><section class="entity-rail"><div class="rail-heading"><h2>任职</h2><button class="icon-button" id="add-episode" aria-label="新建任职">${icon("plus")}</button></div><div class="scroll rail-list">${episodes.map((x) => `<button class="entity-row ${selected?.id === x.id ? "selected" : ""}" data-open-episode="${e(x.id)}"><b>${e(x.company)}</b><span>${e(x.role)}</span><small>${e(x.start_date || "")} — ${e(x.end_date || "至今")}</small></button>`).join("") || empty("新建一份任职，开始记录当前进展。")}</div></section><section class="detail-pane">${selected ? `<div class="scroll"><div class="entity-heading"><div><small>${e(selected.company)}</small><h2>${e(selected.role)}</h2></div><div class="actions"><button class="quiet" data-open-wiki="episode:${e(selected.id)}">项目与 Wiki</button><button class="quiet" data-episode="${e(selected.id)}">编辑</button><button class="quiet" data-export-episode="${e(selected.id)}">导出</button></div></div><div class="focus-line" title="${e(selected.focus)}">${e(selected.focus || "尚未填写当前进展")}</div>${projectWorkspace}${tabs("workTab", [["action", "事项"], ["collaboration", "协作"], ["reflection", "收获"], ...(notes.some((n) => n.scope_type === "episode" && n.scope_id === selected.id && n.kind === "interview") ? [["interview", "历史面试"]] : [])], ui.workTab)}<div class="module-content">${title("当前进展", addNote("episode", selected.id, ui.workTab))}${records(notes.filter((n) => n.scope_type === "episode" && n.scope_id === selected.id && n.kind === ui.workTab))}</div></div>` : empty("新建一份任职，开始记录当前进展。")}</section></div>`;
   }
   if (page === "resume") {
     return resumeWorkspaceHTML(

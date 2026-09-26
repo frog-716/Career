@@ -7,10 +7,11 @@ import {
   resolveSidebarHome,
 } from "../src/sidebar-model.ts";
 
-assert.deepEqual(normalizeSidebarOrder(["jobs", "jobs", "unknown", "wiki"]), ["jobs", "wiki", "resume", "work"]);
+assert.deepEqual(normalizeSidebarOrder(["jobs", "jobs", "unknown", "wiki"]), ["jobs", "wiki", "projects", "resume", "work"]);
+assert.deepEqual(normalizeSidebarOrder(["wiki", "jobs", "resume", "work"]), ["wiki", "jobs", "resume", "work", "projects"]);
 assert.deepEqual(normalizeSidebarOrder("bad-json"), [...SIDEBAR_MODULE_IDS]);
-assert.deepEqual(applySidebarPin(["wiki", "jobs", "resume", "work"], "resume"), ["resume", "wiki", "jobs", "work"]);
-assert.deepEqual(applySidebarPin(["resume", "wiki", "work", "jobs"], null), ["resume", "wiki", "work", "jobs"]);
+assert.deepEqual(applySidebarPin(["wiki", "jobs", "projects", "resume", "work"], "resume"), ["resume", "wiki", "jobs", "projects", "work"]);
+assert.deepEqual(applySidebarPin(["resume", "wiki", "work", "jobs", "projects"], null), ["resume", "wiki", "work", "jobs", "projects"]);
 assert.equal(resolveSidebarHome("missing", ["work", "wiki"]), "work");
 assert.equal(resolveSidebarHome("jobs", ["work", "wiki"]), "jobs");
 
@@ -25,7 +26,7 @@ const storage = {
   },
   removeItem(key) { this.values.delete(key); },
 };
-assert.equal(persistSidebarPreferences(storage, "home", "order", "resume", ["resume", "wiki", "jobs", "work"]), false);
+assert.equal(persistSidebarPreferences(storage, "home", "order", "resume", ["resume", "wiki", "jobs", "projects", "work"]), false);
 assert.equal(storage.values.get("home"), "wiki");
 assert.equal(storage.values.get("order"), '["wiki","jobs","resume","work"]');
 
@@ -34,6 +35,6 @@ const disabledStorage = {
   setItem() { throw new Error("storage disabled"); },
   removeItem() { throw new Error("storage disabled"); },
 };
-assert.equal(persistSidebarPreferences(disabledStorage, "home", "order", null, ["wiki", "jobs", "resume", "work"]), false);
+assert.equal(persistSidebarPreferences(disabledStorage, "home", "order", null, ["wiki", "jobs", "projects", "resume", "work"]), false);
 
-console.log("T15 sidebar model: 7 passed");
+console.log("Sidebar model: 8 passed");
