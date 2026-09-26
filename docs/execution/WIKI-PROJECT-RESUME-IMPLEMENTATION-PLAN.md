@@ -129,11 +129,17 @@
 
 ### Phase D：Raw、Wiki 与 Wiki Compiler
 
-可能文件：knowledge.py、work.py、context.py、core.py、contracts、Wiki UI 和对应测试。
+#### Phase D1：Raw + Wiki Semantic Foundation
 
-结果：Raw 原样保存发生经过；Wiki 保存当前语义及 source_refs；Compiler 仅生成 add、rewrite、retire，并逐条等待用户选择。
+范围：建立 Raw 与用户维护的 Wiki Knowledge 统一合同；已有原始对象按稳定 ID 引用，`source_refs` 固定 kind/id/revision/hash；Wiki 使用 Fact、Observation、Hypothesis 与 current/retired/revisions；机会私有范围继续隔离。可复用 `records/current/revisions` 时不升级 schema。新 Wiki 不进入 Resume AI / Context，不调用 Provider。
 
-验收：接受、编辑后接受、拒绝只影响对应条目；拒绝不改 Wiki；retire 不删历史；Raw 不被改写；每条知识都能回到来源。
+验收：虚构数据证明 Raw identity/hash 稳定且不被 Wiki 改写；用户可手工创建/编辑 Wiki、查看 exact source、current、retired 与历史；Person 范围只接受已确认人物；机会 A 的知识不进入机会 B 或通用长期范围；没有自动 Compiler Patch。
+
+#### Phase D2：Wiki Compiler
+
+范围：比较新 Raw 与相关对象已有的当前 Wiki，提出逐条 add、rewrite、retire Patch，供用户审批；不自动执行 Cognition 提炼或批量接受。
+
+验收：接受、编辑后接受、拒绝只影响对应条目；拒绝不改 Wiki；retire 不删历史；Raw 不被改写；每条提议能回到来源。进入 D2 前先完成 D1 自动与用户 UI 验收。
 
 ### Phase E：退役 T14 与重复实体
 

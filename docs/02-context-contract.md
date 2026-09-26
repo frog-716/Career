@@ -18,6 +18,8 @@
 
 2026-09-17审计快照中的真实 Provider 未验收、两项 profile/editor 测试失败等结论只描述当日证据，不代表当前。当前测试、运行与验收状态以 [STATUS](execution/STATUS.md) 为准；不能把合同要求当作现有机制的证明。
 
+Phase D1 的工作区实现新增独立的 `raw_material` 与 `wiki_knowledge` JSON kind，复用 `records`、`current` 与 `revisions`，不升级 schema，也不修改旧 `wiki_entry`。新 Wiki 暂不进入 `ContextCompiler`、Resume AI 或任何 Provider 请求；旧 Wiki 的求职读取合同继续单独保留。Runtime 与用户验收状态以 [STATUS](execution/STATUS.md) 为准。
+
 ## Target contract — 资料与正式对象
 
 ```text

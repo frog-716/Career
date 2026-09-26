@@ -10,8 +10,9 @@
 | --- | --- | --- |
 | A | 长期 Career 模型正本及当前权威文档对齐 | COMPLETE：文档已更新；未改业务代码 |
 | B | 一级导航、独立 Project、Employment-Project 关系 | COMPLETE / PASS：代码、自动检查、Runtime Rebaseline、两轮用户 UI 验收及本轮测试数据清理均通过 |
-| C | Employment / Person 生命周期和身份确认 | 尚未开始 |
-| D | Raw、Wiki Semantic Layer、Wiki Compiler | 尚未开始 |
+| C | Employment / Person 生命周期和身份确认 | COMPLETE / PASS |
+| D1 | Raw + Wiki Semantic Foundation | COMPLETE / PASS：自动验证、Runtime、两段用户 UI 验收、清理及 Git 收口均通过 |
+| D2 | Wiki Compiler | READY；尚未开始 |
 | E | 分类旧数据并退役 T14、ResumeUse 与重复业务对象 | 尚未开始；目标模型优先，分类后可清理明确测试对象 |
 | F | 从机会进入简历、创建/复制与版本流程 | 尚未开始 |
 | G | Resume AI 最小 DTO 与逐条建议 | 尚未开始 |
