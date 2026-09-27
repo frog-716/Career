@@ -36,7 +36,7 @@ def _domain_dependency(scope_type, scope_id, revision, identity, relation=None):
     )
 
 
-def _make_context(store, c, raw_id):
+def _make_context(store, c, raw_id, target_scope=None):
     try:
         raw = sources.resolve_source(store, c, "raw_material", raw_id)
     except Missing:
@@ -89,7 +89,44 @@ def _make_context(store, c, raw_id):
         add_scope("person", person["id"], identity, person.get("revision", 0), relation)
 
     scope_type, scope_id = direct
-    if scope_type == "project":
+    if target_scope is not None:
+        if not isinstance(target_scope, dict) or set(target_scope) != {"scope_type", "scope_id"}:
+            raise Invalid("Compiler 目标范围不合法")
+        canonical_target = sources._canonical_scope(
+            store, c, target_scope.get("scope_type"), target_scope.get("scope_id"),
+        )
+        if canonical_target is None:
+            raise Missing("Compiler 目标对象不存在或身份尚未确认")
+        if canonical_target != direct:
+            raise Invalid("Compiler 目标范围必须是这份资料所属的对象")
+        scope_type, scope_id = canonical_target
+        if scope_type == "project":
+            project = work._project_view(store._get(c, scope_id, work.CURRENT["project"]))
+            add_scope(
+                "project", project["id"], {"name": project.get("name", "")},
+                project.get("revision", 0),
+                {"employment_id": work._project_employment_id(project)},
+            )
+        elif scope_type == "employment":
+            add_employment(scope_id)
+        elif scope_type == "person":
+            person = store._get(c, scope_id, work.CURRENT["person"])
+            if person.get("identity_status") != "confirmed":
+                raise Missing("人物不存在或身份尚未确认")
+            add_scope(
+                "person", person["id"],
+                {"name": person.get("name", ""), "employment_role": person.get("role", "")},
+                person.get("revision", 0), {"employment_id": person.get("employment_id")},
+            )
+        elif scope_type == "opportunity":
+            item = opportunity.resolve(store, c, scope_id)
+            identity = {"company": item.get("company", ""), "title": item.get("title", "")}
+            add_scope("opportunity", item["id"], identity, item.get("revision", 0))
+        elif scope_type == "personal":
+            add_scope("personal", "", {}, 0)
+        else:
+            raise Invalid("Compiler 不支持这类目标范围")
+    elif scope_type == "project":
         project = work._project_view(store._get(c, scope_id, work.CURRENT["project"]))
         employment_id = work._project_employment_id(project)
         relation = {"employment_id": employment_id}
@@ -429,11 +466,27 @@ def _preview_details(dto, diagnostics):
     }
 
 
-def _client_intent(raw_id, model_config_id, idempotency_key):
-    return {
+def _client_intent(raw_id, model_config_id, idempotency_key, target_scope=None):
+    intent = {
         "raw_id": raw_id, "model_config_id": model_config_id,
         "idempotency_key": idempotency_key,
     }
+    if target_scope is not None:
+        intent["target_scope"] = deepcopy(target_scope)
+    return intent
+
+
+def _target_scope(value):
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {"scope_type", "scope_id"}:
+        raise Invalid("Compiler 目标范围不合法")
+    scope_type, scope_id = value.get("scope_type"), value.get("scope_id")
+    if scope_type not in {"project", "employment", "person", "opportunity", "personal"}:
+        raise Invalid("Compiler 目标范围不合法")
+    if not isinstance(scope_id, str):
+        raise Invalid("Compiler 目标范围不合法")
+    return {"scope_type": scope_type, "scope_id": scope_id}
 
 
 def _operation_input(body, allowed):
@@ -447,9 +500,9 @@ def _operation_input(body, allowed):
     return raw_id, key, model_config_id
 
 
-def _latest_context(store, raw_id):
+def _latest_context(store, raw_id, target_scope=None):
     with store.connect(False) as c:
-        return _make_context(store, c, raw_id)
+        return _make_context(store, c, raw_id, target_scope)
 
 
 def _proposal_expected_wiki(proposal):
@@ -476,7 +529,9 @@ def _proposal_expected_wiki(proposal):
 
 
 def _assert_proposal_fresh(store, c, proposal, patch):
-    dto, manifest, raw, raw_ref, scopes, wiki = _make_context(store, c, proposal["raw_id"])
+    dto, manifest, raw, raw_ref, scopes, wiki = _make_context(
+        store, c, proposal["raw_id"], proposal.get("target_scope"),
+    )
     if raw_ref != proposal["raw_ref"]:
         raise Conflict("stale_proposal: Raw 已变化，请重新整理")
     expected_scope_dependencies = proposal["scope_dependencies"]
@@ -519,6 +574,7 @@ def _proposal_result(proposal):
         public_patches.append(item)
     return {
         "id": proposal["id"], "raw_id": proposal["raw_id"],
+        "target_scope": deepcopy(proposal.get("target_scope")),
         "status": proposal["status"], "patches": public_patches,
         "created_at": proposal["created_at"],
     }
@@ -531,9 +587,10 @@ def compiler_router(store):
     @router.post("/api/wiki/compiler/prepare")
     def prepare(body: dict):
         raw_id, key, model_config_id = _operation_input(
-            body, {"raw_id", "idempotency_key", "model_config_id"},
+            body, {"raw_id", "idempotency_key", "model_config_id", "target_scope"},
         )
-        dto, manifest, raw, raw_ref, scopes, knowledge = _latest_context(store, raw_id)
+        target_scope = _target_scope(body.get("target_scope"))
+        dto, manifest, raw, raw_ref, scopes, knowledge = _latest_context(store, raw_id, target_scope)
         schema = _schema(dto)
         payload, diagnostics, selected_config, clean_dto, budget_info = gateway.prepare_payload(
             TASK_TYPE, dto, schema, model_config_id,
@@ -543,7 +600,7 @@ def compiler_router(store):
             "provider": diagnostics.get("provider", "test"),
             "model": diagnostics.get("model"), "payload": payload,
         })
-        intent = _client_intent(raw_id, model_config_id, key)
+        intent = _client_intent(raw_id, model_config_id, key, target_scope)
         prepared = outbound_policy.create_preparation(
             store, task_type=TASK_TYPE,
             target={"kind": "raw_material", "id": raw_id},
@@ -559,11 +616,12 @@ def compiler_router(store):
             "preview": _preview(scopes, knowledge, diagnostics),
             "readable_context": _readable_context(clean_dto),
             "preview_details": _preview_details(clean_dto, diagnostics),
+            "target_scope": target_scope,
         }
 
     @router.post("/api/wiki/compiler/execute")
     def execute(body: dict):
-        allowed = {"raw_id", "idempotency_key", "model_config_id", "prepared_id", "payload_hash", "confirm_outbound"}
+        allowed = {"raw_id", "idempotency_key", "model_config_id", "prepared_id", "payload_hash", "confirm_outbound", "target_scope"}
         if not isinstance(body, dict) or set(body) - allowed or not {
             "raw_id", "idempotency_key", "prepared_id", "payload_hash", "confirm_outbound",
         }.issubset(body):
@@ -572,15 +630,16 @@ def compiler_router(store):
             {name: body[name] for name in ("raw_id", "idempotency_key", "model_config_id") if name in body},
             {"raw_id", "idempotency_key", "model_config_id"},
         )
+        target_scope = _target_scope(body.get("target_scope"))
         prepared_id = required(body.get("prepared_id"), "AI 预览", 500)
         payload_hash = required(body.get("payload_hash"), "AI 预览摘要", 200)
         if body.get("confirm_outbound") is not True:
             raise Invalid("只有明确确认发送后才能调用 Provider")
-        intent = {**_client_intent(raw_id, model_config_id, key),
+        intent = {**_client_intent(raw_id, model_config_id, key, target_scope),
                   "prepared_id": prepared_id, "payload_hash": payload_hash}
 
         def prepare_operation():
-            dto, manifest, raw, raw_ref, scopes, knowledge = _latest_context(store, raw_id)
+            dto, manifest, raw, raw_ref, scopes, knowledge = _latest_context(store, raw_id, target_scope)
             schema = _schema(dto)
             payload, diagnostics, selected_config, clean_dto, budget_info = gateway.prepare_payload(
                 TASK_TYPE, dto, schema, model_config_id,
@@ -588,7 +647,7 @@ def compiler_router(store):
             frozen = outbound_policy.validate_preparation(
                 store, prepared_id, task_type=TASK_TYPE,
                 target={"kind": "raw_material", "id": raw_id},
-                client_intent=_client_intent(raw_id, model_config_id, key),
+                client_intent=_client_intent(raw_id, model_config_id, key, target_scope),
                 payload_hash=payload_hash, packet=clean_dto, payload=payload,
                 manifest=manifest,
             )
@@ -605,11 +664,12 @@ def compiler_router(store):
                 "gateway_request_hash": gateway_request_hash,
                 "model_config_id": model_config_id, "scopes": scopes,
                 "knowledge": knowledge, "raw_ref": raw_ref,
+                "target_scope": target_scope,
             }
 
         def dispatch(prepared, binder):
             def before_call(actual_hash):
-                _dto, live_manifest, _raw, _ref, _scopes, _knowledge = _latest_context(store, raw_id)
+                _dto, live_manifest, _raw, _ref, _scopes, _knowledge = _latest_context(store, raw_id, target_scope)
                 if live_manifest != prepared["manifest"] or actual_hash != prepared["gateway_request_hash"]:
                     from ..ai_operations import PreDispatchFailure
                     raise PreDispatchFailure("prepared_request_stale: Raw、范围或 Wiki 已变化，请重新预览")
@@ -624,7 +684,9 @@ def compiler_router(store):
         def persist(prepared, result, diagnostics):
             try:
                 with store.connect() as c:
-                    dto, live_manifest, raw, raw_ref, scopes, knowledge = _make_context(store, c, raw_id)
+                    dto, live_manifest, raw, raw_ref, scopes, knowledge = _make_context(
+                        store, c, raw_id, target_scope,
+                    )
                     if live_manifest != prepared["manifest"]:
                         raise Invalid("Provider 返回时 Raw、范围或 Wiki 已变化；没有创建提案")
                     patches = _validate_output(result, dto, raw)
@@ -640,6 +702,7 @@ def compiler_router(store):
                     proposal = {
                         "id": "wiki-compiler-proposal:" + uid(),
                         "raw_id": raw_id, "raw_ref": raw_ref,
+                        "target_scope": deepcopy(target_scope),
                         "operation_id": prepared.get("_operation_id"),
                         "status": "pending", "created_at": now(),
                         "scopes": scopes, "scope_dependencies": scope_deps,

@@ -52,6 +52,8 @@ let editorVersions: Obj[] = [];
 let knowledge: Obj = { sources: [], candidates: [], entries: [] };
 let wikiSemantic: Obj = { items: [], raw: [] };
 let projectWiki: Obj = { knowledge: [], retired: [], raw: [] };
+let employmentWiki: Obj = { knowledge: [], retired: [], raw: [] };
+let personWiki: Obj = { knowledge: [], retired: [], raw: [] };
 let domain: Obj = { objects: [], opportunities: [], resume_uses: [] };
 let workDomain: Obj = { employments: [], projects: [], sources: [], persons: [], participants: [], events: [], achievements: [], evidence: [], evidence_links: [] };
 let opportunityCommunications: Obj[] = [];
@@ -227,6 +229,7 @@ async function load() {
   };
   const loadSemanticWiki = async () => {
     const query = new URLSearchParams({ status: semanticWikiUI.status, limit: "50" });
+    query.set("include_source_titles", "true");
     const [scopeType, scopeId] = semanticWikiUI.scope.includes(":")
       ? [semanticWikiUI.scope.slice(0, semanticWikiUI.scope.indexOf(":")), semanticWikiUI.scope.slice(semanticWikiUI.scope.indexOf(":") + 1)]
       : [semanticWikiUI.scope, ""];
@@ -246,6 +249,7 @@ async function load() {
     wikiSemantic = {
       items: wikiResult.items || wikiResult,
       raw: rawResult.items || [],
+      sourceCatalog: wikiResult.source_catalog || [],
       next_cursor: wikiResult.next_cursor || "",
     };
   };
@@ -271,6 +275,31 @@ async function load() {
       if (!current()) return;
       journey = journeyResult;
       workDomain = workResult;
+      const route = readRoute();
+      const selectedEpisodeId = ui.episodeId || (route.p === "work" ? route.id : "")
+        || journeyResult.episodes?.[0]?.id || "";
+      ui.episodeId = selectedEpisodeId;
+      const selectedEpisode = journeyResult.episodes?.find((item: Obj) => item.id === selectedEpisodeId);
+      const selectedEmployment = selectedEpisode
+        ? workResult.employments?.find((item: Obj) => item.legacy_episode_id === selectedEpisode.id)
+        : null;
+      const employmentId = selectedEmployment?.id || (selectedEpisodeId ? "employment:" + selectedEpisodeId : "");
+      const allowedPeople = (workResult.persons || []).filter((item: Obj) =>
+        item.employment_id === employmentId && item.identity_status === "confirmed",
+      );
+      if (!allowedPeople.some((item: Obj) => item.id === ui.personId)) ui.personId = "";
+      const selectedPerson = allowedPeople.find((item: Obj) => item.id === ui.personId);
+      const [employmentResult, personResult] = await Promise.all([
+        employmentId
+          ? api(`/wiki/workspace?scope_type=employment&scope_id=${encodeURIComponent(employmentId)}`)
+          : Promise.resolve({ knowledge: [], retired: [], raw: [] }),
+        selectedPerson
+          ? api(`/wiki/workspace?scope_type=person&scope_id=${encodeURIComponent(selectedPerson.id)}`)
+          : Promise.resolve({ knowledge: [], retired: [], raw: [] }),
+      ]);
+      if (!current()) return;
+      employmentWiki = employmentResult;
+      personWiki = personResult;
     } else if (targetPage === "projects") {
       const workResult = await api("/work-domain");
       if (!current()) return;
@@ -631,6 +660,8 @@ function render() {
         knowledge,
         wikiSemantic,
         projectWiki,
+        employmentWiki,
+        personWiki,
         page,
         domain,
         workDomain,
@@ -918,8 +949,8 @@ function editEpisode(id?: string) {
   if (!e) return;
   let expected = e.revision;
   modal(
-    id ? "编辑工作卡" : "新建工作卡",
-    `<form id="episode-form"><fieldset>${episodeFields(e)}</fieldset><div id="episode-conflict"></div><button class="primary full" type="submit">${id ? "保存修改" : "保存工作卡"}</button></form>`,
+    id ? "编辑任职" : "新建任职",
+    `<form id="episode-form"><fieldset>${episodeFields(e)}</fieldset><div id="episode-conflict"></div><button class="primary full" type="submit">${id ? "保存修改" : "保存任职"}</button></form>`,
     (dialog) => {
       dialog.dataset.entityId = id || "";
       const form = dialog.querySelector<HTMLFormElement>("form")!;
@@ -965,7 +996,7 @@ function editEpisode(id?: string) {
             const box = dialog.querySelector("#episode-conflict")!;
             const description = (v: Obj) =>
               `${v.company} · ${v.role}\n${v.start_date || "未设开始日期"} — ${v.end_date || "至今"}\n${v.focus}`;
-            box.innerHTML = `<p class="notice">工作卡在另一个窗口已更新。输入已保留，请比较后再保存。</p><div class="diff"><section><h3>你的输入</h3><pre>${esc(description(mine))}</pre></section><section><h3>当前保存内容</h3><pre>${esc(description(latest))}</pre></section></div><button type="button" class="secondary">保留输入，基于最新版本继续编辑</button>`;
+            box.innerHTML = `<p class="notice">任职在另一个窗口已更新。输入已保留，请比较后再保存。</p><div class="diff"><section><h3>你的输入</h3><pre>${esc(description(mine))}</pre></section><section><h3>当前保存内容</h3><pre>${esc(description(latest))}</pre></section></div><button type="button" class="secondary">保留输入，基于最新版本继续编辑</button>`;
             box.querySelector("button")!.onclick = () => {
               expected = latest.revision;
               box.innerHTML = "";
@@ -1074,7 +1105,7 @@ function addJourneyNote(scope: string, id: string, kind?: string) {
     },
   );
 }
-function workForm(title: string, fields: string, submit: string, save: (values: Obj) => Promise<void>, note = "成果和证据不会自动进入个人 Wiki；需要后续显式整理并确认。") {
+function workForm(title: string, fields: string, submit: string, save: (values: Obj) => Promise<void>, note = "成果和证据不会自动进入个人 Wiki；需要后续显式整理并确认。", successMessage = "记录已保存。") {
   modal(title, `<form data-work-form><fieldset>${fields}</fieldset><p class="muted">${esc(note)}</p><button class="primary full" type="submit">${submit}</button></form>`, (dialog) => {
     const form = dialog.querySelector<HTMLFormElement>("form")!;
     form.onsubmit = async (event) => {
@@ -1087,7 +1118,7 @@ function workForm(title: string, fields: string, submit: string, save: (values: 
           () => save(Object.fromEntries(new FormData(form).entries())),
           () => dialog.close(),
         );
-        if (outcome.status !== "refresh_failed") inform("已保存工作域记录。");
+        if (outcome.status !== "refresh_failed") inform(successMessage);
       }
       catch (error) { modalError(error); button.disabled = false; }
     };
@@ -1172,7 +1203,7 @@ function linkExistingProject(employmentId: string) {
           }),
           () => dialog.close(),
         );
-        if (outcome.status !== "refresh_failed") inform("已关联项目正本。");
+        if (outcome.status !== "refresh_failed") inform("项目已关联到这段任职。");
       } catch (error) { modalError(error); button.disabled = false; }
     };
   });
@@ -1290,6 +1321,7 @@ function editEmploymentPerson(employmentId: string, personId: string, revision: 
       });
     },
     "只修改姓名和角色；已有项目关联会保留。",
+    "人物资料已更新。",
   );
 }
 function confirmWorkPerson(personId: string, revision: string) {
@@ -1315,7 +1347,7 @@ function addWorkParticipant(projectId: string) {
     await api(`/work/projects/${encodeURIComponent(projectId)}/participants`, {
       person_id: values.person_id, role: values.role || "", idempotency_key: requestKey,
     });
-  }, "这里只能选择这段任职里的人；项目角色只说明他在这个项目里的作用。");
+  }, "这里只能选择这段任职里的人；项目角色只说明他在这个项目里的作用。", "人物已关联到项目。");
 }
 async function changeJobStatus(status: string) {
   const j = currentJob();
@@ -1591,8 +1623,10 @@ function bind() {
     modalError,
     render,
     load,
+    navigate,
+    inform,
     failure,
-    getData: () => ({ state, journey, workDomain, wikiSemantic, projectWiki, page }),
+    getData: () => ({ state, journey, workDomain, wikiSemantic, projectWiki, employmentWiki, personWiki, page }),
   });
   $("#toggle-sidebar")!.onclick = () => {
     ui.sidebar = !ui.sidebar;
@@ -1788,6 +1822,19 @@ function bind() {
   document.querySelectorAll<HTMLElement>("[data-work-link-evidence]").forEach((el) => (el.onclick = () => linkWorkEvidence(el.dataset.workLinkEvidence!)));
   document.querySelectorAll<HTMLElement>("[data-work-participant]").forEach((el) => (el.onclick = () => addWorkParticipant(el.dataset.workParticipant!)));
   document.querySelectorAll<HTMLElement>("[data-add-employment-person]").forEach((el) => (el.onclick = () => addEmploymentPerson(el.dataset.addEmploymentPerson!)));
+  document.querySelectorAll<HTMLElement>("[data-open-employment-person]").forEach((el) => (el.onclick = () => {
+    const person = workDomain.persons.find((item: Obj) =>
+      item.id === el.dataset.openEmploymentPerson && item.identity_status === "confirmed",
+    );
+    if (!person) return;
+    ui.personId = person.id;
+    void load().then(render).catch(failure);
+  }));
+  document.querySelectorAll<HTMLElement>("[data-close-employment-person]").forEach((el) => (el.onclick = () => {
+    ui.personId = "";
+    personWiki = { knowledge: [], retired: [], raw: [] };
+    render();
+  }));
   document.querySelectorAll<HTMLElement>("[data-edit-employment-person]").forEach((el) => (el.onclick = () => editEmploymentPerson(el.dataset.employmentId!, el.dataset.editEmploymentPerson!, el.dataset.personRevision!)));
   document.querySelectorAll<HTMLElement>("[data-confirm-work-person]").forEach((el) => (el.onclick = () => confirmWorkPerson(el.dataset.confirmWorkPerson!, el.dataset.personRevision!)));
   document

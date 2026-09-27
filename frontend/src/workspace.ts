@@ -10,7 +10,10 @@ import { aiSettingsView } from "./ai-config-ui";
 import { resumeWorkspaceHTML } from "./resume-workspace";
 import { peopleForEmployment } from "./person-relations";
 import { projectCollaborationHTML } from "./project-collaboration";
-import { projectWikiHTML, wikiSemanticView, semanticWikiUI } from "./wiki-semantic-ui";
+import {
+  projectWikiHTML, scopeRawHTML, wikiCurrentUnderstandingHTML,
+  wikiSemanticView, semanticWikiUI,
+} from "./wiki-semantic-ui";
 import {
   applySidebarPin,
   isSidebarModuleId,
@@ -27,6 +30,7 @@ export const ui = {
   materialTab: "versions",
   episodeId: "",
   projectId: "",
+  personId: "",
   selectedNote: "",
   selectedFeedback: "",
   jobFilter: "active",
@@ -563,10 +567,21 @@ export function view(page: string, d: Row, h: Row): string {
       : "";
     const projects = selected ? workDomain.projects.filter((project: Row) => project.employment_id === employmentId) : [];
     const people = selected ? peopleForEmployment(workDomain.persons || [], employmentId) : [];
-    const peopleCards = people.length ? people.map((person: Row) => `<div class="setting-row"><span>${e(person.name)}${person.role ? ` · ${e(person.role)}` : ""}</span><div class="actions">${person.identity_status === "confirmed" ? "" : `<span class="pill">身份待确认</span><button class="text-btn" data-confirm-work-person="${e(person.id)}" data-person-revision="${e(person.revision)}">确认身份</button>`}<button class="text-btn" data-edit-employment-person="${e(person.id)}" data-employment-id="${e(employmentId)}" data-person-revision="${e(person.revision)}">编辑</button></div></div>`).join("") : empty("还没有需要长期维护的人。只添加你认为值得保留的同事或负责人。");
+    const peopleCards = people.length ? people.map((person: Row) => `<div class="setting-row"><span>${e(person.name)}${person.role ? ` · ${e(person.role)}` : ""}</span><div class="actions">${person.identity_status === "confirmed" ? `<button class="text-btn" data-open-employment-person="${e(person.id)}">查看</button>` : `<span class="pill">身份待确认</span><button class="text-btn" data-confirm-work-person="${e(person.id)}" data-person-revision="${e(person.revision)}">确认身份</button>`}<button class="text-btn" data-edit-employment-person="${e(person.id)}" data-employment-id="${e(employmentId)}" data-person-revision="${e(person.revision)}">编辑</button></div></div>`).join("") : empty("还没有需要长期维护的人。只添加你认为值得保留的同事或负责人。");
+    const selectedPerson = people.find((person: Row) => person.id === ui.personId && person.identity_status === "confirmed");
+    const personProjects = selectedPerson
+      ? (workDomain.participants || []).filter((item: Row) => item.person_id === selectedPerson.id)
+        .map((item: Row) => ({ ...item, project: workDomain.projects?.find((project: Row) => project.id === item.project_id) }))
+        .filter((item: Row) => item.project)
+      : [];
+    const personDetail = selectedPerson ? `<section class="work-domain-card person-detail" data-d3-person-detail="${e(selectedPerson.id)}"><div class="pane-heading"><div><h3>${e(selectedPerson.name)}</h3><p class="muted">${e(selectedPerson.role || "任职人物")}</p></div><button class="text-btn" data-close-employment-person>收起</button></div>${wikiCurrentUnderstandingHTML("person", selectedPerson.id, d.personWiki?.knowledge || [], d.personWiki?.raw || [])}<section class="work-domain-card"><div class="pane-heading"><h3>关联项目</h3></div>${personProjects.map((item: Row) => `<div class="setting-row"><button class="text-btn" data-open-project="${e(item.project.id)}">${e(item.project.name)}</button><span>${e(item.role || "未填写项目角色")}</span></div>`).join("") || empty("还没有关联项目。")}</section>${scopeRawHTML("person", selectedPerson.id, d.personWiki?.raw || [])}</section>` : "";
     const peopleWorkspace = selected ? `<section class="work-domain-card"><div class="pane-heading"><div><h2>人物</h2><p class="muted">这段任职里值得长期记住和理解的人。</p></div><div class="actions"><button class="secondary" data-add-employment-person="${e(employmentId)}">添加人物</button></div></div>${peopleCards}</section>` : "";
-    const projectWorkspace = selected ? `<section class="work-domain-card"><div class="pane-heading"><div><h2>关联项目</h2><p class="muted">这里打开的是项目正本，任职页不会另存一份。</p></div><div class="actions"><button class="secondary" data-link-existing-project="${e(employmentId)}">关联已有项目</button><button class="primary" data-work-project-employment="${e(employmentId)}">新建关联项目</button></div></div>${projects.length ? `<div class="project-list">${projects.map((project: Row) => `<button class="entity-row" data-open-project="${e(project.id)}"><b>${e(project.name)}</b><span>${e(projectStatusNames[project.status] || "进行中")}</span><small>${project.tags?.length ? project.tags.map((tag: string) => e(projectTagLabel(tag))).join(" · ") : "暂无标签"}</small></button>`).join("")}</div>` : empty("这段任职还没有关联项目。你可以关联已有项目，或新建一个项目。")}</section>` : "";
-    return `<div class="split"><section class="entity-rail"><div class="rail-heading"><h2>任职</h2><button class="icon-button" id="add-episode" aria-label="新建任职">${icon("plus")}</button></div><div class="scroll rail-list">${episodes.map((x) => `<button class="entity-row ${selected?.id === x.id ? "selected" : ""}" data-open-episode="${e(x.id)}"><b>${e(x.company)}</b><span>${e(x.role)}</span><small>${e(x.start_date || "")} — ${e(x.end_date || "至今")}</small></button>`).join("") || empty("新建一份任职，开始记录当前进展。")}</div></section><section class="detail-pane">${selected ? `<div class="scroll"><div class="entity-heading"><div><small>${e(selected.company)}</small><h2>${e(selected.role)}</h2></div><div class="actions"><button class="quiet" data-open-wiki="episode:${e(selected.id)}">项目与 Wiki</button><button class="quiet" data-episode="${e(selected.id)}">编辑</button><button class="quiet" data-export-episode="${e(selected.id)}">导出</button></div></div><div class="focus-line" title="${e(selected.focus)}">${e(selected.focus || "尚未填写当前进展")}</div>${peopleWorkspace}${projectWorkspace}${tabs("workTab", [["action", "事项"], ["collaboration", "协作"], ["reflection", "收获"], ...(notes.some((n) => n.scope_type === "episode" && n.scope_id === selected.id && n.kind === "interview") ? [["interview", "历史面试"]] : [])], ui.workTab)}<div class="module-content">${title("当前进展", addNote("episode", selected.id, ui.workTab))}${records(notes.filter((n) => n.scope_type === "episode" && n.scope_id === selected.id && n.kind === ui.workTab))}</div></div>` : empty("新建一份任职，开始记录当前进展。")}</section></div>`;
+    const projectWorkspace = selected ? `<section class="work-domain-card"><div class="pane-heading"><div><h2>关联项目</h2><p class="muted">点击后打开同一个项目，资料不会复制。</p></div><div class="actions"><button class="secondary" data-link-existing-project="${e(employmentId)}">关联已有项目</button><button class="primary" data-work-project-employment="${e(employmentId)}">新建关联项目</button></div></div>${projects.length ? `<div class="project-list">${projects.map((project: Row) => `<button class="entity-row" data-open-project="${e(project.id)}"><b>${e(project.name)}</b><span>${e(projectStatusNames[project.status] || "进行中")}</span><small>${project.tags?.length ? project.tags.map((tag: string) => e(projectTagLabel(tag))).join(" · ") : "暂无标签"}</small></button>`).join("")}</div>` : empty("这段任职还没有关联项目。你可以关联已有项目，或新建一个项目。")}</section>` : "";
+    const employmentKnowledge = d.employmentWiki?.knowledge || [];
+    const employmentRaw = d.employmentWiki?.raw || [];
+    const employmentWikiView = selected ? wikiCurrentUnderstandingHTML("employment", employmentId, employmentKnowledge, employmentRaw) : "";
+    const employmentRawView = selected ? scopeRawHTML("employment", employmentId, employmentRaw) : "";
+    return `<div class="split"><section class="entity-rail"><div class="rail-heading"><h2>任职</h2><button class="icon-button" id="add-episode" aria-label="新建任职">${icon("plus")}</button></div><div class="scroll rail-list">${episodes.map((x) => `<button class="entity-row ${selected?.id === x.id ? "selected" : ""}" data-open-episode="${e(x.id)}"><b>${e(x.company)}</b><span>${e(x.role)}</span><small>${e(x.start_date || "")} — ${e(x.end_date || "至今")}</small></button>`).join("") || empty("新建一份任职，开始记录当前进展。")}</div></section><section class="detail-pane">${selected ? `<div class="scroll"><div class="entity-heading"><div><small>${e(selected.company)}</small><h2>${e(selected.role)}</h2></div><div class="actions"><button class="quiet" data-open-wiki="episode:${e(selected.id)}">项目与 Wiki</button><button class="quiet" data-episode="${e(selected.id)}">编辑</button><button class="quiet" data-export-episode="${e(selected.id)}">导出</button></div></div><div class="focus-line" title="${e(selected.focus)}">${e(selected.focus || "尚未填写当前进展")}</div>${employmentWikiView}${peopleWorkspace}${personDetail}${projectWorkspace}${employmentRawView}${tabs("workTab", [["action", "事项"], ["collaboration", "协作"], ["reflection", "收获"], ...(notes.some((n) => n.scope_type === "episode" && n.scope_id === selected.id && n.kind === "interview") ? [["interview", "历史面试"]] : [])], ui.workTab)}<div class="module-content">${title("当前进展", addNote("episode", selected.id, ui.workTab))}${records(notes.filter((n) => n.scope_type === "episode" && n.scope_id === selected.id && n.kind === ui.workTab))}</div></div>` : empty("新建一份任职，开始记录当前进展。")}</section></div>`;
   }
   if (page === "resume") {
     return resumeWorkspaceHTML(
@@ -591,7 +606,7 @@ export function view(page: string, d: Row, h: Row): string {
       page === "practice"
         ? notes.filter((n) => ["interview", "reflection"].includes(n.kind))
         : notes;
-    return `<section class="full-panel">${title(page === "practice" ? "面试与复盘" : "全部记录", `<span class="muted">${ns.length} 条</span>`)}${records(ns, '<p class="muted">请进入<button class="text-btn" data-page="jobs">机会</button>或<button class="text-btn" data-page="work">工作卡</button>追加记录，保留任务归属。</p>')}</section>`;
+    return `<section class="full-panel">${title(page === "practice" ? "面试与复盘" : "全部记录", `<span class="muted">${ns.length} 条</span>`)}${records(ns, '<p class="muted">请进入<button class="text-btn" data-page="jobs">机会</button>或<button class="text-btn" data-page="work">任职</button>追加记录，保留任务归属。</p>')}</section>`;
   }
   if (page === "feedback") {
     const fs = s.feedback as Row[],

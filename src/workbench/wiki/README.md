@@ -1,6 +1,6 @@
 # Raw 与 Wiki Semantic Layer
 
-本模块实现 Phase D1 手工 Raw / Wiki 接口与 Phase D2 单 Raw Wiki Compiler。D2 复用现有 AI operation、prepare/preview/confirm、Provider gateway、幂等、dispatch slot、outbound audit 与 `current` / `revisions`；不修改旧 `wiki_entry`、T14、Resume Context 或 Raw，也不实现 Cognition 自动提炼。
+本模块实现 Phase D1 手工 Raw / Wiki 接口、Phase D2 单 Raw Wiki Compiler，以及 Phase D3 业务工作区接入。D2/D3 复用现有 AI operation、prepare/preview/confirm、Provider gateway、幂等、dispatch slot、outbound audit 与 `current` / `revisions`；不修改旧 `wiki_entry`、T14、Resume Context 或 Raw，也不实现 Cognition 自动提炼。
 
 ## 数据合同
 
@@ -16,11 +16,16 @@
 - `POST /api/raw`、`GET /api/raw?scope_type=...&scope_id=...`、`GET /api/raw/{source_kind}/{source_id}?revision=...&hash=...`。带版本和 hash 打开来源时，若原件当前已变化则拒绝冒充旧正文。
 - `GET /api/wiki?scope_type=...&scope_id=...&status=current|retired|all`。
 - `GET /api/wiki/workspace?scope_type=...&scope_id=...` 返回一个范围的当前/退役知识和 Raw 来源目录。
+- Wiki 列表按需传 `include_source_titles=true`，只返回当前可见知识所引用来源的标题目录，不返回 Raw 正文；`all` 仍排除 Opportunity 私有知识和来源。原文当前版本与引用的 revision/hash 不同时，界面明确提示来源版本已变化，不把新版冒充旧版。
+- 原始资料目录与业务 Wiki 工作区为当前 scope 的每份手工 Raw 返回 `pending_patch_count`。项目/任职/人物页面据此显示“建议待处理”和“继续处理建议”；继续入口读取已有 Proposal，不重新调用 Provider。计数仅包含目标 scope 相同的待审 Patch，不扩大 Compiler 的发送范围。
 - `POST /api/wiki` 新建；`POST /api/wiki/{id}` 编辑或退役；`GET /api/wiki/{id}/history` 查看共享 revision 历史。
 - 新建/修改均要求 `idempotency_key`；修改同时要求 `expected_revision`。Raw 仅提供创建接口，不存在编辑或删除接口。
 - `POST /api/wiki/compiler/prepare` 仅为用户选择的一份新手工 Raw 准备最小 Context DTO 和用户可读 Preview，不发送请求。Preview 按“新资料 → 所属项目 / 任职 / 人物 → Wiki 里已有的信息 → AI 会判断”展示；Wiki 类型分别显示为“已确认事实 / 观察 / 待验证判断”，不在每条知识上重复显示范围名称。Preview 的 Raw 全文、当前 Wiki 全文 / Tags 和范围身份只从已清洗的 outbound DTO 投影，不额外读取资料；长正文完整保留在有界滚动区，技术模型与条数放在默认折叠的详情里。边界说明是“仅限上面这些内容，不会读取其他 Career 资料”。
 - `POST /api/wiki/compiler/execute` 需要与预览匹配的 `prepared_id`、`payload_hash` 和 `confirm_outbound: true`；确认前重新核对 Raw / Wiki / 范围清单，以及 Provider 请求摘要中的模型配置 ID、provider、model 和 payload（不含 Secret）。真实语义内容或选中的模型配置变化会在 dispatch 前拒绝；时间戳、展示和存储排序不参与请求摘要。stale 时 UI 显示“资料在预览后发生了变化，请重新确认发送内容。”，只有用户点击“重新预览”才准备新请求；不自动 prepare 或重试。使用现有 AI operation 幂等与 dispatch slot。0 Patch 是成功结果；`outcome_unknown` 不自动重试。
 - `GET /api/wiki/compiler/proposals?raw_id=...` 与 `GET /api/wiki/compiler/proposals/{id}` 读取待审建议；`POST /api/wiki/compiler/proposals/{id}/patches/{patch_id}/resolve` 每次只接受、编辑后接受或拒绝一条。只有接受才通过 D1 Wiki mutation 改正式 Wiki；没有批量审批接口。
+- Project、Employment 和已确认 Person 工作区调用同一组 Compiler API 与前端绑定。业务入口传入 `target_scope: {scope_type, scope_id}`；服务端要求它与所选 Raw 的直接范围相同，并将这一个范围写入 prepare intent、Context manifest 与 Proposal。确认时重新校验目标；Patch 只能写回该范围。业务入口只发送该范围的当前 Wiki，不因 Project 关联 Employment / Person 而读取它们的 Wiki。省略 `target_scope` 的既有 D2 Wiki 页面继续按原多范围上下文合同工作。
+- `/api/wiki/workspace` 仍是每个业务页唯一的范围读取接口。Raw 添加时直接绑定当前 Project / Employment / Person；Person 只允许用户从已确认 Person 详情明确添加的 Person-scope Raw，不从普通 mention 推断。当前理解只投影 `status=current`，Fact → Observation → Hypothesis 排序、同类按更新时间倒序；retired 默认不显示，历史和来源仍复用 Wiki revision / source_refs。
+- Raw 保存、Wiki 手工保存和 Compiler Patch 逐条审批后，业务页重新读取当前 workspace 数据并重绘，保留已选对象与路由，不调用整页 `location.reload()`。0 Patch 不写 Wiki；用户完成提示后回到原业务页。
 - 编辑新增/改写 Patch 时修改的是 Wiki 正文；编辑退役 Patch 时修改的是审批中的退役原因，原 Wiki 正文保持不变。
 - 待审界面一次展示一条建议。rewrite / retire 的原文必须从目标知识共享修订历史中读取 `before_revision` 对应内容；找不到该修订就停止显示审批动作，不能拿当前正文代替。新增、改写和退役分别用“新增信息”“修改已有信息”和“建议将这条信息标记为不再有效”展示。
 - 每条建议的正常动作是“接受”“编辑后接受”“拒绝”。编辑只改变本地表单；用户点“确认修改并接受”后才提交编辑值，取消只回到原建议。打开 pending 建议、看原文和取消编辑只读，不调用 Provider；不自动重做 prepare，也没有批量接受。
@@ -32,6 +37,7 @@
 ```sh
 PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -B -m pytest -q -p no:cacheprovider tests/test_wiki_d1.py tests/test_wiki_d2.py
 npm --prefix frontend run test:wiki-semantic
+npm --prefix frontend run test:wiki-d3
 npm --prefix frontend run typecheck
 npm --prefix frontend exec vite build -- --outDir /tmp/career-frontend-build --emptyOutDir
 ```

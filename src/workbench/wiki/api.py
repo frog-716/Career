@@ -93,6 +93,50 @@ def _knowledge_values(store, c, body, scope, old=None):
     }
 
 
+def _raw_with_pending_counts(store, c, scope, raw_items):
+    """Display only: count unresolved patches for this exact business scope."""
+    ids = {item["id"] for item in raw_items if item["kind"] == "raw_material"}
+    counts = {identifier: 0 for identifier in ids}
+    target = {"scope_type": scope[0], "scope_id": scope[1]}
+    for proposal in store._records(c, "wiki_compiler_proposal"):
+        raw_id = proposal.get("raw_id")
+        if (proposal.get("status") != "pending" or raw_id not in counts
+                or proposal.get("target_scope") != target):
+            continue
+        counts[raw_id] += sum(
+            patch.get("status") == "pending" for patch in proposal.get("patches", ())
+        )
+    return [dict(item, pending_patch_count=counts.get(item["id"], 0))
+            for item in raw_items]
+
+
+def _source_catalog(store, c, items):
+    """Titles for the visible Wiki page only; never include Raw bodies."""
+    catalog = []
+    seen = set()
+    for item in items:
+        for ref in item.get("source_refs", ()):
+            if not isinstance(ref, dict) or not all(
+                name in ref for name in ("kind", "id", "revision", "hash")
+            ):
+                continue
+            key = (ref.get("kind"), ref.get("id"), ref.get("revision"), ref.get("hash"))
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                source = sources.resolve_source(store, c, key[0], key[1])
+            except (Missing, Conflict):
+                continue
+            catalog.append({
+                "source_ref": {name: ref[name] for name in ("kind", "id", "revision", "hash")},
+                "kind": source["kind"], "title": source["title"],
+                "source_kind": source["source_kind"],
+                "version_changed": (source["revision"], source["hash"]) != key[2:],
+            })
+    return catalog
+
+
 def raw_wiki_router(store):
     router = APIRouter()
 
@@ -101,7 +145,7 @@ def raw_wiki_router(store):
         with store.connect(False) as c:
             scope = _scope(store, c, scope_type, scope_id)
             items = sources.list_sources(store, c, scope[0], scope[1])
-            return {"items": items}
+            return {"items": _raw_with_pending_counts(store, c, scope, items)}
 
     @router.get("/api/raw/{source_kind}/{source_id}")
     def get_raw(
@@ -153,6 +197,7 @@ def raw_wiki_router(store):
     def list_knowledge(
         scope_type: str = "all", scope_id: str = "", status: str = "current",
         limit: int | None = None, cursor: str | None = None,
+        include_source_titles: bool = False,
     ):
         if status not in {"current", "retired", "all"}:
             raise Invalid("Wiki 状态筛选不合法")
@@ -174,7 +219,14 @@ def raw_wiki_router(store):
             if status != "all":
                 items = [item for item in items if item["status"] == status]
             scope_key = f"wiki:{scope_type}:{scope_id}:{status}"
-            return page(items, scope=scope_key, limit=limit, cursor=cursor)
+            result = page(items, scope=scope_key, limit=limit, cursor=cursor)
+            if include_source_titles:
+                visible = result["items"] if isinstance(result, dict) else result
+                return dict(result, source_catalog=_source_catalog(store, c, visible)) \
+                    if isinstance(result, dict) else {
+                        "items": result, "source_catalog": _source_catalog(store, c, visible),
+                    }
+            return result
 
     @router.get("/api/wiki/workspace")
     def wiki_workspace(scope_type: str, scope_id: str):
@@ -184,7 +236,9 @@ def raw_wiki_router(store):
                          if (item["scope_type"], item["scope_id"]) == scope]
             current = [item for item in knowledge if item["status"] == "current"]
             retired = [item for item in knowledge if item["status"] == "retired"]
-            raw_items = sources.list_sources(store, c, scope[0], scope[1])
+            raw_items = _raw_with_pending_counts(
+                store, c, scope, sources.list_sources(store, c, scope[0], scope[1]),
+            )
             return {"knowledge": current, "retired": retired, "raw": raw_items}
 
     @router.post("/api/wiki")

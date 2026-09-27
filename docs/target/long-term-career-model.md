@@ -121,6 +121,14 @@ D2 每次只处理用户从页面明确选择的一份新手工 Raw（`raw_mater
 
 用户一次只处理一条：接受、编辑后接受或拒绝，没有批量入口。只有接受会通过 D1 Wiki mutation 更新正式 Wiki，并沿用原对象 ID、CAS 与 revision；rewrite 保留原知识类型、标签并追加来源，retire 保留知识与历史只退出当前视图。编辑 add/rewrite 时用户编辑的是 Wiki 正文；编辑 retire 时用户编辑退役原因并保存在审批结果中，Wiki 原文不变。拒绝不改 Wiki。应用前复核 Raw、关联范围/关系、相关当前 Wiki 和目标 revision；任何变化都拒绝旧 Patch，不静默 rebase。Provider `outcome_unknown` 不自动重发，也不创建推定成功的 Proposal。D2 复用 schema v6 的现有 records/current/revisions 与 AI operation 存储，不新增 schema migration。
 
+### D3 业务工作区入口
+
+Project、Employment 和已确认 Person 的工作区都直接展示各自的 Raw 资料与 Wiki 当前理解；用户从当前对象的资料行发起同一套 Wiki Compiler。业务工作区明确指定一个目标对象，Compiler 只读取该对象自己的 Raw 与当前 Wiki，并且 Patch 只能写回这个对象。项目关联任职或协作人物不会扩大本次发送范围。普通姓名 mention 不进入长期 Person；Person 的 Raw 必须由用户明确关联到该 Person。
+
+Project 页面先显示当前理解，再显示轻量资料列表；Employment 页面同步显示任职理解和资料，Person 详情保持轻量，只显示该人物范围的理解、关联项目和明确关联的 Raw。当前理解是 Wiki 的只读投影，不另存摘要。知识按 Fact、Observation、Hypothesis 顺序展示，同类型内按最近更新时间排序；retired 知识默认隐藏，既有 Wiki 历史和来源入口仍可回看。
+
+用户逐条接受 Wiki Patch 后，当前业务工作区重新读取并显示最新 Wiki，同时保留正在查看的 Project、Employment 或 Person。0 Patch 时不写空知识、不重试，返回对象工作区并提示“这份资料没有发现值得更新到 Wiki 的长期知识。”这些接入复用 D1 Raw/Wiki 与 D2 Compiler 的 API、版本、安全和来源合同；不新增 schema 或第二套历史记录。
+
 ## Resume / Submission
 
 每个 Opportunity 独立拥有 `0..1 ResumeDocument`；不建立共享当前简历。简历不是一级导航。用户从机会进入编辑器时默认绑定该机会简历；编辑器允许切换到别的 Opportunity 简历或版本，并清楚标出当前主体。

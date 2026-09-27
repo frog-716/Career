@@ -41,6 +41,19 @@ assert.match(wikiHtml, /data-d1-open-raw-revision="1"/);
 assert.match(wikiHtml, new RegExp(`data-d1-open-raw-hash="${raw.hash}"`));
 assert.match(wikiHtml, /添加原始资料/);
 assert.match(wikiHtml, /写入 Wiki/);
+semanticWikiUI.scope = "all";
+const allWithTitles = wikiSemanticView({
+  ...data,
+  wikiSemantic: {
+    items: [knowledge], raw: [],
+    sourceCatalog: [{ ...raw.source_ref, title: "虚构会议原文", source_kind: "manual_text", source_ref: raw.source_ref }],
+  },
+});
+assert.match(allWithTitles, /虚构会议原文 · 手工原文/,
+  "全部 Wiki 范围也必须显示可区分的来源标题");
+assert.doesNotMatch(allWithTitles, /手工原文（版本可能已变化）/,
+  "有精确版本的来源不能误称版本可能变化");
+semanticWikiUI.scope = "project:project-fixture";
 assert.equal(knowledgeTypeLabel("fact"), "已确认事实");
 assert.equal(knowledgeTypeLabel("observation"), "观察");
 assert.equal(knowledgeTypeLabel("hypothesis"), "待验证判断");
@@ -49,6 +62,12 @@ assert.match(bindings, /Object\.entries\(knowledgeTypeLabels\)/,
   "编辑表单使用同一套中文知识类型名称");
 assert.match(ui, /knowledgeTypeLabel\(item\.type\)/,
   "Preview 使用和 Wiki 当前页相同的类型映射");
+assert.match(main, /include_source_titles/, "Wiki 当前页应请求当前可见来源的标题目录");
+assert.match(bindings, /保存到：/, "添加资料时必须显示目标对象的名称");
+assert.match(bindings, /if \(cancelEditButton\)[\s\S]*?dialog\.dataset\.dirty = "false"/,
+  "取消建议编辑后不应继续报告有未保存输入");
+assert.match(bindings, /result\.status === "proposal_pending"[\s\S]*?await load\(\);\s*render\(\);/,
+  "建议生成后应立即刷新底层资料行的待处理提示");
 
 const currentRevisions = [
   { revision: 1, status: "current", knowledge_type: "fact", content: "旧版本" },
@@ -92,13 +111,13 @@ const projectHtml = projectWikiHTML(
   { raw: [raw], knowledge: [knowledge], retired: [{ ...knowledge, id: "old", status: "retired" }] },
 );
 assert.match(projectHtml, /虚构会议原文/);
-assert.match(projectHtml, /Wiki 当前理解/);
+assert.match(projectHtml, /<h2>当前理解<\/h2>/);
 assert.match(projectHtml, /data-d1-add-wiki data-d1-scope-type="project"/);
 assert.match(projectHtml, /<details class="wiki-retired">/);
 assert.match(projectHtml, /已确认事实 · 不再有效/);
 assert.doesNotMatch(projectHtml, /\bFact\b|\bObservation\b|\bHypothesis\b/);
 assert.doesNotMatch(projectHtml, /<details class="wiki-retired" open/);
-assert.match(projectHtml, /data-d2-compile="raw-fixture">整理到 Wiki/);
+assert.match(projectHtml, /data-d2-compile="raw-fixture" data-d2-target-scope-type="project" data-d2-target-scope-id="project-fixture">整理到 Wiki/);
 assert.equal(wikiCompilerAction({ kind: "work_event", source_kind: "work_event", id: "legacy" }), "",
   "旧兼容来源不能直接进入 D2 Compiler");
 assert.equal(sourceLabel({ kind: "interview_raw", source_kind: "simulation_interview_transcript" }), "模拟面试转写");
@@ -109,8 +128,8 @@ const simulationProjectHtml = projectWikiHTML(
 assert.match(simulationProjectHtml, /模拟面试转写/);
 assert.doesNotMatch(simulationProjectHtml, /真实面试转写/);
 
-assert.match(bindings, /function rawsFor\(d: Obj\)[\s\S]*d\.page === "projects"[\s\S]*wikiSemantic\?\.raw/,
-  "项目和全局 Wiki 应使用各自范围的 Raw 清单，不能串页");
+assert.match(bindings, /function rawsFor\(d: Obj\)[\s\S]*d\.page === "projects"[\s\S]*d\.page === "work"[\s\S]*wikiSemantic\?\.raw/,
+  "项目、任职人物和全局 Wiki 应使用各自范围的 Raw 清单，不能串页");
 assert.match(bindings, /const sourceRefKey[\s\S]*ref\.revision, ref\.hash/,
   "来源选择必须按 ID、revision、hash 精确比较");
 assert.match(bindings, /原来源版本已变化/,
@@ -210,8 +229,8 @@ assert.doesNotMatch(editHTML, /data-d2-accept(?:\s|>)/,
   "编辑状态必须通过明确确认修改并接受，不能误点普通接受");
 assert.match(bindings, /editAcceptButton\.onclick = \(\) => void renderCompilerPatch\(dialog, proposal, true\)/,
   "编辑后接受进入本地编辑状态，没有先写 Proposal");
-assert.match(bindings, /cancelEditButton\.onclick = \(\) => void renderCompilerPatch\(dialog, proposal, false\)/,
-  "取消编辑回到原建议，且处理器不发请求");
+assert.match(bindings, /cancelEditButton\.onclick = async \(\) => \{[\s\S]*?await renderCompilerPatch\(dialog, proposal, false\);[\s\S]*?dialog\.dataset\.dirty = "false"/,
+  "取消编辑回到原建议，清除已丢弃输入的脏状态，且不发请求");
 assert.match(bindings, /confirmEditButton\.onclick = \(\) => \{[\s\S]*decide\("edit_accept", value\)/,
   "只有确认修改并接受才提交编辑后的内容");
 assert.match(bindings, /const acceptButton = flow\.querySelector<HTMLButtonElement>\("\[data-d2-accept\]"\);\s*if \(acceptButton\) acceptButton\.onclick/,
@@ -220,7 +239,7 @@ assert.match(bindings, /data-d2-reject[\s\S]*decide\("reject"\)/,
   "拒绝通过拒绝决定处理，不应用 Patch");
 assert.match(bindings, /function finishCompilerReview[\s\S]*dialog\.close\(\)[\s\S]*render\(\)/,
   "审批完成后应关闭弹窗并重绘当前页面");
-assert.match(bindings, /这组 Wiki 建议已经逐条处理完。[\s\S]*data-d2-finish[\s\S]*finishCompilerReview\(dialog\)/,
+assert.match(bindings, /这组 Wiki 建议已经逐条处理完。[\s\S]*data-d2-finish[\s\S]*finishCompilerReview\(dialog, accepted \?/,
   "逐条审批结束并关闭弹窗后，应重绘已刷新的当前 Wiki 页面");
 assert.match(ui, /function wikiCompilerPatchHTML[\s\S]*?编辑退役原因/);
 assert.match(bindings, /if \(decision === "edit_accept"\) body\[patch\.operation === "retire" \? "reason" : "content"\]/,
@@ -290,11 +309,11 @@ assert.match(staleRenderer, /资料在预览后发生了变化，请重新确认
 assert.match(staleRenderer, /data-d2-repreview>重新预览/);
 assert.doesNotMatch(staleRenderer, /prepared_request_stale|modalError/,
   "stale 技术码不能泄漏到普通界面");
-assert.match(staleRenderer, /data-d2-repreview[\s\S]*?onclick = \(\) => \{[\s\S]*?startCompiler\(rawId, true\)/,
+assert.match(staleRenderer, /data-d2-repreview[\s\S]*?onclick = \(\) => \{[\s\S]*?startCompiler\(rawId, true, targetScope\)/,
   "只有用户点击重新预览后才会创建新的 prepare");
-assert.match(bindings, /if \(isPreparedRequestStale\(error\)\) \{[\s\S]*?renderCompilerStale\(dialog, rawId\);\s*return;\s*\}[\s\S]*?modalError\(error\)/,
+assert.match(bindings, /if \(isPreparedRequestStale\(error\)\) \{[\s\S]*?renderCompilerStale\(dialog, rawId, targetScope\);\s*return;\s*\}[\s\S]*?modalError\(error\)/,
   "stale 失败展示人话并终止当前确认处理，不自动重试或 prepare");
-assert.match(bindings, /async function startCompiler\(rawId: string, freshPreview = false\)[\s\S]*?if \(!freshPreview\)[\s\S]*?const preview = await api\("\/wiki\/compiler\/prepare"/,
+assert.match(bindings, /async function startCompiler\(rawId: string, freshPreview = false, targetScope\?: Obj\)[\s\S]*?if \(!freshPreview\)[\s\S]*?const preview = await api\("\/wiki\/compiler\/prepare"/,
   "重新预览必须显式跳过旧 proposal 检查并获得新的 preview");
 assert.match(readFileSync(new URL("../src/style.css", import.meta.url), "utf8"),
   /\.d2-preview-content\s*\{[^}]*max-height:[^}]*overflow:\s*auto/s,

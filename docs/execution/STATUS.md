@@ -1,5 +1,27 @@
 # 当前状态
 
+## 2026-09-27：Phase D3 / D3.5 — COMPLETE / PASS
+
+- D3 两轮用户 UI 验收均已 PASS；D3 专属虚构测试数据已从隔离环境清理。D3.5 真实 Provider 未调用：本轮 DeepSeek outbound 增量 `0`、Tavily `0`。用户已确认此前那笔来源不明的 DeepSeek 调用由用户本人触发，本批不再调查或归类为异常。
+- Fresh-Eyes：使用独立的 `gpt-6-astra` / high Subagent，刻意不提供设计文档、源码和点击路径；其在全新隔离库、`TestProvider` 下独立完成 10 项核心目标及误操作探索，不需外部提示或浏览器刷新，未改代码。发现的主要摩擦是 Wiki 来源按钮缺少可识别标题、待审建议不易找回、取消编辑误报未保存、资料保存目标不清楚，以及少量内部术语/反馈文案。没有核心任务阻断或产品模型分叉。重复同名项目、长任职页、Project 人物直达、历史时间等列为后续优化，本批不扩功能。
+- D3.5 修复：来源标题只按当前可见 Wiki 的 source_refs 提供，不传 Raw 正文；Raw 行显示待审建议数量与继续入口；资料表单明确保存对象；取消建议编辑恢复原文且不触发未保存警告；保存、关联、建议生成给出更准确的即时反馈；压低内部术语。当前 Project / Employment / Person 页面和当前 Wiki 均不新增正本或历史库。
+- 第二轮回归：同一 Subagent 与新 Subagent 的隔离浏览器通道均不可用，因此二者未能执行第二轮 UI 回归。主 Agent 使用另一套全新隔离库和临时前端构建，从 UI 验证来源标题、建议找回、取消编辑、资料归属、人物编辑与建议生成后即时回显；这部分证据属于主 Agent 实际 UI 回归，不冒称 Subagent 完成。全部隔离环境均无真实 Provider 凭据。
+- 自动检查：D1/D2/D3 聚焦 `41 passed`，全量 pytest `475 passed`；7 组前端测试、typecheck、临时目录 Vite build、`pip check`、`npm ls --depth=0`、secret scan、文档链接与 `git diff --check` 均 exit 0。`npm ls` 只显示此前已存在的 extraneous 本机依赖。
+- 隔离测试对象已清理：两套 D3.5 临时数据库、TestProvider 服务和临时前端 build 均已停止/移除；D3 专属虚构测试对象此前已清理。正式服务 health=`ok`、SQLite `quick_check=ok`、schema v6；`current` / `records` / `revisions` 的 ID、kind、revision 摘要与 D3.5 开始前逐项相同。`ai_operations` dispatch、`ai_audit` dispatch 与 `ai_call` Provider 计数增量均为 `0`。
+- Git ownership：D3/D3.5 自有范围为长期模型/验收/roadmap/本 STATUS、Wiki Compiler 与 API/README、Project/Employment/Person Wiki UI、前端构建脚本及对应测试。13 个用户旧 Resume 文件和 `AGENTS.md` 未知 4 行与开工哈希逐字节一致；本机 `.agents/skills/`（77 文件）与 `docs/agents/`（3 文件）的清单摘要未变，均不纳入本批。精确提交与 push 后的 SHA 以最终 Git 核验为准。
+- 正式 Runtime 仍是 D3 用户验收时的 PID `70394` 和当时的 working-tree 基线，D3.5 未覆盖正式 `frontend/dist`，也未重启正式服务。Git 收口后 HEAD 会前进，Runtime 不因此冒称已加载 D3.5；下次正式 Runtime Update 应重新建立基线。Phase D4 仅 READY，尚未开始。
+
+## 2026-09-27：Phase D3 — 自动验证与 Runtime PASS；两轮用户 UI 验收前的历史快照
+
+- 当前目标：让 Project、Employment 和已确认 Person 工作区直接查看各自 Raw / Wiki，并从对象页面复用 D2 同一套 Compiler。D3 不实现 D4 Cognition，不改 Opportunity 主链、Resume AI、T14 / Event / Achievement / Evidence，也没有 schema migration。
+- 作用域合同：业务工作区在 prepare / confirm 显式绑定一个 `target_scope`；服务端要求它与所选 Raw 直接所属对象相同，并把它冻结进幂等意图、manifest、Proposal 与审批新鲜度校验。Project / Employment / Person 页面只读取自身当前 Wiki，Patch 只能写回该 scope。省略 `target_scope` 的原 Wiki 入口保留 D2 多范围合同。Person Raw 只能由已确认 Person 详情明确添加；普通 mention 不创建 Person。
+- UI 接入：Project 显示“当前理解”后显示轻量“资料”列表；Employment 显示任职当前理解和资料；打开已确认 Person 后显示人物当前理解、关联 Project 与 Person-scope 资料。统一 Compiler 绑定处理 prepare、confirm、Proposal 与单条审批。当前理解按 Fact → Observation → Hypothesis、同类最近更新时间排序，隐藏 retired；来源和历史沿用 D1。0 Patch 不写 Wiki、不重试，用户完成提示后回原工作区。写入/审批后重新读取当前 workspace，不使用 `location.reload()`。
+- 自动验证：D1/D2/D3 聚焦 pytest `40 passed`；全量 pytest `474 passed`。前端 navigation（8）、local request（3）、Employment/Person relations、Project collaboration、workspace mutation、Wiki semantic、D3 workspace 均通过；typecheck 通过。临时目录 build 成功；正式 build 后的 11 个文件与临时 build 逐字节一致。`pip check`、`npm ls --depth=0`、secret scan、文档链接检查和 `git diff --check` 通过；`npm ls` 仍显示此前已有 extraneous 本机依赖，没有修改依赖。
+- 正式 Runtime：受控更新旧 PID `63058` → 新 PID `70394`；health=`ok`，只监听 `127.0.0.1:8765`。显式 `AI_ENABLED` 保持；schema v6、SQLite `quick_check=ok`、data instance `42ff565e28a08e31414442521540ac3e` 不变。旧、新 `ai_operations` dispatched=`18`，`ai_audit` dispatched=`17`，各 task 数量一致；D3 DeepSeek outbound 增量 `0`、Tavily `0`。当前正式 Provider diagnostics 为 mode=`real`、configured=`false`；本轮没有触发真实 Provider。
+- Runtime 基线：HEAD = main = origin/main = `17804cfc9c1cb350d778d135c046490ceb6bc6fd`，working tree dirty。Runtime 后端与构建来源是当时实际 working tree，不是 HEAD；100 个运行源码 / 构建输入文件的 manifest SHA-256=`116984d5b3279fa2474ddc41bda6aa6ad0fdcb2dcaf3ab8230b738e1e7865719`。正式 `frontend/dist` 含 11 个文件，SHA-256 manifest=`7645608e18ca36c32b79f3a70a8529f392cacd855b5e23bd5d556878153dadb2`；HTTP 提供的 `/`、`/editor.html` 和引用资源都与构建产物逐字节相同。
+- UI 验收环境：正式数据库没有新增 D3 数据。另启动隔离的 `127.0.0.1:8766` 测试 UI（PID `70553`），空白临时数据库、schema v6，Provider 是本机 `TestProvider` 的合成建议实现，无真实网络请求。页面当前停在空的“项目”列表，等待用户第一轮：创建虚构 Project、添加虚构 Raw、接受一条合成建议并验证当前理解与来源。该验收通过后再单独引导 Employment / Person scope 场景；在此之前 Phase D3 不判 PASS。
+- Git ownership：D3 自有改动是 Compiler、workspace / Wiki UI、前端测试、`tests/test_wiki_d3.py` 与长期模型/验收/roadmap/Wiki 模块说明。13 个用户旧 Resume 文件、`AGENTS.md` 未知 hunk、`.agents/skills/`、`docs/agents/` 的开工哈希均未变化；无 stage、commit 或 push。D3 未提交，未有 UI 验收前不关闭阶段。
+
 ## 2026-09-27：Phase D2 — COMPLETE / PASS
 
 - 真实用户验收：DeepSeek 为虚构 smoke 提出 1 条 rewrite；用户编辑后接受。接受前确认 Proposal 已 resolved/accepted、正式 Wiki 未被 pending Proposal 改动；接受后 revision 2 保存的是用户编辑内容。revision 1 保留原 Fact，revision 2 保留新 Fact；二者都只有本轮 Raw revision 1 的 source_ref。Raw 正文和稳定摘要在发送、审批前后与 smoke 基线相同。没有重新调用 Provider。

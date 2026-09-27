@@ -187,6 +187,13 @@ def test_scope_validation_person_is_never_created_by_wiki_and_opportunities_are_
     assert [item["id"] for item in visible_a] == [entry_a["id"]]
     general_wiki = client.get("/api/wiki?scope_type=all&limit=50").json()["items"]
     assert all(item["scope_type"] != "opportunity" for item in general_wiki)
+    general_with_titles = client.get(
+        "/api/wiki?scope_type=all&limit=50&include_source_titles=true"
+    ).json()
+    assert all(item["scope_type"] != "opportunity" for item in general_with_titles["items"])
+    assert not {raw_op_a["id"], raw_op_b["id"]} & {
+        item["source_ref"]["id"] for item in general_with_titles["source_catalog"]
+    }, "全部知识的标题目录不得泄漏 Opportunity 私有来源"
     with store.connect(False) as c:
         assert store._get(c, employment_b["id"].replace("employment:", "", 1), "journey_episode")
 
