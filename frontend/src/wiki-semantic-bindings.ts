@@ -1,4 +1,8 @@
-import { semanticWikiUI, sourceLabel } from "./wiki-semantic-ui";
+import {
+  knowledgeTypeLabel, knowledgeTypeLabels, semanticWikiUI, sourceLabel,
+  wikiCompilerFrozenBefore, wikiCompilerPatchHTML, wikiCompilerPreviewHTML,
+  wikiHistoryStatusLabel,
+} from "./wiki-semantic-ui";
 
 type Obj = Record<string, any>;
 
@@ -8,9 +12,6 @@ const esc = (v: any) =>
       c
     ]!,
   );
-const typeNames: Record<string, string> = {
-  fact: "Fact", observation: "Observation", hypothesis: "Hypothesis",
-};
 const sourceNames: Record<string, string> = {
   raw_material: "手工原文", knowledge_source: "原始资料",
   work_project_source: "项目原文", work_event: "工作事件原文",
@@ -189,7 +190,7 @@ export function bindWikiSemantic(ctx: Obj) {
     const rawItems = rawsFor(d);
     const selectedRefs = item?.source_refs || [];
     const type = item?.knowledge_type || "fact";
-    const html = `<form class="knowledge-form"><fieldset><label>类型<select name="knowledge_type">${Object.entries(typeNames).map(([key, label]) => `<option value="${key}" ${type === key ? "selected" : ""}>${label}</option>`).join("")}</select></label><label>内容<textarea name="content" required maxlength="100000">${esc(item?.content || "")}</textarea></label><label>Tags（每行一个，可自由填写）<textarea name="tags" maxlength="10000">${esc((item?.tags || []).join("\n"))}</textarea></label>${sourceChoices(rawItems, selectedRefs)}</fieldset><button class="primary full" type="submit">保存</button></form>`;
+    const html = `<form class="knowledge-form"><fieldset><label>类型<select name="knowledge_type">${Object.entries(knowledgeTypeLabels).map(([key, label]) => `<option value="${key}" ${type === key ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></label><label>内容<textarea name="content" required maxlength="100000">${esc(item?.content || "")}</textarea></label><label>Tags（每行一个，可自由填写）<textarea name="tags" maxlength="10000">${esc((item?.tags || []).join("\n"))}</textarea></label>${sourceChoices(rawItems, selectedRefs)}</fieldset><button class="primary full" type="submit">保存</button></form>`;
     modal(item ? "编辑 Wiki 知识" : "写入 Wiki", html, (dialog: HTMLDialogElement) => {
       const form = dialog.querySelector<HTMLFormElement>("form")!;
       const button = form.querySelector<HTMLButtonElement>("button[type=submit]")!;
@@ -269,11 +270,12 @@ export function bindWikiSemantic(ctx: Obj) {
   on("[data-d1-wiki-history]", (el) => void (async () => {
     try {
       const response = await api(`/wiki/${encodeURIComponent(el.dataset.d1WikiHistory || "")}/history`);
-      const html = response.revisions.map((item: Obj) => {
+      const revisions = response.revisions || [];
+      const html = revisions.map((item: Obj) => {
         const refs = (item.source_refs || []).map((ref: Obj) =>
           `<p>${esc(sourceNames[ref.kind] || "原始来源")} · ${openRawButton(ref)}</p>`,
         ).join("");
-        return `<section class="work-domain-card"><small>${esc(typeNames[item.knowledge_type] || item.knowledge_type)} · ${item.status === "retired" ? "已退役" : "当前"}</small><p class="preserve">${esc(item.content)}</p><div class="actions">${(item.tags || []).map((tag: string) => `<span class="pill">${esc(tag)}</span>`).join("")}</div>${refs || '<p class="muted">手工写入 · 未引用原文</p>'}</section>`;
+        return `<section class="work-domain-card"><small>${esc(knowledgeTypeLabel(item.knowledge_type))} · ${wikiHistoryStatusLabel(item, revisions)}</small><p class="preserve">${esc(item.content)}</p><div class="actions">${(item.tags || []).map((tag: string) => `<span class="pill">${esc(tag)}</span>`).join("")}</div>${refs || '<p class="muted">手工写入 · 未引用原文</p>'}</section>`;
       }).join("") || '<p class="muted">暂无修订记录。</p>';
       modal("Wiki 修订历史", html, (dialog: HTMLDialogElement) => {
         dialog.querySelectorAll<HTMLElement>("[data-d1-open-raw-kind]").forEach((button) => {
@@ -284,6 +286,145 @@ export function bindWikiSemantic(ctx: Obj) {
       ctx.failure(error);
     }
   })());
+
+  function finishCompilerReview(dialog: HTMLDialogElement) {
+    dialog.close();
+    render();
+  }
+
+  function isPreparedRequestStale(error: unknown): boolean {
+    return error instanceof Error && error.message.includes("prepared_request_stale");
+  }
+
+  function renderCompilerStale(dialog: HTMLDialogElement, rawId: string) {
+    const flow = dialog.querySelector<HTMLElement>("[data-d2-flow]");
+    if (!flow) return;
+    flow.innerHTML = `<section class="notice"><b>资料在预览后发生了变化，请重新确认发送内容。</b><p><button type="button" class="primary" data-d2-repreview>重新预览</button></p></section>`;
+    flow.querySelector<HTMLButtonElement>("[data-d2-repreview]")!.onclick = () => {
+      dialog.close();
+      void startCompiler(rawId, true);
+    };
+  }
+
+  function renderCompilerPreview(dialog: HTMLDialogElement, rawId: string, key: string, preview: Obj) {
+    const flow = dialog.querySelector<HTMLElement>("[data-d2-flow]");
+    if (!flow) return;
+    dialog.classList.add("d2-preview-dialog");
+    flow.innerHTML = wikiCompilerPreviewHTML(preview.readable_context, preview.preview_details);
+    flow.querySelector<HTMLButtonElement>("[data-d2-cancel]")!.onclick = () => dialog.close();
+    flow.querySelector<HTMLButtonElement>("[data-d2-confirm]")!.onclick = async (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      button.disabled = true;
+      try {
+        const result = await api("/wiki/compiler/execute", {
+          raw_id: rawId, idempotency_key: key,
+          prepared_id: preview.prepared_id, payload_hash: preview.payload_hash,
+          confirm_outbound: true,
+        });
+        if (result.status === "no_changes") {
+          flow.innerHTML = `<section class="notice"><b>这份资料没有发现值得更新到 Wiki 的长期知识。</b><p>没有写入任何 Wiki。</p><button type="button" class="primary" data-d2-finish>完成</button></section>`;
+          flow.querySelector<HTMLButtonElement>("[data-d2-finish]")!.onclick = () => dialog.close();
+          return;
+        }
+        if (result.status === "proposal_pending" && result.proposal) {
+          try {
+            await load();
+            await renderCompilerPatch(dialog, result.proposal);
+          } catch {
+            flow.innerHTML = `<section class="notice"><b>建议已经生成并保存，但当前页面无法显示。</b><p>关闭后重新打开原始资料，可以继续检查这条建议。</p></section>`;
+          }
+          return;
+        }
+        flow.innerHTML = `<section class="notice"><b>${esc(result.message || "操作状态需要检查")}</b></section>`;
+      } catch (error) {
+        if (isPreparedRequestStale(error)) {
+          renderCompilerStale(dialog, rawId);
+          return;
+        }
+        modalError(error);
+        button.disabled = false;
+      }
+    };
+  }
+
+  async function renderCompilerPatch(dialog: HTMLDialogElement, proposal: Obj, editing = false) {
+    const flow = dialog.querySelector<HTMLElement>("[data-d2-flow]");
+    if (!flow) return;
+    const errorBox = dialog.querySelector<HTMLElement>("#modal-error");
+    if (errorBox) { errorBox.hidden = true; errorBox.textContent = ""; }
+    const patches = proposal.patches || [];
+    const index = patches.findIndex((item: Obj) => item.status === "pending");
+    if (index < 0) {
+      flow.innerHTML = `<section class="notice"><b>这组 Wiki 建议已经逐条处理完。</b><p>已处理 ${patches.length} 条；每次操作只处理一条。</p><button type="button" class="primary" data-d2-finish>完成</button></section>`;
+      flow.querySelector<HTMLButtonElement>("[data-d2-finish]")!.onclick = () => finishCompilerReview(dialog);
+      return;
+    }
+    const patch = patches[index];
+    const scope = scopeLabel(getData(), { scope_type: patch.scope_type, scope_id: patch.scope_id });
+    let beforeContent: string | undefined;
+    if (patch.operation === "rewrite" || patch.operation === "retire") {
+      try {
+        const history = await api(`/wiki/${encodeURIComponent(patch.target_knowledge_id)}/history`);
+        beforeContent = wikiCompilerFrozenBefore(patch, history.revisions || []);
+      } catch {
+        flow.innerHTML = `<section class="notice"><b>无法安全显示这条建议。</b><p>系统没有找到它对应的 Wiki 原始版本，没有写入任何内容。关闭后再打开仍可继续检查。</p></section>`;
+        return;
+      }
+    }
+    flow.innerHTML = `<p class="muted">建议 ${index + 1} / ${patches.length}</p>${wikiCompilerPatchHTML(patch, beforeContent, scope, editing)}`;
+    flow.querySelectorAll<HTMLElement>("[data-d1-open-raw-kind]").forEach((button) => {
+      button.onclick = () => void openRaw(button);
+    });
+    let idempotencyKey = "";
+    const decide = async (decision: string, editedValue?: string) => {
+      const buttons = [...flow.querySelectorAll<HTMLButtonElement>("button")];
+      buttons.forEach((button) => { button.disabled = true; });
+      if (!idempotencyKey) idempotencyKey = crypto.randomUUID();
+      const body: Obj = { decision, idempotency_key: idempotencyKey };
+      if (decision === "edit_accept") body[patch.operation === "retire" ? "reason" : "content"] = editedValue;
+      try {
+        const result = await api(`/wiki/compiler/proposals/${encodeURIComponent(proposal.id)}/patches/${encodeURIComponent(patch.id)}/resolve`, body);
+        await load();
+        renderCompilerPatch(dialog, result.proposal);
+      } catch (error) {
+        modalError(error);
+        buttons.forEach((button) => { button.disabled = false; });
+      }
+    };
+    const acceptButton = flow.querySelector<HTMLButtonElement>("[data-d2-accept]");
+    if (acceptButton) acceptButton.onclick = () => void decide("accept");
+    const editAcceptButton = flow.querySelector<HTMLButtonElement>("[data-d2-edit-accept]");
+    if (editAcceptButton) editAcceptButton.onclick = () => void renderCompilerPatch(dialog, proposal, true);
+    const confirmEditButton = flow.querySelector<HTMLButtonElement>("[data-d2-confirm-edit]");
+    if (confirmEditButton) confirmEditButton.onclick = () => {
+      const value = flow.querySelector<HTMLTextAreaElement>("[data-d2-edit-value]")?.value || "";
+      void decide("edit_accept", value);
+    };
+    const cancelEditButton = flow.querySelector<HTMLButtonElement>("[data-d2-cancel-edit]");
+    if (cancelEditButton) cancelEditButton.onclick = () => void renderCompilerPatch(dialog, proposal, false);
+    flow.querySelector<HTMLButtonElement>("[data-d2-reject]")!.onclick = () => void decide("reject");
+  }
+
+  async function startCompiler(rawId: string, freshPreview = false) {
+    if (!rawId) return;
+    const key = crypto.randomUUID();
+    const dialog = modal("整理到 Wiki", `<section data-d2-flow><p>正在准备可检查的内容…</p></section>`);
+    try {
+      if (!freshPreview) {
+        const existing = await api(`/wiki/compiler/proposals?raw_id=${encodeURIComponent(rawId)}`);
+        const pending = (existing.proposals || []).find((proposal: Obj) => proposal.status === "pending");
+        if (pending) {
+          await renderCompilerPatch(dialog, pending);
+          return;
+        }
+      }
+      const preview = await api("/wiki/compiler/prepare", { raw_id: rawId, idempotency_key: key });
+      renderCompilerPreview(dialog, rawId, key, preview);
+    } catch (error) {
+      modalError(error);
+    }
+  }
+  on("[data-d2-compile]", (el) => void startCompiler(el.dataset.d2Compile || ""));
 }
 
 function openRawButton(ref: Obj) {
