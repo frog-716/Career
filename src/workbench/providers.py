@@ -27,6 +27,10 @@ _RESPONSE_BYTES_LIMIT = 2 * 1024 * 1024
 
 
 def _packet_result(packet: Dict[str, Any]) -> Dict[str, Any]:
+    if packet.get("task") == "analyze_new_raw_for_wiki_changes":
+        # Synthetic default is intentionally conservative: a real compiler
+        # response is supplied only by an explicitly configured test double.
+        return {"patches": []}
     sources = packet.get("sources") or []
     task_type = packet.get("task_type", packet.get("taskKind"))
     if task_type == "legacy_analysis":

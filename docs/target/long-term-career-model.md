@@ -109,6 +109,18 @@ Compiler 不是普通摘要器。它比较新 Raw 与相关对象已有的当前
 
 对于尚未确认身份的人物，不把要求或承诺写进长期 Person。确认身份后，这些内容作为常规 Wiki Patch 审批，不增加第二道身份确认。
 
+### D2 首版实现合同
+
+D2 每次只处理用户从页面明确选择的一份新手工 Raw（`raw_material` / `manual_text`），不批量扫描或自动触发。Compiler 只读取该 Raw 的直接范围及明确关系：Project 可带其 Employment 和该 Project 已关联的确认 Person；Employment 可带其确认 Person；Person 可带所属 Employment；Opportunity 只带该机会自身；Personal 只带个人范围。Cognition 不在 D2 范围内。只读取这些范围内当前有效的 Wiki，不读取其它对象、全部 Raw、退役知识、Resume、Feedback 或私人资料；不通过姓名 mention 搜索或匹配 Person。
+
+发给模型的专用 DTO 固定为 `task`、`raw`、`scopes`、`current_knowledge`。Raw 只含 `id`、`source_kind`、`created_at`、`content`；范围只含 `type`、`stable_id`、必要的文字身份字段；当前 Wiki 只含 `knowledge_id`、`type`、`content`、`tags`、`revision` 和目标范围标识。DTO 不包含数据库 metadata、hash、Secret、完整历史 revision、退役知识或其它 Career 资料。模型的每条 `source_refs` 只能标识本轮唯一 Raw 的 kind、id、revision；服务器本地核验后补入 D1 稳定来源指针中的 hash，模型不提供 hash，也不能借此引用其它 Raw。
+
+发送分成准备与确认两步。准备只构造最终请求，不产生 Provider outbound。用户预览必须直接显示本轮 Raw 全文、范围对象的可读名称、每条当前 Wiki 全文及其 Tags；这些展示值只能来自已经清洗的最终 Context DTO，不得再查其它 Career 数据。长正文可以在有界区域内滚动，但必须能查看全文。预览主说明使用“AI 会比较‘新资料’和‘Wiki 里已有的信息’，判断 Wiki 是否需要更新”，并按“新资料 → 所属项目 / 任职 / 人物 → Wiki 里已有的信息 → AI 会判断”的顺序展示；Fact / Observation / Hypothesis 分别翻译为“已确认事实 / 观察 / 待验证判断”，不在每条知识上重复显示范围名称。预览明确说明“仅限上面这些内容，不会读取其他 Career 资料”，模型与条数等技术信息收在默认折叠的次级详情中。用户点击“让 AI 整理”仍走现有单独 confirm，不改变 prepare / preview / confirm 边界。只有用户单独确认后才执行现有 AI operation、dispatch slot、Provider gateway、审计、幂等及错误恢复合同；每个确认 operation 最多一次 outbound，不自动 retry。请求预算遵守共享 50 个来源、200,000 字符和 256 KiB 请求上限；超限在发送前拒绝。
+
+模型输出只允许严格结构化的 `add`、`rewrite`、`retire` Patch，最多 20 条。Fact 必须被所选 Raw 明确支持；Observation 不能把单次材料伪装成重复模式；推断必须保持 Hypothesis；可以合法返回 0 条。服务器拒绝未知字段、非法类型/范围/目标/revision、缺失或跨 Raw 的来源及重复目标，不猜测或修补模型输出。Proposal 与正式 Wiki 分开保存，pending Patch 不出现在 Wiki 当前列表。
+
+用户一次只处理一条：接受、编辑后接受或拒绝，没有批量入口。只有接受会通过 D1 Wiki mutation 更新正式 Wiki，并沿用原对象 ID、CAS 与 revision；rewrite 保留原知识类型、标签并追加来源，retire 保留知识与历史只退出当前视图。编辑 add/rewrite 时用户编辑的是 Wiki 正文；编辑 retire 时用户编辑退役原因并保存在审批结果中，Wiki 原文不变。拒绝不改 Wiki。应用前复核 Raw、关联范围/关系、相关当前 Wiki 和目标 revision；任何变化都拒绝旧 Patch，不静默 rebase。Provider `outcome_unknown` 不自动重发，也不创建推定成功的 Proposal。D2 复用 schema v6 的现有 records/current/revisions 与 AI operation 存储，不新增 schema migration。
+
 ## Resume / Submission
 
 每个 Opportunity 独立拥有 `0..1 ResumeDocument`；不建立共享当前简历。简历不是一级导航。用户从机会进入编辑器时默认绑定该机会简历；编辑器允许切换到别的 Opportunity 简历或版本，并清楚标出当前主体。

@@ -23,6 +23,11 @@ CONNECTION_REQUEST_BYTES_LIMIT = 16 * 1024
 
 
 TASK_POLICIES = {
+    "wiki_compiler": {
+        "required": {"selected_raw"},
+        "optional": {"current_wiki"},
+        "forbidden": {"resume", "feedback", "other_opportunities", "full_raw_archive", "authorization", "cognition"},
+    },
     "legacy_analysis": {
         "required": {"target_jd"},
         "optional": {"current_fact", "company_identity", "career_context"},
@@ -76,6 +81,8 @@ def sanitize_packet(task_type, packet):
     """Return the exact context shape that may be passed to a provider."""
     if not isinstance(packet, dict):
         raise Invalid("AI 资料包结构不合法")
+    if task_type == "wiki_compiler":
+        return _sanitize_wiki_compiler_packet(packet)
     policy = TASK_POLICIES.get(task_type)
     if not policy:
         raise Invalid("AI 任务策略不存在")
@@ -114,7 +121,85 @@ def sanitize_packet(task_type, packet):
     return result
 
 
+def _sanitize_wiki_compiler_packet(packet):
+    """Validate D2's purpose-built DTO without adding transport metadata to it."""
+    if set(packet) != {"task", "raw", "scopes", "current_knowledge"}:
+        raise Invalid("Wiki Compiler Context DTO 字段不符合合同")
+    if packet.get("task") != "analyze_new_raw_for_wiki_changes":
+        raise Invalid("Wiki Compiler 任务不合法")
+    raw = packet.get("raw")
+    if not isinstance(raw, dict) or set(raw) != {"id", "source_kind", "created_at", "content"}:
+        raise Invalid("Wiki Compiler Raw DTO 不合法")
+    if (
+        not isinstance(raw.get("id"), str) or not raw["id"]
+        or raw.get("source_kind") != "manual_text"
+        or not isinstance(raw.get("created_at"), str)
+        or not isinstance(raw.get("content"), str) or not raw["content"].strip()
+    ):
+        raise Invalid("Wiki Compiler Raw DTO 不合法")
+    scopes = packet.get("scopes")
+    if not isinstance(scopes, list) or not scopes or len(scopes) > 50:
+        raise Invalid("Wiki Compiler scope DTO 不合法")
+    scope_keys = set()
+    allowed_scope_types = {"project", "employment", "opportunity", "person", "personal"}
+    for scope in scopes:
+        if not isinstance(scope, dict) or set(scope) != {"type", "stable_id", "minimal_identity"}:
+            raise Invalid("Wiki Compiler scope DTO 不合法")
+        scope_type, scope_id, identity = scope.get("type"), scope.get("stable_id"), scope.get("minimal_identity")
+        if scope_type not in allowed_scope_types or not isinstance(scope_id, str) or not isinstance(identity, dict):
+            raise Invalid("Wiki Compiler scope DTO 不合法")
+        if scope_type == "personal" and scope_id != "":
+            raise Invalid("Wiki Compiler personal scope 不合法")
+        if scope_type != "personal" and not scope_id:
+            raise Invalid("Wiki Compiler scope identity 不合法")
+        if any(not isinstance(key, str) or not isinstance(value, str) for key, value in identity.items()):
+            raise Invalid("Wiki Compiler minimal identity 只能包含文字字段")
+        key = (scope_type, scope_id)
+        if key in scope_keys:
+            raise Invalid("Wiki Compiler scope 重复")
+        scope_keys.add(key)
+    knowledge = packet.get("current_knowledge")
+    if not isinstance(knowledge, list) or len(knowledge) > 200:
+        raise Invalid("Wiki Compiler current Wiki DTO 不合法")
+    if 1 + len(knowledge) > SOURCE_LIMIT:
+        raise Invalid("budget_exceeded: Wiki Compiler 原文与当前知识来源超过 50 条")
+    ids = set()
+    chars = len(raw["content"])
+    valid_types = {"fact", "observation", "hypothesis"}
+    for item in knowledge:
+        expected = {"knowledge_id", "type", "content", "tags", "revision", "scope_type", "scope_id"}
+        if not isinstance(item, dict) or set(item) != expected:
+            raise Invalid("Wiki Compiler current Wiki DTO 不合法")
+        if (
+            not isinstance(item.get("knowledge_id"), str) or not item["knowledge_id"]
+            or item.get("type") not in valid_types
+            or not isinstance(item.get("content"), str)
+            or not isinstance(item.get("tags"), list)
+            or not isinstance(item.get("revision"), int) or isinstance(item.get("revision"), bool)
+            or (item.get("scope_type"), item.get("scope_id")) not in scope_keys
+        ):
+            raise Invalid("Wiki Compiler current Wiki DTO 不合法")
+        if item["knowledge_id"] in ids:
+            raise Invalid("Wiki Compiler current Wiki DTO 重复")
+        ids.add(item["knowledge_id"])
+        if any(not isinstance(tag, str) for tag in item["tags"]):
+            raise Invalid("Wiki Compiler Tags DTO 不合法")
+        chars += len(item["content"])
+    if chars > 200000:
+        raise Invalid("Wiki Compiler Context DTO 超出资料预算")
+    return deepcopy(packet)
+
+
 def source_refs(packet):
+    if isinstance(packet, dict) and packet.get("task") == "analyze_new_raw_for_wiki_changes":
+        raw = packet["raw"]
+        return [
+            {"id": raw["id"], "revision": 1, "purpose": "selected_raw"},
+            *[
+                {"id": item["knowledge_id"], "revision": item["revision"], "purpose": "current_wiki"}
+                for item in packet["current_knowledge"]
+            ],
+        ]
     return [
         {
             key: source[key]
@@ -152,9 +237,17 @@ def metadata_manifest(manifest):
 
 def budget(packet, payload, *, connection=False):
     request_limit = CONNECTION_REQUEST_BYTES_LIMIT if connection else REQUEST_BYTES_LIMIT
+    if isinstance(packet, dict) and packet.get("task") == "analyze_new_raw_for_wiki_changes":
+        source_count = 1 + len(packet.get("current_knowledge", []))
+        content_chars = len(packet.get("raw", {}).get("content", "")) + sum(
+            len(item.get("content", "")) for item in packet.get("current_knowledge", [])
+        )
+    else:
+        source_count = len(packet.get("sources", [])) if isinstance(packet, dict) else 0
+        content_chars = (packet.get("budget_used") or {}).get("content_chars", 0) if isinstance(packet, dict) else 0
     used = {
-        "source_count": len(packet.get("sources", [])) if isinstance(packet, dict) else 0,
-        "content_chars": (packet.get("budget_used") or {}).get("content_chars", 0) if isinstance(packet, dict) else 0,
+        "source_count": source_count,
+        "content_chars": content_chars,
         "request_bytes": _json_bytes(payload),
     }
     result = {
@@ -209,7 +302,12 @@ def create_preparation(store, *, task_type, target, client_intent, packet, paylo
             ):
                 if existing.get("client_intent_hash") != fingerprint:
                     raise Conflict("请求标识已用于不同 AI 准备操作")
-                if existing.get("payload_hash") == request_hash and existing.get("status") == "prepared":
+                same_extra = all(existing.get(name) == value for name, value in (extra or {}).items())
+                if (
+                    existing.get("payload_hash") == request_hash
+                    and existing.get("status") == "prepared"
+                    and same_extra
+                ):
                     return public_preparation(existing, payload_preview=payload)
                 store._record(c, "ai_preparation", dict(existing, status="superseded", superseded_at=now()))
         record = {

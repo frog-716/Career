@@ -144,6 +144,22 @@ def test_valid_json_wrong_schema_reaches_domain_as_dict(monkeypatch):
     assert request(adapter) == {"unexpected": True}
 
 
+def test_wiki_compiler_prompt_enforces_conservative_patch_rules():
+    adapter = OpenAICompatibleAdapter(CONFIG, "synthetic-key", runtime_mode=resolve_runtime_mode("AI_ENABLED"))
+    packet = {
+        "task": "analyze_new_raw_for_wiki_changes",
+        "raw": {"id": "raw-fixture", "source_kind": "manual_text", "created_at": "2026-01-01", "content": "虚构原文"},
+        "scopes": [{"type": "project", "stable_id": "project-fixture", "minimal_identity": {"name": "虚构项目"}}],
+        "current_knowledge": [],
+    }
+    payload = adapter.build_payload(packet, {"version": 1, "type": "object", "example": {"patches": []}})
+    prompt = payload["messages"][0]["content"]
+    assert "返回0条" in prompt
+    assert "不能创建或猜测Person" in prompt
+    assert "Hypothesis" in prompt
+    assert "confidence百分比" in prompt
+
+
 def test_response_diagnostics_are_audited_without_raw_content(tmp_path):
     store = Store(tmp_path / "data", TestProvider())
     diagnostics = {

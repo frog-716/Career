@@ -1,5 +1,33 @@
 # 当前状态
 
+## 2026-09-27：Phase D2 — COMPLETE / PASS
+
+- 真实用户验收：DeepSeek 为虚构 smoke 提出 1 条 rewrite；用户编辑后接受。接受前确认 Proposal 已 resolved/accepted、正式 Wiki 未被 pending Proposal 改动；接受后 revision 2 保存的是用户编辑内容。revision 1 保留原 Fact，revision 2 保留新 Fact；二者都只有本轮 Raw revision 1 的 source_ref。Raw 正文和稳定摘要在发送、审批前后与 smoke 基线相同。没有重新调用 Provider。
+- Wiki UI 收口：历史页按最高 revision 唯一显示“当前”；早期 revision 显示“历史”；若最新 revision retired 则标成“不再有效”，旧版本仍是历史。Preview、当前理解、编辑表单、项目 Wiki 卡片和历史统一把 `fact / observation / hypothesis` 显示为“已确认事实 / 观察 / 待验证判断”，底层 enum 与 `current` / `retired` 数据合同不变。
+- smoke 数据清理：删除本轮虚构 Project、Raw、Wiki 当前对象、已处理 Proposal、Project/Raw/Wiki 请求记录及 Project/Wiki 共 3 条 revision；其他 current、record 与 revision 的逐行摘要清理前后相同。业务对象在 `current`、`records`、`revisions` 中均无残留。按既有审计规则保留 `ai_operations`、operation result、prepare、`ai_call`、dispatch/outbound audit。
+- Provider / 正式数据：相对 smoke 前基线 `wiki_compiler|dispatched` 与 `response_received` 各增加 1；`research_search|dispatched` 增加 0。早先两次 stale 确认均在 Provider `complete` 调用前被拒，不构成 Provider outbound。UI 修正、Runtime 更新与测试数据清理期间没有新增 Provider dispatch。最终 health=`ok`、仅监听 `127.0.0.1:8765`、SQLite `quick_check=ok`、schema v6、data instance `42ff565e28a08e31414442521540ac3e`。
+- Runtime：为发布中文标签/历史状态 UI，旧 PID `50460` 受控更新至 `62356`；停服务后离线清理 smoke 数据，再按显式 `AI_ENABLED` 正式重启至当前 PID `63058`。当前服务 health=`ok`，只有 `127.0.0.1:8765` 监听。Runtime 使用当时 D2 working tree；没有为 Git commit 再重启。正式 `frontend/dist` 共 11 个文件，与 `/tmp/career-d2-final-ui-check` 构建逐文件一致，manifest SHA-256=`076c1cb1d3aee508310e7bea0e826ff13f1f9a1241ca2adc79b9efacb9a36701`；HTTP 实际提供的入口脚本含最新中文类型及历史标签。
+- 自动检查：D1/D2 聚焦 pytest `34 passed`；全量 pytest `468 passed`。前端导航 `8 passed`、local request `3 passed`，Employment/Person、Project collaboration、workspace mutation、Wiki semantic 测试通过。TypeScript typecheck、输出到 `/tmp` 的 build、`pip check`、`npm ls --depth=0`、secret scan、文档链接检查和 `git diff --check` 均 exit 0。`npm ls` 显示既有 23 个 extraneous 本机依赖，没有因此改动依赖。
+- Git ownership：D2 commit 只包括长期模型/STATUS、Wiki 实现/README、Compiler、其测试及 Wiki UI/样式/测试。13 个用户旧 Resume 文件与 `AGENTS.md` 未知 hunk 未修改、未 stage；`.agents/skills/` 与 `docs/agents/` 未 stage。`frontend/dist` 与 `.career-runtime/` 是本机生成/运行文件，不提交。Git 状态及 D2 closeout commit/push 以本节对应的最终提交为准。
+- 阶段：Phase D2 `COMPLETE / PASS`；没有实现 D3。Phase D3 `READY`。
+
+## 2026-09-27：Phase D2 — stale 修复后、首次真实 DeepSeek dispatch 前的状态快照
+
+以下条目记录本节写入前的状态；当前真实 smoke 和 Runtime 以本节上方最新记录为准。
+
+- 当前门槛：真实 Provider smoke 尚未调用；DeepSeek 与 Tavily outbound 增量均为 0。当前 Preview 已在 Chrome 等用户查看和点击“让 AI 整理”。
+- 范围：已实现单份新手工 Raw 驱动的 Wiki Compiler。Compiler 只生成候选 add / rewrite / retire Patch；pending proposal 与正式 Wiki 分开保存，AI 不直接改正式 Wiki。未进入 D3，没有 Cognition 跨经历提炼、Agent Tool Calling、全 Career 搜索、Resume AI 修改或旧 Event / Achievement / Evidence 退役。
+- Context DTO：仅含任务名；用户选中的 Raw `id / source_kind / created_at / content`；直接范围和明确关系对象的 `type / stable_id / minimal_identity`；这些范围当前 Wiki 的 `knowledge_id / type / content / tags / revision` 及用于归属目标范围的 `scope_type / scope_id`。不含 Raw hash / 内部 metadata、历史与退役 Wiki、其它 Career 范围、Resume、Feedback、Secret 或未确认人物。新版 Preview 的正文、Tags 与可读对象名称由同一份已清洗 DTO 投影，不额外读取其它数据；长正文完整保留在有界滚动区。
+- stale 根因与修复：Raw、Wiki、Project 的 manifest、revision、内容摘要在 prepare 与 confirm 间完全一致。误报只来自模型请求哈希：准备时 UI 未传 `model_config_id`，确认时 ModelGateway 补上实际默认配置 ID。现改为 prepare 时冻结“实际配置 ID + provider + model + payload”哈希并持久化，确认时先比较冻结值；配置在两者之间变化仍在 dispatch 前 stale。请求幂等复用也核对该冻结摘要。没有把时间戳、UI 展示字段、Runtime build、operation ID 或列表/JSON 键顺序混入哈希。UI stale 显示“资料在预览后发生了变化，请重新确认发送内容。”和手动“重新预览”按钮；错误处理不自动 prepare 或重试。
+- 安全与审批：prepare 只准备和预览，不发送 Provider 请求；Preview 按“新资料 → 所属项目 / 任职 / 人物 → Wiki 里已有的信息 → AI 会判断”的顺序展示。核心说明是“AI 会比较‘新资料’和‘Wiki 里已有的信息’，判断 Wiki 是否需要更新”；Fact / Observation / Hypothesis 显示为“已有事实 / 观察 / 待验证判断”，不重复显示每条知识的 Project 名称；边界说明为“仅限上面这些内容，不会读取其他 Career 资料”。Preview 的 Raw 全文、当前 Wiki 全文 / Tags 和范围名称均来自同一份清洗后的 outbound DTO；长正文有界滚动、可查看全文。技术模型与条数默认折叠。“让 AI 整理”仍走既有单独 confirm，取消只关闭预览。输出严格限 add / rewrite / retire；每次逐条审批，stale fail closed，`outcome_unknown` 不自动重试。schema v6，无 migration。
+- Synthetic 验收：使用隔离临时数据库、虚构 Project / Raw、TestProvider 和本机 Chrome 完成 Preview → 明确确认 → 单次 fake Provider 调用 → 逐条接受 → 当前 Wiki 即时刷新。`provider.calls=1`、无页面错误；没有连接真实 DeepSeek / Tavily，也没有使用正式数据库或正式 Runtime。
+- 正式 Runtime / 数据：受控重启链为 `38997 → 46187 → 46886`；第二次重启是因为合成对抗测试补出“同名模型配置切换”的冻结绑定缺口。当前只监听 `127.0.0.1:8765`，`/healthz=ok`，显式保持 `AI_ENABLED`。HEAD = `main` = `origin/main` = `92d9ba1f9df5715ff6266bfd10fd264063af1ac6`；Runtime 后端 / 前端来自 dirty working tree（不是 HEAD）。89 个运行源码与构建输入文件 manifest SHA-256=`9b538f8b83c889a996b8a60b4a8fad938f64d31ffe735d2b6d751bf71b116701`。正式 `frontend/dist` 的 11 个文件与 `/tmp/career-d2-stale-confirm-build-final2` 逐字节一致，manifest SHA-256=`945de52db6370c6660658b07d666bac74354ee711dc61e3e251f99f091d28dfd`；HTTP 实际提供的 11 个文件全部匹配。SQLite `quick_check=ok`、schema v6、data instance `42ff565e28a08e31414442521540ac3e` 不变。
+- 正式虚构 smoke：继续复用 Project `D2-WIKI-COMPILER-SMOKE-b8d412f6`（ID `0ab6b9bf-9477-43e8-9c0b-457ee806e45f`，无 Employment）、Raw（ID `fc8e2742-bbe8-45be-b9bd-8798da42d818`，revision 1）和当前 Wiki Fact（ID `98e15e97-cda2-4720-adb8-a951584a9f13`）。三个对象均存在，revision 和正文哈希未变；没有新建 Project、Raw 或 Wiki。最终 Preview 在 PID `46886` 重启后重新生成，清楚显示同一 Raw 全文与时间、所属 Project、标题“Wiki 里已有的信息”下的事实正文与标签、AI 会比较什么和资料边界；Project 名称只在所属范围出现一次；“让 AI 整理”和“取消”都完整可见，发送详情默认折叠。没有点击发送。
+- Outbound 与数据健康：Provider `dispatched` 审计与基线仍为 16 条（connection_test 1、research_search 7、research_update 6、resume_optimization 2），没有 wiki_compiler dispatch；DeepSeek outbound 增量 0、Tavily outbound 增量 0。formal DB 有 2 条先前失败的 wiki_compiler 操作和对应本地失败 audit，但两条的 `dispatched_payload_hash` 都为空、没有 Provider dispatch；发送槽已释放。health、SQLite quick_check 和 schema 正常；未读取、输出或泄露 Secret。
+- 自动检查：D2 聚焦 `tests/test_wiki_d2.py` 为 26 passed；全量 pytest 为 468 passed。前端导航 8 项、本地请求 3 项、Employment / Person、Project collaboration、workspace mutation、Wiki semantic 测试全部通过；typecheck、临时目录 Vite build、pip check、npm ls、secret scan、文档链接检查和 `git diff --check` 通过。`npm ls` 仍只显示既有 extraneous 本机包；正式构建与临时构建逐文件一致。
+- Git ownership：HEAD = `main` = `origin/main` = `92d9ba1f9df5715ff6266bfd10fd264063af1ac6`；没有 staged 内容、没有 commit/push。D2 包含长期模型规范、STATUS、Wiki UI / CSS / tests、Compiler API / gateway / provider 代码与测试。既有 13 个 Resume 用户文件、`AGENTS.md` 未知改动、`.agents/skills/` 和 `docs/agents/` 哈希都保持；没有清理、暂存或提交。
+- 阶段门槛：stale 根因、synthetic 回归、全量测试和 Runtime Update 已通过；真实 Provider smoke 尚未开始，Phase D2 不能判 COMPLETE。新版虚构 Preview 已留在 Chrome，等待用户查看并点击一次“让 AI 整理”；本轮没有发送 DeepSeek 或 Tavily 请求。未进入 D3。
+
 ## 2026-09-26：Phase D1 — COMPLETE / PASS
 
 - 范围与合同：完成手工 Raw、Wiki Semantic、typed `source_refs`、修订/退役；未实现 Wiki Compiler、Cognition 自动提炼、Resume AI Context 或 D2。Raw 是原始依据，有稳定 ID 和 provenance；Wiki 不复制 Raw 正文，修改 Wiki 不会反写 Raw。用户手工 Wiki 的 provenance 是 `user`，来源可为空，不伪造 Raw。Fact / Observation / Hypothesis 是 D1 唯一知识类型；scope / Tags 表达范围和分类；Opportunity 知识只在明确的 Opportunity 范围视图出现；Person scope 只接受已存在的确认人物，不创建 Person。
