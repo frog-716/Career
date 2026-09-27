@@ -80,6 +80,23 @@ def _legacy_scope(store, c, scope_type, scope_id):
 
 def _raw_value(store, c, kind, identifier):
     """Return a normalized source, or reject kinds that are not Raw material."""
+    if kind == "wiki_knowledge":
+        value = store._get(c, identifier, "wiki_knowledge")
+        scope = _canonical_scope(store, c, value.get("scope_type"), value.get("scope_id"))
+        if scope is None:
+            raise Missing("Wiki 来源不存在")
+        content = value.get("content")
+        if not isinstance(content, str):
+            raise Missing("Wiki 来源不存在")
+        return {
+            "kind": "wiki_knowledge", "id": value["id"],
+            "revision": value["revision"], "hash": digest(value),
+            "title": content, "content": content,
+            "source_kind": "wiki_knowledge",
+            "scope_type": scope[0], "scope_id": scope[1],
+            "created_at": value.get("updated_at") or value.get("created_at") or "",
+            "provenance": value.get("provenance"),
+        }
     if kind == "raw_material":
         try:
             value = store._get(c, identifier, kind, record=True)

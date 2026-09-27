@@ -13,6 +13,7 @@
     "test:project-collaboration": "node --experimental-strip-types tests/project-collaboration.test.mjs",
     "test:workspace-mutation": "node --experimental-strip-types tests/workspace-mutation.test.mjs",
     "test:wiki-semantic": "node --experimental-strip-types tests/wiki-semantic.test.mjs",
+    "test:ai-activity": "node --experimental-strip-types tests/ai-activity.test.mjs",
     "test:wiki-d3": "node --experimental-strip-types tests/wiki-d3-workspaces.test.mjs"
   },
   "devDependencies": {

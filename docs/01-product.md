@@ -57,7 +57,7 @@ ResumeUse与“关联已保存版本”不是目标模型；旧记录先分清�
 
 完全断网可以查看、编辑、导出已存资料并运行已安装模型；不能获得最新招聘或公司信息。电脑睡眠/关机时后台暂停，下次启动恢复。
 
-能力目标与实现状态分别判断：Opportunity 人工主链及相应任务 AI 按四份正本分批实施；Project 独立入口、Employment / Person 生命周期已分别完成 Phase B、C。Phase D1 的手工 Raw 与 Wiki Semantic 已完成自动验证、Runtime 更新、两段用户 UI 验收和 Git 收口；Phase D2 已 READY，尚未开始。Compiler、Cognition 自动提炼和新 Wiki 的 AI Context 读取不在 D1。现有 participant/T14 能力继续作为旧兼容实现；具体代码、Runtime 与验收状态见 [STATUS](execution/STATUS.md)。真实模型质量单独验收；内置语音、Offer 比较等后续能力不列为当前交付。
+能力目标与实现状态分别判断：Project 独立入口、Employment / Person 生命周期，以及 Phase D1/D2/D3/D3.5 已按各自边界完成并收口。Phase D4 目前只达到 SYNTHETIC READY：多经历长期认知流程已有受控 DTO、Patch 和 UI 自动验证；真实 smoke 因 UX Reset 暂停，正式 Cognition 验收尚未完成；代码纳入 checkpoint 不代表 D4 COMPLETE。现有 participant/T14 能力继续作为旧兼容实现；具体代码、Runtime 与验收状态见 [STATUS](execution/STATUS.md)。真实模型质量单独验收；内置语音、Offer 比较等后续能力不列为当前交付。
 
 不能保证：全网招聘无人值守覆盖、无授权账号读取、领导真实心理、公司未公开内部事实、AI零幻觉、精确录用概率、谈薪结果、从任意PDF无损恢复编辑结构。外部数据不足时输出待验证问题。
 
@@ -147,7 +147,7 @@ ResumeUse与“关联已保存版本”不是目标模型；旧记录先分清�
 | 任职 | 一段真实任职环境；显示其关联Project及经用户确认的Person，相关知识进入当前或历史Wiki |
 | 反馈 | 记录问题 → 独立反馈空间；不自动变事实或修改代码 |
 
-截至本次更新，人工资料治理与显式引用仍是现状；Wiki Compiler / Cognition 目标尚待后续阶段实现，不把“整理”称为已实现的自动提取。目录/Git地址仅登记不代表已读取代码。Project 可独立于任职存在，或与 Employment 建立可选关联；任职私聊默认不能进入普通求职分析。旧 T14 成果复用仅是现状，目标是按 Raw + Wiki source_refs 与普通逐条 Wiki Patch 收敛，退役安排见 Phase E；不得把旧的 allowed-uses 结构当作新目标。
+截至本次更新，人工资料治理与显式引用仍是基础；Wiki Compiler 已按 D2/D3 范围实现，Cognition 已达到 D4 SYNTHETIC READY，但真实 smoke 仍暂停，尚未完成正式 Cognition 验收。目录/Git地址仅登记不代表已读取代码。Project 可独立于任职存在，或与 Employment 建立可选关联；任职私聊默认不能进入普通求职分析。旧 T14 成果复用仅是现状，目标是按 Raw + Wiki source_refs 与普通逐条 Wiki Patch 收敛，退役安排见 Phase E；不得把旧的 allowed-uses 结构当作新目标。
 
 Opportunity完整对象职责、字段及可变/冻结规则维护于target/opportunity的模块正本；Architecture分开描述现状、工程合同和目标方向。非本期对象沿用原有边界。
 

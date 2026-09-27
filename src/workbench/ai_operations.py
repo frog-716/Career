@@ -14,8 +14,9 @@ _VOLATILE_RESULTS = {}
 class AIValidationError(Exception):
     """The provider returned, but the result failed local validation."""
 
-    def __init__(self, message, code="invalid_result"):
+    def __init__(self, message, code="invalid_result", field_path=None):
         self.code = code
+        self.field_path = field_path
         super().__init__(message)
 
 
@@ -335,9 +336,12 @@ def execute(store, *, task_type, target_kind, target_id, idempotency_key,
     try:
         value = persist(prepared, result, diagnostics)
     except AIValidationError as exc:
-        _mark_failure(store, row["op_id"], "failed", exc.code, str(exc))
+        safe_error_message = exc.field_path or str(exc)
+        _mark_failure(store, row["op_id"], "failed", exc.code, safe_error_message)
         error = Invalid(str(exc))
         error.code = exc.code
+        if exc.field_path:
+            error.diagnostics = {"field_path": exc.field_path}
         raise error from exc
     except Exception as exc:
         _mark_failure(store, row["op_id"], "outcome_unknown", "persistence_unknown", str(exc))

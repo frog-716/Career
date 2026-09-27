@@ -25,7 +25,7 @@
 | opportunity / domain | canonical Opportunity/Company、phase/result、CAS/幂等与旧 ID resolver；旧 Job/JourneyPlan 保留兼容读取，不能继续写求职状态正本 |
 | journey / engagement | 任职工作卡及 legacy note/typed 活动兼容读取；求职 Communication/Interview/Offer 新写由 scoped Domain Action 接管 |
 | editor / profile / resume_documents | 一个 Resume Workspace UI 管理 Opportunity-owned ResumeDocument；autosave current、基础资料同步当前稿、显式普通版本、冻结投递版本/PDF及引用保护；Wiki事实仍需显式选材 |
-| knowledge / wiki | 旧来源登记、人工候选确认和 `wiki_entry` / T14 求职兼容继续独立存在；D1 新增 `raw_material` 原文记录与 `wiki_knowledge` 当前知识，按稳定 typed `source_refs` 引用现有原件，复用 `records/current/revisions`、CAS 与幂等，不新增表或升级 schema。新 Wiki 不进入 ContextCompiler，Compiler / Cognition 自动提炼未实现；Runtime 与验收以 [STATUS](execution/STATUS.md) 为准。 |
+| knowledge / wiki | 旧来源登记、人工候选确认和 `wiki_entry` / T14 求职兼容继续独立存在；D1 新增 `raw_material` 与 `wiki_knowledge`，D2/D3 复用同一套 Raw / Wiki Compiler。D4 Cognition 复用 `cognition` scope、typed `source_refs`、current/revisions 与单条 Patch 审批；Context 只由用户选定的多个 Project / Employment 当前 Wiki 和当前 Cognition 组成，不读取 Raw 正文或 Resume / Interview 私料。当前只完成 synthetic 验证，正式 Runtime 与真实 Provider 验收状态以 [STATUS](execution/STATUS.md) 为准。 |
 | context / providers | Compiler按明确任务读取允许的当前资料与冻结 Submission snapshot；ModelGateway只接收受控packet，OpenAI-compatible adapter与SecretStore封装远端调用。没有默认模型时基础业务继续可用 |
 | employment / work | Employment仍兼容episode身份；Project 已有独立一级工作区，支持独立存在、自由Tags、四种状态和可选 Employment 关联；新建个人Project不依赖Participant。既有Stage、Participant、WorkEvent、Achievement、Evidence和T14接口仅保留兼容现状，不表示Person生命周期或Wiki Compiler已按新模型收口。 |
 | artifacts / backup / demo | 文件hash/原子写、路径保护、隔离恢复与虚构案例管理；Production Cutover 已真实验证备份、恢复、引用和附件 hash，同盘副本仍不能抵御整盘故障 |

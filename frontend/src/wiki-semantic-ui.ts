@@ -21,6 +21,7 @@ export function wikiHistoryStatusLabel(item: Obj, revisions: Obj[]) {
   return item.status === "retired" ? "不再有效" : "当前";
 }
 const sourceNames: Record<string, string> = {
+  wiki_knowledge: "经历中的 Wiki 知识",
   raw_material: "手工原文",
   knowledge_source: "原始资料",
   work_project_source: "项目原文",
@@ -60,8 +61,14 @@ const compilerScopeLabel = (scope: Obj) => {
     const name = [identity.company, identity.title].filter(Boolean).join(" / ");
     return `机会 · ${name || "机会"}`;
   }
+  if (scope.type === "cognition") return "长期认知";
   return scope.type === "personal" ? "个人职业资料" : "相关资料";
 };
+
+export function proposalScopeLabel(proposal: Obj, patch: Obj, fallback: string) {
+  const scope = (proposal.scopes || []).find((item: Obj) => item.type === patch.scope_type && item.stable_id === patch.scope_id);
+  return scope ? compilerScopeLabel(scope) : fallback;
+}
 
 function compilerTime(value: string) {
   const date = new Date(value);
@@ -94,6 +101,7 @@ export function wikiCompilerFrozenBefore(patch: Obj, revisions: Obj[]) {
 
 export function wikiCompilerPatchHTML(
   patch: Obj, beforeContent: string | undefined, scope: string, editing = false,
+  options: { cognition?: boolean; supportingExperiences?: Obj[] } = {},
 ) {
   const operation = patch.operation;
   const isAdd = operation === "add";
@@ -114,9 +122,28 @@ export function wikiCompilerPatchHTML(
       ? `<h4>原来</h4><pre class="preserve">${esc(beforeContent)}</pre>${editField}`
       : editField;
   const body = editing ? editDetails : details;
-  const refs = (patch.source_refs || []).map((ref: Obj) =>
-    `<button type="button" class="text-btn" data-d1-open-raw-kind="${esc(ref.kind)}" data-d1-open-raw-id="${esc(ref.id)}" data-d1-open-raw-revision="${esc(ref.revision)}" data-d1-open-raw-hash="${esc(ref.hash)}">查看本轮原文 →</button>`,
-  ).join("");
+  if (options.cognition) {
+    const cognitionBody = editing
+      ? editDetails
+      : isAdd
+        ? `<h4>${esc(knowledgeTypeLabel(patch.knowledge_type))}</h4><pre class="preserve">${esc(patch.content)}</pre>`
+        : isRewrite
+          ? `<h4>${esc(knowledgeTypeLabel(patch.knowledge_type))} · 修改已有信息</h4><h5>原来</h5><pre class="preserve">${esc(beforeContent)}</pre><h5>建议改为</h5><pre class="preserve">${esc(patch.content)}</pre>`
+          : `<h4>${esc(knowledgeTypeLabel(patch.knowledge_type))} · 标记为不再有效</h4><h5>当前信息</h5><pre class="preserve">${esc(beforeContent)}</pre>`;
+    const experiences = (options.supportingExperiences || []).map((item: Obj) =>
+      `<li>${esc(item.label || item.name || experienceName(item.type))}</li>`,
+    ).join("");
+    const reason = patch.reason
+      ? `<details><summary>为什么？</summary><p>${esc(patch.reason)}</p></details>` : "";
+    const support = `<h4>支持经历</h4><ul>${experiences || '<li class="muted">来源经历暂不可显示。</li>'}</ul>`;
+    const cognitionActions = editing
+      ? '<button type="button" class="primary" data-d2-confirm-edit>确认修改并接受</button><button type="button" class="text-btn" data-d2-cancel-edit>取消编辑</button><button type="button" class="text-btn" data-d2-reject>拒绝</button>'
+      : '<button type="button" class="primary" data-d2-accept>接受</button><button type="button" class="secondary" data-d2-edit-accept>编辑后接受</button><button type="button" class="text-btn" data-d2-reject>拒绝</button>';
+    return `<article class="work-domain-card d2-proposal-patch d4-cognition-proposal">${cognitionBody}${support}${reason}<div class="actions">${cognitionActions}</div></article>`;
+  }
+  const refs = (patch.source_refs || []).map((ref: Obj) => ref.kind === "wiki_knowledge"
+    ? `<button type="button" class="text-btn" data-d4-open-wiki-source="${esc(ref.id)}" data-d4-source-revision="${esc(ref.revision)}">查看支撑知识 →</button>`
+    : `<button type="button" class="text-btn" data-d1-open-raw-kind="${esc(ref.kind)}" data-d1-open-raw-id="${esc(ref.id)}" data-d1-open-raw-revision="${esc(ref.revision)}" data-d1-open-raw-hash="${esc(ref.hash)}">查看本轮原文 →</button>`).join("");
   const actions = editing
     ? '<button type="button" class="primary" data-d2-confirm-edit>确认修改并接受</button><button type="button" class="text-btn" data-d2-cancel-edit>取消编辑</button><button type="button" class="text-btn" data-d2-reject>拒绝</button>'
     : '<button type="button" class="primary" data-d2-accept>接受</button><button type="button" class="secondary" data-d2-edit-accept>编辑后接受</button><button type="button" class="text-btn" data-d2-reject>拒绝</button>';
@@ -131,7 +158,7 @@ export function scopeKey(scopeType: string, scopeId: string) {
 
 function labelFor(d: Obj, scopeType: string, scopeId: string) {
   if (scopeType === "personal") return "个人职业资料";
-  if (scopeType === "cognition") return "跨经历认知";
+  if (scopeType === "cognition") return "长期认知";
   if (scopeType === "project") {
     const item = (d.workDomain.projects || []).find((x: Obj) => x.id === scopeId);
     return `项目 · ${item?.name || "未知项目"}`;
@@ -175,7 +202,65 @@ function scopeOptions(d: Obj) {
 
 function rawLink(source: Obj, label = source.title) {
   const ref = source.source_ref || source;
+  if (ref.kind === "wiki_knowledge") {
+    return `<button class="text-btn" data-d4-open-wiki-source="${esc(ref.id)}" data-d4-source-revision="${esc(ref.revision)}">${esc(label || "查看支撑知识 →")}</button>`;
+  }
   return `<button class="text-btn" data-d1-open-raw-kind="${esc(ref.kind)}" data-d1-open-raw-id="${esc(ref.id)}" data-d1-open-raw-revision="${esc(ref.revision)}" data-d1-open-raw-hash="${esc(ref.hash)}">${esc(label)}</button>`;
+}
+
+function experienceName(type: string) {
+  return type === "project" ? "项目" : "任职";
+}
+
+export function cognitionExperiencePickerHTML(experiences: Obj[], preselected: Obj[] = []) {
+  const rows = (experiences || []).map((item: Obj) => {
+    const noKnowledge = Number(item.current_knowledge_count || 0) === 0;
+    const checked = preselected.some((ref) => ref.type === item.type && ref.id === item.id);
+    const value = encodeURIComponent(JSON.stringify({ type: item.type, id: item.id }));
+    const status = item.status === "ended" ? "已结束" : item.status === "completed" ? "已完成" : item.status === "canceled" ? "已取消" : "进行中";
+    return `<label class="d4-experience-choice ${noKnowledge ? "disabled" : ""}"><input type="checkbox" data-d4-experience value="${esc(value)}" ${checked && !noKnowledge ? "checked" : ""} ${noKnowledge ? "disabled" : ""}><span><b>${esc(experienceName(item.type))} · ${esc(item.name)}</b><small>${status} · ${Number(item.current_knowledge_count || 0)} 条当前 Wiki${noKnowledge ? " · 先整理 Wiki 信息" : ""}</small></span></label>`;
+  }).join("");
+  return `<p class="muted">选择至少两段、最多20段不同的项目或任职经历。每段都需要有当前 Wiki 信息；多条 Wiki 如果属于同一段经历，仍只算一段。</p><fieldset class="d4-experience-list">${rows || '<p class="muted">还没有可选择的项目或任职经历。</p>'}</fieldset><p class="d4-selection-error" data-d4-selection-error hidden></p><button type="button" class="primary full" data-d4-prepare>查看 AI 会读取的内容</button><button type="button" class="text-btn full" data-d4-cancel>取消</button>`;
+}
+
+export function cognitionPreviewHTML(context: Obj, details: Obj = {}) {
+  const experiences = (context.selected_experiences || []).map((experience: Obj) => {
+    const knowledge = (experience.current_knowledge || []).map((item: Obj) => {
+      const tags = (item.tags || []).map((tag: string) => esc(String(tag).replace(/^#+/, ""))).filter(Boolean).join("、");
+      return `<article class="d2-preview-item"><small>${esc(knowledgeTypeLabel(item.type))}</small><pre class="d2-preview-content">${esc(item.content)}</pre>${tags ? `<p class="muted d2-preview-tags">标签：${tags}</p>` : ""}</article>`;
+    }).join("");
+    return `<section class="d2-preview-section"><h4>${experienceName(experience.type)} · ${esc(experience.name)}</h4>${knowledge}</section>`;
+  }).join("");
+  const existingItems = context.existing_cognition || [];
+  const existing = existingItems.map((item: Obj) =>
+    `<article class="d2-preview-item"><small>${esc(knowledgeTypeLabel(item.type))}</small><pre class="d2-preview-content">${esc(item.content)}</pre></article>`,
+  ).join("");
+  const existingSection = existingItems.length
+    ? `<details class="d2-preview-details d4-existing-cognition"><summary>已有长期认知（${existingItems.length}）</summary>${existing}</details>`
+    : "";
+  const names = (details.experiences || []).map((value: string) => esc(value)).join("、");
+  return `<h3>整理长期认知</h3><p class="d2-preview-summary">AI 将比较 ${Number((context.selected_experiences || []).length)} 段经历</p>${experiences || '<p class="muted">没有可读取的 Wiki 信息。</p>'}${existingSection}<p class="d2-preview-boundary">不会读取原始资料。</p><details class="d2-preview-details"><summary>查看发送详情</summary><ul><li>模型：${esc(details.model || "当前配置")}</li><li>所选经历：${names || Number(details.experience_count || 0)}</li><li>当前 Wiki：${esc(details.wiki_count ?? 0)} 条</li>${existingItems.length ? `<li>已有长期认知：${existingItems.length} 条</li>` : ""}</ul></details><button type="button" class="primary full" data-d4-confirm>让 AI 整理</button><button type="button" class="text-btn full" data-d4-cancel>取消</button>`;
+}
+
+export function cognitionOutputErrorHTML() {
+  return `<section class="notice d4-output-invalid"><b>AI 返回的结果无法安全使用，本次没有修改长期认知。</b><button type="button" class="text-btn" data-d4-output-invalid>关闭</button></section>`;
+}
+
+export function cognitionWikiHTML(data: Obj, status = "current", selectedId = "") {
+  const all = [...(data.knowledge || []), ...(data.retired || [])];
+  const visible = status === "all" ? all : all.filter((item: Obj) => item.status === status);
+  const selected = visible.find((item: Obj) => item.id === selectedId) || visible[0];
+  const proposals = (data.proposals || []).filter((item: Obj) => item.status === "pending");
+  const proposalRows = proposals.map((item: Obj, index: number) =>
+    `<div class="setting-row"><span>有一组长期认知建议待处理<small>${(item.patches || []).filter((patch: Obj) => patch.status === "pending").length} 条尚未处理</small></span><button class="secondary" data-d4-resume-proposal="${esc(item.id)}">继续逐条处理</button></div>`,
+  ).join("");
+  const list = visible.map((item: Obj) =>
+    `<button class="entity-row ${selected?.id === item.id ? "selected" : ""}" data-d1-select-wiki="${esc(item.id)}"><b>${esc(knowledgeTypeLabel(item.knowledge_type))}</b><small>${esc(item.content)}</small><span>${item.status === "retired" ? "不再有效" : "当前"}</span></button>`,
+  ).join("");
+  const support = (selected?.supporting_experiences || []).map((experience: Obj) =>
+    `<li><button class="text-btn" data-d4-open-experience-type="${esc(experience.type)}" data-d4-open-experience-id="${esc(experience.id)}">${esc(experienceName(experience.type))} · ${esc(experience.name)}</button></li>`,
+  ).join("");
+  return `<section class="materials d1-wiki d4-cognition"><div class="pane-heading"><div><h2>长期认知</h2><p class="muted">从不同项目和任职中逐渐形成、以后还可能有用的工作方式或能力线索。它不是人格标签或分数。</p></div><div class="actions"><button class="text-btn" data-d4-wiki-all>返回全部 Wiki</button><button class="primary" data-d4-start>整理长期认知</button></div></div>${proposalRows ? `<section class="work-domain-card"><h3>待处理建议</h3>${proposalRows}</section>` : ""}<div class="pane-heading"><div></div><select aria-label="长期认知状态" id="d1-wiki-status"><option value="current" ${status === "current" ? "selected" : ""}>当前</option><option value="retired" ${status === "retired" ? "selected" : ""}>不再有效</option><option value="all" ${status === "all" ? "selected" : ""}>全部</option></select></div><div class="split"><section class="entity-rail"><h3>长期认知</h3><div class="scroll rail-list">${list || '<div class="empty">目前还没有长期认知。选几段有 Wiki 信息的经历，整理后再逐条确认。</div>'}</div></section><section class="detail-pane scroll">${selected ? `<div class="pane-heading"><div><small>${esc(knowledgeTypeLabel(selected.knowledge_type))}</small><p class="muted">${selected.status === "retired" ? "不再有效" : "当前"}</p></div><div class="actions"><button class="secondary" data-d1-edit-wiki="${esc(selected.id)}">编辑</button>${selected.status === "current" ? `<button class="quiet" data-d1-retire-wiki="${esc(selected.id)}">标记不再有效</button>` : `<button class="quiet" data-d1-revive-wiki="${esc(selected.id)}">恢复为当前</button>`}<button class="text-btn" data-d1-wiki-history="${esc(selected.id)}">历史</button></div></div><p class="preserve">${esc(selected.content)}</p><h4>支持这个判断的经历</h4><ul class="d4-supporting-experiences">${support || '<li class="muted">这条认知还没有可识别的项目或任职 Wiki 来源。</li>'}</ul>${support ? `<button class="text-btn" data-d4-open-source-tree="${esc(selected.id)}">查看支撑知识</button>` : ""}` : '<div class="empty">选择一条长期认知查看内容和来源。</div>'}</section></div></section>`;
 }
 
 export function wikiCompilerAction(source: Obj, targetScope?: Obj) {
@@ -248,6 +333,9 @@ export function wikiCurrentUnderstandingHTML(
 
 export function wikiSemanticView(d: Obj) {
   const data = d.wikiSemantic || { items: [], raw: [] };
+  if (semanticWikiUI.scope === "cognition") {
+    return cognitionWikiHTML(data.cognition || { knowledge: [], retired: [], proposals: [] }, semanticWikiUI.status, semanticWikiUI.selected);
+  }
   const items = data.items || [];
   const selected = items.find((x: Obj) => x.id === semanticWikiUI.selected) || items[0];
   if (selected && !items.some((x: Obj) => x.id === semanticWikiUI.selected)) semanticWikiUI.selected = selected.id;
@@ -265,5 +353,8 @@ export function projectWikiHTML(project: Obj, data: Obj = {}) {
   const retiredView = retired.length
     ? `<details class="wiki-retired"><summary>不再有效的知识 · ${retired.length}</summary>${retired.map((item: Obj) => knowledgeCard(item, rawItems)).join("")}</details>`
     : "";
-  return `<div class="project-wiki">${currentView}${scopeRawHTML("project", project.id, rawItems)}${retiredView}</div>`;
+  const recap = ["completed", "canceled"].includes(project.status)
+    ? `<button class="secondary" data-d4-start data-d4-prefill-type="project" data-d4-prefill-id="${esc(project.id)}">从这个项目整理长期认知</button>`
+    : "";
+  return `<div class="project-wiki">${recap}${currentView}${scopeRawHTML("project", project.id, rawItems)}${retiredView}</div>`;
 }

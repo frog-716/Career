@@ -1,3 +1,4 @@
+import { createAIActivityUI } from "./ai-activity";
 import { opportunityHTML, bindOpportunity } from "./opportunity-ui";
 import "./style.css";
 import { ui, view, shell, stageNames, noteNames, bindSidebarOrder, sidebarHome } from "./workspace";
@@ -235,13 +236,19 @@ async function load() {
       : [semanticWikiUI.scope, ""];
     query.set("scope_type", scopeType);
     query.set("scope_id", scopeId);
-    const [journeyResult, workResult, wikiResult, rawResult] = await Promise.all([
+    const [journeyResult, workResult, wikiResult, rawResult, cognitionResult, cognitionExperiencesResult] = await Promise.all([
       api("/journey?summary=true"),
       api("/work-domain"),
       api("/wiki?" + query.toString()),
-      semanticWikiUI.scope === "all"
+      semanticWikiUI.scope === "all" || scopeType === "cognition"
         ? Promise.resolve({ items: [] })
         : api(`/raw?scope_type=${encodeURIComponent(scopeType)}&scope_id=${encodeURIComponent(scopeId)}`),
+      scopeType === "cognition"
+        ? api("/wiki/cognition/workspace")
+        : Promise.resolve(null),
+      scopeType === "cognition"
+        ? api("/wiki/cognition/experiences")
+        : Promise.resolve(null),
     ]);
     if (!current()) return;
     journey = journeyResult;
@@ -251,6 +258,10 @@ async function load() {
       raw: rawResult.items || [],
       sourceCatalog: wikiResult.source_catalog || [],
       next_cursor: wikiResult.next_cursor || "",
+      cognition: cognitionResult ? {
+        ...cognitionResult,
+        experiences: cognitionExperiencesResult?.experiences || [],
+      } : null,
     };
   };
   try {
@@ -1617,7 +1628,7 @@ function bind() {
       page,
     }),
   });
-  bindWikiSemantic({
+  wikiActions = bindWikiSemantic({
     api,
     modal,
     modalError,
@@ -1628,6 +1639,7 @@ function bind() {
     failure,
     getData: () => ({ state, journey, workDomain, wikiSemantic, projectWiki, employmentWiki, personWiki, page }),
   });
+  aiActivity.mount();
   $("#toggle-sidebar")!.onclick = () => {
     ui.sidebar = !ui.sidebar;
     root
@@ -1967,4 +1979,20 @@ window.addEventListener("hashchange", () => {
     await navigate(requested as Page, targetJob);
   })().catch(failure);
 });
+let wikiActions: ReturnType<typeof bindWikiSemantic>;
+const aiActivity = createAIActivityUI({
+  api, modal,
+  openProposal: id => wikiActions.openProposal(id),
+  owner: () => {
+    if (page === "projects") return { type: "project", id: ui.projectId };
+    if (page === "jobs") return { type: "opportunity", id: jobId };
+    if (page === "work") {
+      if (ui.personId) return { type: "person", id: ui.personId };
+      const employment = workDomain.employments?.find((x: Obj) => x.legacy_episode_id === ui.episodeId || x.id === ui.episodeId);
+      return employment ? { type: "employment", id: employment.id } : null;
+    }
+    return null;
+  },
+});
+aiActivity.start();
 void start();

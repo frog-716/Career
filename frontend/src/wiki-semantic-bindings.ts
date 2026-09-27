@@ -1,5 +1,7 @@
+import { beginAIProcessing, processingHTML, operationErrorHTML, previewExpired, isPreparationExpired, watchPreviewExpiry } from "./ai-activity";
 import {
-  knowledgeTypeLabel, knowledgeTypeLabels, semanticWikiUI, sourceLabel,
+  proposalScopeLabel, knowledgeTypeLabel, knowledgeTypeLabels, semanticWikiUI, sourceLabel,
+  cognitionExperiencePickerHTML, cognitionPreviewHTML, cognitionOutputErrorHTML,
   wikiCompilerFrozenBefore, wikiCompilerPatchHTML, wikiCompilerPreviewHTML,
   wikiHistoryStatusLabel,
 } from "./wiki-semantic-ui";
@@ -22,6 +24,21 @@ const sourceRefKey = (value: Obj) => {
   const ref = value.source_ref || value;
   return JSON.stringify([ref.kind, ref.id, ref.revision, ref.hash]);
 };
+const cognitionResultErrorCodes = new Set([
+  "invalid_json", "truncated_result", "invalid_result", "empty_result", "invalid_envelope",
+  "top_level_invalid", "patches_missing", "patch_wrong_type", "operation_invalid",
+  "knowledge_type_invalid", "content_missing", "content_empty", "content_wrong_type",
+  "source_experiences_missing", "source_experiences_insufficient", "source_experience_unknown",
+  "source_wiki_invalid", "target_missing", "target_revision_mismatch", "extra_field",
+  "content_policy_violation", "reason_missing", "reason_empty", "reason_wrong_type",
+  "reason_invalid_length", "tag_wrong_type", "tag_empty", "tag_invalid_length", "tags_invalid",
+  "content_invalid_length",
+]);
+
+function isCognitionResultError(error: unknown) {
+  const code = (error as Obj | null)?.data?.code;
+  return typeof code === "string" && cognitionResultErrorCodes.has(code);
+}
 
 function selectedScope(element: HTMLElement) {
   const type = element.dataset.d1ScopeType;
@@ -72,7 +89,7 @@ function scopeLabel(d: Obj, value: Obj) {
     const item = d.state.opportunities?.find((x: Obj) => x.id === value.scope_id);
     return `机会 · ${item ? `${item.company} / ${item.title}` : "机会"}`;
   }
-  return value.scope_type === "cognition" ? "跨经历认知" : "个人职业资料";
+  return value.scope_type === "cognition" ? "长期认知" : "个人职业资料";
 }
 
 export function bindWikiSemantic(ctx: Obj) {
@@ -133,6 +150,183 @@ export function bindWikiSemantic(ctx: Obj) {
     }
   }
   on("[data-d1-open-raw-kind]", (el) => void openRaw(el));
+
+  async function openWikiSource(identifier: string, revision: number) {
+    try {
+      const response = await api(`/wiki/${encodeURIComponent(identifier)}/history`);
+      const item = (response.revisions || []).find((value: Obj) => value.revision === revision);
+      if (!item) throw new Error("找不到这段经历当时的 Wiki 版本，已停止显示。");
+      const rawRefs = (item.source_refs || []).filter((ref: Obj) => ref.kind !== "wiki_knowledge");
+      const html = `<h3>${esc(knowledgeTypeLabel(item.knowledge_type))} · 第 ${esc(item.revision)} 版</h3><p class="muted">${esc(scopeLabel(getData(), item))}</p><p class="preserve">${esc(item.content)}</p><h4>它的原始依据</h4>${rawRefs.length ? rawRefs.map((ref: Obj) => `<p>${openRawButton(ref)}</p>`).join("") : '<p class="muted">这条 Wiki 没有原始资料来源。</p>'}`;
+      modal("经历中的 Wiki 知识", html, (dialog: HTMLDialogElement) => {
+        dialog.querySelectorAll<HTMLElement>("[data-d1-open-raw-kind]").forEach((button) => {
+          button.onclick = () => void openRaw(button);
+        });
+      });
+    } catch (error) {
+      ctx.failure(error);
+    }
+  }
+  on("[data-d4-open-wiki-source]", (el) => {
+    void openWikiSource(el.dataset.d4OpenWikiSource || "", Number(el.dataset.d4SourceRevision || 0));
+  });
+
+  async function openCognitionSourceTree(identifier: string) {
+    try {
+      const response = await api(`/wiki/cognition/knowledge/${encodeURIComponent(identifier)}/sources`);
+      const rows = (response.sources || []).map((trace: Obj) => {
+        const knowledge = trace.wiki_knowledge || {};
+        const raws = (trace.raw_sources || []).map((raw: Obj) =>
+          `<li>${openRawButton(raw.source_ref, "打开原始资料 →")}</li>`,
+        ).join("");
+        const rawDetails = raws
+          ? `<details class="d4-raw-sources"><summary>需要时查看原始资料 · ${Number(trace.raw_sources.length)} 条</summary><ul>${raws}</ul></details>`
+          : '<p class="muted">这条经历 Wiki 没有关联原始资料。</p>';
+        return `<section class="work-domain-card"><button class="text-btn" data-d4-open-experience-type="${esc(trace.experience?.type)}" data-d4-open-experience-id="${esc(trace.experience?.id)}">支持经历：${esc(trace.experience?.name || "经历")}</button><p><b>${esc(knowledgeTypeLabel(knowledge.type))} · 第 ${esc(knowledge.revision)} 版</b></p><p class="preserve">${esc(knowledge.content)}</p>${knowledge.version_changed ? '<p class="muted">这段经历 Wiki 后来已修改；这里仍显示当时被引用的版本。</p>' : ""}${rawDetails}</section>`;
+      }).join("");
+      modal("支持这个判断的经历", rows || '<p class="muted">暂时找不到可读取的经历来源。</p>', (dialog: HTMLDialogElement) => {
+        dialog.querySelectorAll<HTMLElement>("[data-d1-open-raw-kind]").forEach((button) => {
+          button.onclick = () => void openRaw(button);
+        });
+        dialog.querySelectorAll<HTMLElement>("[data-d4-open-experience-type]").forEach((button) => {
+          button.onclick = () => void openExperience(button.dataset.d4OpenExperienceType || "", button.dataset.d4OpenExperienceId || "");
+        });
+      });
+    } catch (error) {
+      ctx.failure(error);
+    }
+  }
+  on("[data-d4-open-source-tree]", (el) => void openCognitionSourceTree(el.dataset.d4OpenSourceTree || ""));
+
+  async function openExperience(type: string, identifier: string) {
+    const data = getData();
+    if (type === "project") {
+      if (typeof ctx.navigate === "function") await ctx.navigate("projects", identifier);
+      return;
+    }
+    const employment = data.workDomain.employments?.find((item: Obj) => item.id === identifier);
+    if (employment && typeof ctx.navigate === "function") {
+      await ctx.navigate("work", employment.legacy_episode_id || identifier.replace(/^employment:/, ""));
+    }
+  }
+  on("[data-d4-open-experience-type]", (el) => {
+    void openExperience(el.dataset.d4OpenExperienceType || "", el.dataset.d4OpenExperienceId || "");
+  });
+
+  function showOperationError(flow: HTMLElement, error: unknown) {
+    flow.innerHTML = operationErrorHTML(error);
+    window.dispatchEvent(new Event("career-ai-activity-change"));
+  }
+
+  function renderExpiredPreview(dialog: HTMLDialogElement, repreview: () => void) {
+    const flow = dialog.querySelector<HTMLElement>("[data-d2-flow], [data-d4-flow]");
+    if (!flow) return;
+    flow.innerHTML = '<section role="status"><p>预览已过期，尚未发送。</p><button type="button" class="primary" data-preview-again>重新预览</button></section>';
+    flow.querySelector<HTMLButtonElement>('[data-preview-again]')!.onclick = () => { dialog.close(); repreview(); };
+    window.dispatchEvent(new Event("career-ai-activity-change"));
+  }
+
+  async function startCognitionCompiler(selectedExperiences: Obj[]) {
+    const key = crypto.randomUUID();
+    const dialog = modal("整理长期认知", `<section data-d4-flow><p>正在准备所选经历中的 Wiki 信息…</p></section>`) as HTMLDialogElement;
+    try {
+      const preview = await api("/wiki/cognition/compiler/prepare", {
+        selected_experiences: selectedExperiences, idempotency_key: key,
+      });
+      const flow = dialog.querySelector<HTMLElement>("[data-d4-flow]");
+      if (!flow) return;
+      dialog.classList.add("d2-preview-dialog");
+      flow.innerHTML = cognitionPreviewHTML(preview.readable_context, preview.preview_details);
+      const expire = () => renderExpiredPreview(dialog, () => { void startCognitionCompiler(selectedExperiences); });
+      watchPreviewExpiry(dialog, preview.expires_at, expire);
+      flow.querySelector<HTMLButtonElement>("[data-d4-cancel]")!.onclick = () => dialog.close();
+      flow.querySelector<HTMLButtonElement>("[data-d4-confirm]")!.onclick = async (event: MouseEvent) => {
+        const button = event.currentTarget as HTMLButtonElement;
+        if (button.disabled) return;
+        if (previewExpired(preview.expires_at)) { expire(); return; }
+        button.disabled = true;
+        try {
+          const result = await beginAIProcessing<Obj>(() => { flow.innerHTML = processingHTML(); dialog.dataset.dirty = "false"; window.dispatchEvent(new Event("career-ai-activity-change")); }, () => api("/wiki/cognition/compiler/execute", {
+            selected_experiences: preview.selected_experiences,
+            idempotency_key: key,
+            prepared_id: preview.prepared_id,
+            payload_hash: preview.payload_hash,
+            confirm_outbound: true,
+          }));
+          window.dispatchEvent(new Event("career-ai-activity-change"));
+          if (result.status === "no_changes") {
+            flow.innerHTML = `<section class="notice"><b>这些经历中暂时没有发现值得沉淀为长期认知的新模式。</b><p>没有写入任何长期认知。</p><button type="button" class="primary" data-d4-finish>完成</button></section>`;
+            flow.querySelector<HTMLButtonElement>("[data-d4-finish]")!.onclick = () => {
+              dialog.close();
+              ctx.inform?.(result.message || "没有新增长期认知。");
+              render();
+            };
+            return;
+          }
+          if (result.status === "proposal_pending" && result.proposal) {
+            await load();
+            render();
+            await renderCompilerPatch(dialog, result.proposal);
+            return;
+          }
+          flow.innerHTML = `<section class="notice"><b>${esc(result.message || "操作状态需要检查")}</b></section>`;
+        } catch (error) {
+          if (isPreparationExpired(error)) { expire(); return; }
+          if (error instanceof Error && error.message.includes("prepared_request_stale")) {
+            flow.innerHTML = `<section class="notice"><b>所选经历或 Wiki 信息在预览后发生了变化。</b><p>重新预览前不会发送。</p><button type="button" class="primary" data-d4-repreview>重新预览</button><button type="button" class="text-btn" data-d4-cancel>取消</button></section>`;
+            flow.querySelector<HTMLButtonElement>("[data-d4-repreview]")!.onclick = () => {
+              dialog.close();
+              void startCognitionCompiler(selectedExperiences);
+            };
+            flow.querySelector<HTMLButtonElement>("[data-d4-cancel]")!.onclick = () => dialog.close();
+            return;
+          }
+          if (isCognitionResultError(error)) {
+            flow.innerHTML = cognitionOutputErrorHTML();
+            flow.querySelector<HTMLButtonElement>("[data-d4-output-invalid]")!.onclick = () => dialog.close();
+            return;
+          }
+          showOperationError(flow, error);
+        }
+      };
+    } catch (error) {
+      modalError(error);
+    }
+  }
+
+  on("[data-d4-wiki-all]", () => {
+    semanticWikiUI.scope = "all";
+    semanticWikiUI.selected = "";
+    void load().then(render).catch(ctx.failure);
+  });
+
+  on("[data-d4-start]", (el) => {
+    const experiences = getData().wikiSemantic.cognition?.experiences || [];
+    const preselected = el.dataset.d4PrefillType && el.dataset.d4PrefillId
+      ? [{ type: el.dataset.d4PrefillType, id: el.dataset.d4PrefillId }]
+      : [];
+    const dialog = modal("整理长期认知", cognitionExperiencePickerHTML(experiences, preselected), (opened: HTMLDialogElement) => {
+      opened.querySelector<HTMLButtonElement>("[data-d4-cancel]")!.onclick = () => opened.close();
+      opened.querySelector<HTMLButtonElement>("[data-d4-prepare]")!.onclick = () => {
+        const selected = [...opened.querySelectorAll<HTMLInputElement>("[data-d4-experience]:checked")]
+          .map((input) => JSON.parse(decodeURIComponent(input.value)));
+        const error = opened.querySelector<HTMLElement>("[data-d4-selection-error]")!;
+        if (selected.length < 2) {
+          error.textContent = "请至少选择两段不同的经历。";
+          error.hidden = false;
+          return;
+        }
+        if (selected.length > 20) {
+          error.textContent = "最多选择20段不同的经历。";
+          error.hidden = false;
+          return;
+        }
+        opened.close();
+        void startCognitionCompiler(selected);
+      };
+    });
+    return dialog;
+  });
 
   function sourceChoices(rawItems: Obj[], selectedRefs: Obj[]) {
     const selected = new Set(selectedRefs.map(sourceRefKey));
@@ -310,12 +504,44 @@ export function bindWikiSemantic(ctx: Obj) {
     render();
   }
 
+  async function cognitionSupportingExperiences(proposal: Obj, patch: Obj) {
+    const saved = patch.supporting_experiences;
+    if (Array.isArray(saved) && saved.length) {
+      return saved.map((item: Obj) => ({
+        ...item,
+        label: item.type === "project" ? `项目 · ${item.name}` : `任职 · ${item.name}`,
+      }));
+    }
+    const selected = proposal.selected_experiences || [];
+    const workspace = getData().wikiSemantic?.cognition?.experiences
+      || (await api("/wiki/cognition/experiences")).experiences || [];
+    const resolved = new Map<string, Obj>();
+    for (const ref of patch.source_refs || []) {
+      if (ref.kind !== "wiki_knowledge") continue;
+      const history = await api(`/wiki/${encodeURIComponent(ref.id)}/history`);
+      const source = (history.revisions || []).find((item: Obj) => item.revision === ref.revision);
+      if (!source) continue;
+      const selectedExperience = selected.find((item: Obj) =>
+        item.type === source.scope_type && item.id === source.scope_id,
+      );
+      if (!selectedExperience) continue;
+      const experience = workspace.find((item: Obj) =>
+        item.type === selectedExperience.type && item.id === selectedExperience.id,
+      );
+      if (!experience) continue;
+      const label = experience.type === "project"
+        ? `项目 · ${experience.name}` : `任职 · ${experience.name}`;
+      resolved.set(`${experience.type}:${experience.id}`, { ...experience, label });
+    }
+    return [...resolved.values()];
+  }
+
   function isPreparedRequestStale(error: unknown): boolean {
     return error instanceof Error && error.message.includes("prepared_request_stale");
   }
 
   function renderCompilerStale(dialog: HTMLDialogElement, rawId: string, targetScope?: Obj) {
-    const flow = dialog.querySelector<HTMLElement>("[data-d2-flow]");
+    const flow = dialog.querySelector<HTMLElement>("[data-d2-flow], [data-d4-flow]");
     if (!flow) return;
     flow.innerHTML = `<section class="notice"><b>资料在预览后发生了变化，请重新确认发送内容。</b><p><button type="button" class="primary" data-d2-repreview>重新预览</button></p></section>`;
     flow.querySelector<HTMLButtonElement>("[data-d2-repreview]")!.onclick = () => {
@@ -325,21 +551,26 @@ export function bindWikiSemantic(ctx: Obj) {
   }
 
   function renderCompilerPreview(dialog: HTMLDialogElement, rawId: string, key: string, preview: Obj, targetScope?: Obj) {
-    const flow = dialog.querySelector<HTMLElement>("[data-d2-flow]");
+    const flow = dialog.querySelector<HTMLElement>("[data-d2-flow], [data-d4-flow]");
     if (!flow) return;
     dialog.classList.add("d2-preview-dialog");
     flow.innerHTML = wikiCompilerPreviewHTML(preview.readable_context, preview.preview_details);
+    const expire = () => renderExpiredPreview(dialog, () => { void startCompiler(rawId, true, targetScope); });
+    watchPreviewExpiry(dialog, preview.expires_at, expire);
     flow.querySelector<HTMLButtonElement>("[data-d2-cancel]")!.onclick = () => dialog.close();
     flow.querySelector<HTMLButtonElement>("[data-d2-confirm]")!.onclick = async (event) => {
       const button = event.currentTarget as HTMLButtonElement;
+      if (button.disabled) return;
+      if (previewExpired(preview.expires_at)) { expire(); return; }
       button.disabled = true;
       try {
-        const result = await api("/wiki/compiler/execute", {
+        const result = await beginAIProcessing<Obj>(() => { flow.innerHTML = processingHTML(); dialog.dataset.dirty = "false"; window.dispatchEvent(new Event("career-ai-activity-change")); }, () => api("/wiki/compiler/execute", {
           raw_id: rawId, idempotency_key: key,
           ...(targetScope ? { target_scope: targetScope } : {}),
           prepared_id: preview.prepared_id, payload_hash: preview.payload_hash,
           confirm_outbound: true,
-        });
+        }));
+        window.dispatchEvent(new Event("career-ai-activity-change"));
         if (result.status === "no_changes") {
           flow.innerHTML = `<section class="notice"><b>这份资料没有发现值得更新到 Wiki 的长期知识。</b><p>没有写入任何 Wiki。</p><button type="button" class="primary" data-d2-finish>完成</button></section>`;
           flow.querySelector<HTMLButtonElement>("[data-d2-finish]")!.onclick = () =>
@@ -350,7 +581,7 @@ export function bindWikiSemantic(ctx: Obj) {
           try {
             await load();
             render();
-            ctx.inform?.("建议已保存，可以逐条处理；关闭后可从这份资料继续。");
+            ctx.inform?.("AI 建议已保存，可从右上角 AI 继续处理。");
             await renderCompilerPatch(dialog, result.proposal);
           } catch {
             flow.innerHTML = `<section class="notice"><b>建议已经生成并保存，但当前页面无法显示。</b><p>关闭后重新打开原始资料，可以继续检查这条建议。</p></section>`;
@@ -359,18 +590,18 @@ export function bindWikiSemantic(ctx: Obj) {
         }
         flow.innerHTML = `<section class="notice"><b>${esc(result.message || "操作状态需要检查")}</b></section>`;
       } catch (error) {
+        if (isPreparationExpired(error)) { expire(); return; }
         if (isPreparedRequestStale(error)) {
           renderCompilerStale(dialog, rawId, targetScope);
           return;
         }
-        modalError(error);
-        button.disabled = false;
+        showOperationError(flow, error);
       }
     };
   }
 
   async function renderCompilerPatch(dialog: HTMLDialogElement, proposal: Obj, editing = false) {
-    const flow = dialog.querySelector<HTMLElement>("[data-d2-flow]");
+    const flow = dialog.querySelector<HTMLElement>("[data-d2-flow], [data-d4-flow]");
     if (!flow) return;
     const errorBox = dialog.querySelector<HTMLElement>("#modal-error");
     if (errorBox) { errorBox.hidden = true; errorBox.textContent = ""; }
@@ -384,20 +615,52 @@ export function bindWikiSemantic(ctx: Obj) {
       return;
     }
     const patch = patches[index];
-    const scope = scopeLabel(getData(), { scope_type: patch.scope_type, scope_id: patch.scope_id });
+    const scope = proposalScopeLabel(proposal, patch, scopeLabel(getData(), { scope_type: patch.scope_type, scope_id: patch.scope_id }));
     let beforeContent: string | undefined;
+    let targetKnowledgeType = "";
     if (patch.operation === "rewrite" || patch.operation === "retire") {
       try {
         const history = await api(`/wiki/${encodeURIComponent(patch.target_knowledge_id)}/history`);
         beforeContent = wikiCompilerFrozenBefore(patch, history.revisions || []);
+        targetKnowledgeType = (history.revisions || []).find(
+          (item: Obj) => item.revision === patch.before_revision,
+        )?.knowledge_type || "";
       } catch {
         flow.innerHTML = `<section class="notice"><b>无法安全显示这条建议。</b><p>系统没有找到它对应的 Wiki 原始版本，没有写入任何内容。关闭后再打开仍可继续检查。</p></section>`;
         return;
       }
     }
-    flow.innerHTML = `<p class="muted">建议 ${index + 1} / ${patches.length} · 已保存，关闭后可从这份资料继续处理</p>${wikiCompilerPatchHTML(patch, beforeContent, scope, editing)}`;
+    const isCognition = proposal.context_kind === "cognition";
+    let supportingExperiences: Obj[] = [];
+    if (isCognition) {
+      try {
+        supportingExperiences = await cognitionSupportingExperiences(proposal, patch);
+      } catch {
+        flow.innerHTML = `<section class="notice"><b>暂时无法安全显示这条建议的支撑经历。</b><p>没有写入任何长期认知，请稍后从待处理建议重新打开。</p></section>`;
+        return;
+      }
+      if (!supportingExperiences.length) {
+        flow.innerHTML = `<section class="notice"><b>无法核对这条建议来自哪些经历。</b><p>没有写入任何长期认知，因此暂不显示审批操作。</p></section>`;
+        return;
+      }
+    }
+    const displayPatch = isCognition && !patch.knowledge_type && targetKnowledgeType
+      ? { ...patch, knowledge_type: targetKnowledgeType }
+      : patch;
+    const patchHTML = wikiCompilerPatchHTML(
+      displayPatch, beforeContent, scope, editing,
+      isCognition ? { cognition: true, supportingExperiences } : {},
+    );
+    flow.innerHTML = isCognition
+      ? `<h3>发现 ${patches.length} 条长期认知</h3><p class="muted">第 ${index + 1} / ${patches.length} 条</p>${patchHTML}`
+      : `<p class="muted">建议 ${index + 1} / ${patches.length} · 已保存，关闭后可从这份资料继续处理</p>${patchHTML}`;
     flow.querySelectorAll<HTMLElement>("[data-d1-open-raw-kind]").forEach((button) => {
       button.onclick = () => void openRaw(button);
+    });
+    flow.querySelectorAll<HTMLElement>("[data-d4-open-wiki-source]").forEach((button) => {
+      button.onclick = () => void openWikiSource(
+        button.dataset.d4OpenWikiSource || "", Number(button.dataset.d4SourceRevision || 0),
+      );
     });
     let idempotencyKey = "";
     const decide = async (decision: string, editedValue?: string) => {
@@ -410,6 +673,7 @@ export function bindWikiSemantic(ctx: Obj) {
         const result = await api(`/wiki/compiler/proposals/${encodeURIComponent(proposal.id)}/patches/${encodeURIComponent(patch.id)}/resolve`, body);
         await load();
         await renderCompilerPatch(dialog, result.proposal);
+        window.dispatchEvent(new Event("career-ai-activity-change"));
         dialog.dataset.dirty = "false";
       } catch (error) {
         modalError(error);
@@ -469,8 +733,23 @@ export function bindWikiSemantic(ctx: Obj) {
       : undefined;
     void startCompiler(el.dataset.d2Compile || "", false, targetScope);
   });
+
+  async function openProposal(id: string) {
+    try {
+      const proposal = await api(`/wiki/compiler/proposals/${encodeURIComponent(id)}`);
+      const dialog = modal(proposal.context_kind === "cognition" ? "长期认知建议" : "Wiki 建议", `<section data-d2-flow></section>`);
+      if (proposal.status !== "pending") {
+        dialog.querySelector("[data-d2-flow]")!.textContent = "这组建议已结束，没有待处理内容。";
+        return;
+      }
+      await renderCompilerPatch(dialog, proposal);
+    } catch (error) { ctx.failure(error); }
+  }
+  on("[data-d4-resume-proposal]", el => void openProposal(el.dataset.d4ResumeProposal || ""));
+  on("[data-ai-resume-proposal]", el => void openProposal(el.dataset.aiResumeProposal || ""));
+  return { openProposal };
 }
 
-function openRawButton(ref: Obj) {
-  return `<button type="button" class="text-btn" data-d1-open-raw-kind="${esc(ref.kind)}" data-d1-open-raw-id="${esc(ref.id)}" data-d1-open-raw-revision="${esc(ref.revision)}" data-d1-open-raw-hash="${esc(ref.hash)}">查看来源 →</button>`;
+function openRawButton(ref: Obj, label = "查看来源 →") {
+  return `<button type="button" class="text-btn" data-d1-open-raw-kind="${esc(ref.kind)}" data-d1-open-raw-id="${esc(ref.id)}" data-d1-open-raw-revision="${esc(ref.revision)}" data-d1-open-raw-hash="${esc(ref.hash)}">${esc(label)}</button>`;
 }

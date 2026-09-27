@@ -45,6 +45,8 @@ AI按具体任务出现，手动闭环可独立验收，mock不能证明真实�
 
 一级入口固定为 Wiki / 机会 / 项目 / 任职。用户把材料放进明确业务入口形成 Raw；相关 Project、Employment、Opportunity 或已确认的 Person 拥有业务身份和真实关系；Wiki Compiler 对照当前 Wiki 提出带 Raw 来源的逐条 Patch，用户接受、编辑后接受或拒绝。普通姓名 mention 留在当前 Raw，不自动创建 Person。Cognition 是可跨任职、项目和机会复用的 Wiki 知识。
 
+D4 长期认知流程由用户主动开始：选择至少两段 Project / Employment，先查看实际发送的所选 Wiki 和已有 Cognition，再单独确认；Compiler 可以不给建议，也可以逐条提出 add / rewrite / retire，由用户接受、编辑后接受或拒绝。具体范围与来源链见[长期 Career 模型的 D4 合同](target/long-term-career-model.md#d4-长期认知提炼合同)；本段描述目标流程，不表示真实 Provider 或 Runtime 已验收。
+
 项目可独立存在，也可选择关联一段 Employment；任职页展示同一个 Project 正本。任职结束后，其协作与组织知识作为历史保留。具体字段与确认规则见长期 Career 模型，本页不另造对象字段。
 
 ## 入职、协作与阶段总结 — Target（Phase C+，尚未实现）

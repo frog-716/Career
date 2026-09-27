@@ -64,6 +64,7 @@ def _response_diagnostics(status_code, body=None, *, raw_parser_error=None, choi
     if raw_parser_error is not None:
         diagnostics["parser_error_type"] = type(raw_parser_error).__name__
         diagnostics["parser_error_position"] = getattr(raw_parser_error, "pos", None)
+        diagnostics["field_path"] = "$"
     return diagnostics
 
 
@@ -158,20 +159,25 @@ class OpenAICompatibleAdapter:
                 body = json.loads(raw.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 diagnostics = _response_diagnostics(status_code, raw_parser_error=exc)
+                diagnostics["field_path"] = "$"
                 raise GatewayError("invalid_envelope", "AI 响应 envelope 无法解析", diagnostics) from exc
             if not isinstance(body, dict) or not isinstance(body.get("choices"), list) or not body["choices"]:
                 diagnostics = _response_diagnostics(status_code, body)
+                diagnostics["field_path"] = "$.choices"
                 raise GatewayError("invalid_envelope", "AI 响应 envelope 缺少 choices", diagnostics)
             choice = body["choices"][0]
             if not isinstance(choice, dict) or not isinstance(choice.get("message"), dict):
                 diagnostics = _response_diagnostics(status_code, body, choice=choice if isinstance(choice, dict) else None)
+                diagnostics["field_path"] = "$.choices[0].message"
                 raise GatewayError("invalid_envelope", "AI 响应 envelope 缺少 message", diagnostics)
             if "content" not in choice["message"]:
                 diagnostics = _response_diagnostics(status_code, body, choice=choice)
+                diagnostics["field_path"] = "$.choices[0].message.content"
                 raise GatewayError("invalid_envelope", "AI 响应 envelope 缺少 content", diagnostics)
             content = choice["message"]["content"]
             diagnostics = _response_diagnostics(status_code, body, choice=choice, content=content)
             if content is None or (isinstance(content, str) and not content.strip()):
+                diagnostics["field_path"] = "$.choices[0].message.content"
                 raise GatewayError("empty_result", "AI 返回内容为空", diagnostics)
             if isinstance(content, str):
                 try:
@@ -179,12 +185,14 @@ class OpenAICompatibleAdapter:
                 except json.JSONDecodeError as exc:
                     diagnostics["parser_error_type"] = type(exc).__name__
                     diagnostics["parser_error_position"] = exc.pos
+                    diagnostics["field_path"] = "$"
                     if choice.get("finish_reason") == "length" or _looks_unclosed_json(content):
                         raise GatewayError("truncated_result", "AI 返回的 JSON 不完整", diagnostics) from exc
                     raise GatewayError("invalid_json", "AI 返回的内容不是合法 JSON", diagnostics) from exc
             else:
                 result = content
             if not isinstance(result, dict):
+                diagnostics["field_path"] = "$"
                 raise GatewayError("invalid_result", "AI 返回 JSON 顶层结构不合法", diagnostics)
             return result
         except GatewayError:
@@ -201,6 +209,19 @@ class OpenAICompatibleAdapter:
                 "只允许add、rewrite、retire；只能使用输入中列出的scope和当前Wiki目标。不能创建或猜测Person；Raw里出现的普通姓名mention不构成人物身份。"
                 "Fact必须由这次Raw中的明确内容直接支持；Observation只写本次允许上下文中可观察到的模式，不得虚构重复规律；推断只能作为Hypothesis并明确保留不确定。"
                 "每条Patch的source_refs必须精确引用本轮唯一Raw的kind、id、revision；不得引用其它来源。不要输出confidence百分比、批量操作、总结段落或合同以外字段。"
+            )
+        elif isinstance(packet, dict) and packet.get("task") == "synthesize_long_term_cognition":
+            compiler_rules = (
+                "长期认知规则：只比较用户明确选择的项目/任职，以及这些经历各自 current_knowledge 中的 Wiki。一个经历里的多条 Wiki 仍只算一个经历；没有稳定共同点就返回 {patches:[]}。"
+                "顶层必须且只能有 patches 数组；每项必须且只能采用以下一种结构，不允许额外字段、漏字段或用 null 代替字段："
+                "add 必须含 operation='add'、knowledge_type（小写 fact/observation/hypothesis）、content（非空字符串）、tags（字符串数组，可为空）、source_refs（对象数组，每项只有 knowledge_id）、reason（非空字符串）。"
+                "rewrite 必须含 operation='rewrite'、target_knowledge_id、before_revision、content、source_refs、reason；target_knowledge_id 与 before_revision 必须逐字取自同一个 existing_cognition 条目。"
+                "retire 必须含 operation='retire'、target_knowledge_id、before_revision、source_refs、reason；目标 ID 与 revision 必须逐字取自同一个 existing_cognition 条目；retire 不得带 content、knowledge_type 或 tags。没有 existing_cognition 时只能使用 add。"
+                "source_refs 每项格式是 {\"knowledge_id\":\"输入中某条 current_knowledge 的 ID\"}。add / rewrite 至少引用两段不同经历各自的 Wiki；retire 至少引用一段所选经历的 Wiki。同一经历的多个 ID 不算两个经历。"
+                "严格合法且完全虚构的完整 JSON 示例见下方 example。示例中的 knowledge_id 是本次输入范围内真实可用的引用 ID；其余示例文字均为虚构内容。"
+                "只允许小写类型值 fact、observation、hypothesis。优先 observation 或 hypothesis；只有明确、反复支持时才谨慎使用 fact。保留矛盾证据，不制造回音室。"
+                "禁止人格画像、心理分析、固定人格/能力标签和任何分数或百分比。不要把一次行为写成稳定能力；不推断用户的心理、性格或潜在动机。"
+                "source_refs 只能引用输入 current_knowledge 中的 knowledge_id；不得引用原始 Raw、Person、Opportunity、Resume、Interview、Feedback、历史记录或未选择经历。不要输出置信度、批量操作、总结段落或合同以外字段。"
             )
         example_text = (
             "；最小完整 JSON 示例：" + json.dumps(example, ensure_ascii=False, separators=(",", ":"))

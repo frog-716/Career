@@ -18,7 +18,7 @@
 
 2026-09-17审计快照中的真实 Provider 未验收、两项 profile/editor 测试失败等结论只描述当日证据，不代表当前。当前测试、运行与验收状态以 [STATUS](execution/STATUS.md) 为准；不能把合同要求当作现有机制的证明。
 
-Phase D1 的工作区实现新增独立的 `raw_material` 与 `wiki_knowledge` JSON kind，复用 `records`、`current` 与 `revisions`，不升级 schema，也不修改旧 `wiki_entry`。新 Wiki 暂不进入 `ContextCompiler`、Resume AI 或任何 Provider 请求；旧 Wiki 的求职读取合同继续单独保留。Runtime 与用户验收状态以 [STATUS](execution/STATUS.md) 为准。
+Phase D1 新增的 `raw_material` 与 `wiki_knowledge` 复用 `records`、`current` 与 `revisions`，不升级 schema，也不修改旧 `wiki_entry`。D2/D3 的 Wiki Compiler 与 D4 Cognition 使用独立的受控任务 DTO；D4 基础实现已通过 TestProvider 与自动回归；真实 smoke 被 UX Reset 暂停，尚未完成正式 Cognition 验收，不因代码纳入 checkpoint 而判 COMPLETE。它们不会自动进入 Resume AI。旧 Wiki 的求职读取合同继续单独保留。Runtime 与用户验收状态以 [STATUS](execution/STATUS.md) 为准。
 
 ## Target contract — 资料与正式对象
 
@@ -73,6 +73,7 @@ Skill统一通过`ContextCompiler.prepare(task_type, target_object, user_request
 | Research / Communication ingestion | 本次指定Raw、所属机会、相关当前Research | 不自动把机会材料提升成公司级结论；范围变化需明确目标和确认 |
 | Interview准备 / Simulation Pack | 目标real轮次、JD、实际投递简历、Research、HR沟通、此前真实轮次的当前复盘 | 没有投递简历须明确缺失，不能用最新工作稿替代；不全量读取旧面试Raw |
 | Interview复盘 | 本轮当前Transcript、real/simulation来源及目标轮次、相关背景 | 模拟AI面试官的虚构信息不具备现实事实资格；用户自述可提个人Patch；真实面试官信息可提机会研究Patch |
+| D4 长期认知整理 | 用户明确选择的至少两个 Project / Employment、这些经历的当前 Wiki、当前 Cognition | add / rewrite 必须有两个不同经历来源；不读 Raw 正文、Person、Opportunity、Resume、Interview、Feedback 或未选经历；逐条审批，0 Patch 为正常结果。具体 DTO 以[长期 Career 模型](target/long-term-career-model.md#d4-长期认知提炼合同)为准 |
 | Offer | 当前条件、指定原件、相关个人约束及谈薪沟通 | 不扩展到多Offer Comparison，不自动建Employment |
 
 Opportunity / Resume / Interview经Career Context Interface取得任务允许的职业资料。Employment、Project、Person是当前目标模型的一部分，其内部对象不因此被整库暴露。任职私聊、他人档案不因同一窗口或同一用户而进入求职Context；反馈与Career Wiki、Research、Resume、Interview完全隔离。

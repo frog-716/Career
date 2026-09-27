@@ -105,6 +105,8 @@ def test_response_parse_failures_are_classified_without_model_text(
     serialized = json.dumps(diagnostics, ensure_ascii=False)
     assert "这不是 JSON" not in serialized
     assert "```json" not in serialized
+    if expected_code in {"invalid_json", "truncated_result"}:
+        assert diagnostics["field_path"] == "$"
 
 
 @pytest.mark.parametrize(
