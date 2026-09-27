@@ -12,7 +12,9 @@
 | B | 一级导航、独立 Project、Employment-Project 关系 | COMPLETE / PASS：代码、自动检查、Runtime Rebaseline、两轮用户 UI 验收及本轮测试数据清理均通过 |
 | C | Employment / Person 生命周期和身份确认 | COMPLETE / PASS |
 | D1 | Raw + Wiki Semantic Foundation | COMPLETE / PASS：自动验证、Runtime、两段用户 UI 验收、清理及 Git 收口均通过 |
-| D2 | Wiki Compiler | READY；尚未开始 |
+| D2 | Wiki Compiler | COMPLETE / PASS：真实 DeepSeek smoke、逐条编辑后接受、Wiki rewrite/history/source_refs、测试数据清理及 Git 收口均通过 |
+| D3 | Project / Employment / Person 工作区接入 Raw + Wiki Compiler | COMPLETE / PASS：两轮用户 UI 验收、D3.5 Fresh-Eyes UX 修复与隔离回归通过 |
+| D4 | Wiki Cognition | READY；尚未开始 |
 | E | 分类旧数据并退役 T14、ResumeUse 与重复业务对象 | 尚未开始；目标模型优先，分类后可清理明确测试对象 |
 | F | 从机会进入简历、创建/复制与版本流程 | 尚未开始 |
 | G | Resume AI 最小 DTO 与逐条建议 | 尚未开始 |
