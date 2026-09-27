@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { knowledgeTypeLabel, projectWikiHTML, semanticWikiUI, sourceLabel, wikiCompilerAction, wikiCompilerFrozenBefore, wikiCompilerPatchHTML, wikiCompilerPreviewHTML, wikiHistoryStatusLabel, wikiSemanticView } from "../src/wiki-semantic-ui.ts";
+import { cognitionExperiencePickerHTML, cognitionOutputErrorHTML, cognitionPreviewHTML, cognitionWikiHTML, knowledgeTypeLabel, projectWikiHTML, semanticWikiUI, sourceLabel, wikiCompilerAction, wikiCompilerFrozenBefore, wikiCompilerPatchHTML, wikiCompilerPreviewHTML, wikiHistoryStatusLabel, wikiSemanticView } from "../src/wiki-semantic-ui.ts";
 
 const bindings = readFileSync(new URL("../src/wiki-semantic-bindings.ts", import.meta.url), "utf8");
 const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+const workspace = readFileSync(new URL("../src/workspace.ts", import.meta.url), "utf8");
 const ui = readFileSync(new URL("../src/wiki-semantic-ui.ts", import.meta.url), "utf8");
 const raw = {
   id: "raw-fixture", kind: "raw_material", source_kind: "manual_text",
@@ -63,6 +64,10 @@ assert.match(bindings, /Object\.entries\(knowledgeTypeLabels\)/,
 assert.match(ui, /knowledgeTypeLabel\(item\.type\)/,
   "Preview 使用和 Wiki 当前页相同的类型映射");
 assert.match(main, /include_source_titles/, "Wiki 当前页应请求当前可见来源的标题目录");
+assert.match(main, /api\("\/wiki\/cognition\/experiences"\)/,
+  "长期认知选择器必须从正式经历接口加载可选 Project / Employment");
+assert.match(main, /experiences:\s*cognitionExperiencesResult\?\.experiences\s*\|\|\s*\[\]/,
+  "长期认知工作区状态必须包含经历列表，而不只是 Cognition 条目");
 assert.match(bindings, /保存到：/, "添加资料时必须显示目标对象的名称");
 assert.match(bindings, /if \(cancelEditButton\)[\s\S]*?dialog\.dataset\.dirty = "false"/,
   "取消建议编辑后不应继续报告有未保存输入");
@@ -166,7 +171,7 @@ assert.match(bindings, /data-d2-confirm-edit[\s\S]*decide\("edit_accept", value\
   "只有明确确认修改并接受才提交编辑后的正文");
 assert.match(bindings, /data-d2-reject[\s\S]*decide\("reject"\)/,
   "拒绝只提交 reject 决定，不直接写入 Wiki");
-assert.match(bindings, /wikiCompilerPatchHTML\(patch, beforeContent, scope, editing\)/,
+assert.match(bindings, /wikiCompilerPatchHTML\([\s\S]*displayPatch, beforeContent, scope, editing,[\s\S]*isCognition \? \{ cognition: true, supportingExperiences \}/,
   "审批页应把冻结原文和 proposed content 交给纯展示函数");
 assert.doesNotMatch(bindings.split("async function renderCompilerPatch")[1].split("async function startCompiler")[0],
   /wiki\/compiler\/(?:execute|prepare)/,
@@ -246,6 +251,154 @@ assert.match(bindings, /if \(decision === "edit_accept"\) body\[patch\.operation
   "退役 Patch 编辑的是审批原因，不会伪装成 Wiki 正文编辑");
 assert.doesNotMatch(bindings + main, /location\.reload\s*\(/,
   "不能通过刷新整个浏览器页面更新 Wiki 状态");
+
+const cognitionExperienceA = {
+  type: "project", id: "project-d4-a", name: "D4 虚构项目 A",
+  current_knowledge: [{ knowledge_id: "wiki-a", type: "observation", content: "先划边界，再拆任务。", tags: ["#A"] }],
+};
+const cognitionExperienceB = {
+  type: "employment", id: "employment:d4-b", name: "D4 虚构公司 / 产品角色",
+  current_knowledge: [{ knowledge_id: "wiki-b", type: "hypothesis", content: "先确认系统边界，再分配工作。", tags: ["#B"] }],
+};
+const currentCognition = {
+  id: "cognition-fixture", knowledge_type: "observation", status: "current",
+  content: "不同经历中都先明确边界，再开始拆解。",
+  supporting_experiences: [
+    { type: "project", id: "project-d4-a", name: "D4 虚构项目 A" },
+    { type: "employment", id: "employment:d4-b", name: "D4 虚构公司 / 产品角色" },
+  ],
+};
+const cognitionPicker = cognitionExperiencePickerHTML([
+  { type: "project", id: "project-d4-a", name: "D4 虚构项目 A", status: "completed", current_knowledge_count: 1 },
+  { type: "employment", id: "employment:d4-b", name: "D4 虚构公司 / 产品角色", status: "ended", current_knowledge_count: 1 },
+  { type: "project", id: "project-empty", name: "没有 Wiki 的项目", current_knowledge_count: 0 },
+], [{ type: "project", id: "project-d4-a" }]);
+assert.match(cognitionPicker, /至少两段、最多20段不同的项目或任职经历/);
+assert.match(cognitionPicker, /checked/);
+assert.match(cognitionPicker, /没有 Wiki 的项目/);
+assert.match(cognitionPicker, /disabled/);
+
+const cognitionPreview = cognitionPreviewHTML({
+  task: "synthesize_long_term_cognition",
+  selected_experiences: [cognitionExperienceA, cognitionExperienceB],
+  existing_cognition: [{ id: "cognition-existing", type: "hypothesis", content: "这是虚构的已有认知。", revision: 1, supporting_experience_ids: ["project-old"] }],
+}, { model: "测试模型", experiences: [cognitionExperienceA.name, cognitionExperienceB.name], wiki_count: 2 });
+assert.match(cognitionPreview, /整理长期认知/);
+assert.match(cognitionPreview, /AI 将比较 2 段经历/);
+assert.match(cognitionPreview, /D4 虚构项目 A/);
+assert.match(cognitionPreview, /D4 虚构公司 \/ 产品角色/);
+assert.match(cognitionPreview, /先划边界，再拆任务/);
+assert.match(cognitionPreview, /先确认系统边界，再分配工作/);
+assert.match(cognitionPreview, /这是虚构的已有认知/);
+assert.match(cognitionPreview, /已有长期认知（1）/);
+assert.match(cognitionPreview, /<details class="d2-preview-details">/);
+assert.doesNotMatch(cognitionPreview, /<details class="d2-preview-details" open/);
+assert.match(cognitionPreview, /不会读取原始资料。/);
+assert.match(cognitionPreview, /data-d4-confirm>让 AI 整理/);
+assert.match(cognitionPreview, /data-d4-cancel>取消/);
+assert.doesNotMatch(cognitionPreview, /工作方式或能力线索|AI 会判断|人格标签|Raw 原文、人物/);
+assert.doesNotMatch(cognitionPreview, /source_ref:|selected_experiences|knowledge_id|revision=/,
+  "Preview 不把 DTO 内部字段和标识直接展示给用户");
+const emptyCognitionPreview = cognitionPreviewHTML({
+  selected_experiences: [cognitionExperienceA, cognitionExperienceB], existing_cognition: [],
+}, { model: "DeepSeek", experiences: [cognitionExperienceA.name, cognitionExperienceB.name], wiki_count: 2 });
+assert.doesNotMatch(emptyCognitionPreview, /已有长期认知（0）|目前还没有长期认知/,
+  "没有已有 Cognition 时不占据 Preview 空间");
+assert.match(emptyCognitionPreview, /查看发送详情/);
+
+const cognitionProposalHTML = wikiCompilerPatchHTML({
+  operation: "add", knowledge_type: "observation", content: "在多个虚构项目中先明确边界再开始实现。",
+  reason: "两个独立项目的当前 Wiki 都描述了这一顺序。",
+  source_refs: [
+    { kind: "wiki_knowledge", id: "wiki-a", revision: 1, hash: "a".repeat(64) },
+    { kind: "wiki_knowledge", id: "wiki-b", revision: 1, hash: "b".repeat(64) },
+  ],
+}, undefined, "", false, {
+  cognition: true,
+  supportingExperiences: [
+    { type: "project", name: "D4 虚构项目 A" },
+    { type: "project", name: "D4 虚构项目 B" },
+  ],
+});
+assert.match(cognitionProposalHTML, /观察/);
+assert.match(cognitionProposalHTML, /在多个虚构项目中先明确边界再开始实现。/);
+assert.match(cognitionProposalHTML, /支持经历/);
+assert.match(cognitionProposalHTML, /D4 虚构项目 A/);
+assert.match(cognitionProposalHTML, /D4 虚构项目 B/);
+assert.match(cognitionProposalHTML, /<details><summary>为什么？<\/summary>/);
+assert.doesNotMatch(cognitionProposalHTML, /wiki-a|wiki-b|source_refs|scope_type|operation/);
+assert.match(ui, /AI 返回的结果无法安全使用，本次没有修改长期认知。/);
+const cognitionOutputError = cognitionOutputErrorHTML();
+assert.match(cognitionOutputError, /AI 返回的结果无法安全使用，本次没有修改长期认知。/);
+assert.match(cognitionOutputError, /data-d4-output-invalid>关闭/);
+assert.doesNotMatch(cognitionOutputError, /重试|重新发送/);
+assert.match(bindings, /data-d4-output-invalid[\s\S]*关闭/);
+assert.doesNotMatch(bindings.split("async function startCognitionCompiler")[1].split("on(\"[data-d4-wiki-all]")[0],
+  /重试|重新发送/,
+  "模型结果违反合同后只能关闭，不能出现重试入口");
+const cognitionRewriteProposal = wikiCompilerPatchHTML({
+  operation: "rewrite", knowledge_type: "hypothesis", content: "更谨慎的虚构判断。",
+  reason: "两个来源都支持，但仍然是待验证判断。", source_refs: [],
+}, "原有虚构判断。", "", false, {
+  cognition: true, supportingExperiences: [{ type: "project", name: "D4 虚构项目 A" }],
+});
+assert.match(cognitionRewriteProposal, /待验证判断 · 修改已有信息/);
+assert.match(cognitionRewriteProposal, /原有虚构判断。/);
+assert.match(cognitionRewriteProposal, /更谨慎的虚构判断。/);
+assert.match(cognitionRewriteProposal, /为什么？/);
+assert.doesNotMatch(cognitionRewriteProposal, /reason：|wiki.*id/);
+const cognitionRetireProposal = wikiCompilerPatchHTML({
+  operation: "retire", knowledge_type: "fact", reason: "不再适用。", source_refs: [],
+}, "旧的虚构事实。", "", false, {
+  cognition: true, supportingExperiences: [{ type: "employment", name: "D4 虚构任职" }],
+});
+assert.match(cognitionRetireProposal, /已确认事实 · 标记为不再有效/);
+assert.match(cognitionRetireProposal, /旧的虚构事实。/);
+
+const cognitionView = cognitionWikiHTML({
+  knowledge: [currentCognition], retired: [], proposals: [],
+}, "current", currentCognition.id);
+assert.match(cognitionView, /<h2>长期认知<\/h2>/);
+assert.match(cognitionView, /不同经历中都先明确边界/);
+assert.match(cognitionView, /支持这个判断的经历/);
+assert.match(cognitionView, /D4 虚构项目 A/);
+assert.match(cognitionView, /data-d4-open-experience-type="project"/);
+assert.match(cognitionView, /data-d4-open-source-tree=/);
+assert.match(cognitionView, /data-d4-start/);
+assert.doesNotMatch(cognitionView, /原文正文|D4 RAW MUST NOT BE SENT/,
+  "默认页面只显示来源经历，不铺开 Raw 原文");
+assert.match(ui, /data-d4-resume-proposal/);
+assert.match(bindings, /api\("\/wiki\/cognition\/compiler\/prepare"/);
+assert.match(bindings, /api\("\/wiki\/cognition\/compiler\/execute"[\s\S]*confirm_outbound: true/);
+assert.match(bindings, /api\(`\/wiki\/cognition\/knowledge\/\$\{encodeURIComponent\(identifier\)\}\/sources`\)/);
+assert.match(bindings, /data-d4-open-wiki-source[\s\S]*openWikiSource/);
+assert.equal((bindings.match(/on\("\[data-d4-open-source-tree\]"/g) || []).length, 1,
+  "长期认知来源按钮只绑定一次，避免打开来源时重复发请求");
+const cognitionSourceTree = bindings.split("async function openCognitionSourceTree")[1].split('on("[data-d4-open-source-tree]"')[0];
+assert.match(cognitionSourceTree, /<details class="d4-raw-sources"><summary>需要时查看原始资料/,
+  "来源先显示经历和其 Wiki，原始资料入口默认折叠");
+assert.doesNotMatch(cognitionSourceTree, /raw\.title|raw\.content|api\([^)]*\/raw\//,
+  "打开来源目录不会读取或展示 Raw，只有用户点击原始资料按钮后才读取");
+assert.match(bindings, /startCognitionCompiler\(selected\)/,
+  "用户明确选择经历后才会准备长期认知 Preview");
+assert.match(bindings, /selected\.length > 20[\s\S]*最多选择20段不同的经历/,
+  "经历选择超过后端支持上限时会在本地给出明确反馈");
+assert.match(ui, /从这个项目整理长期认知/,
+  "项目完成或取消后提供显式复盘入口，不自动调用 Provider");
+assert.match(workspace, /selected\.end_date[\s\S]*从这段任职整理长期认知/,
+  "任职结束后提供显式复盘入口，不自动调用 Provider");
+const cognitionStartFlow = bindings.split('on("[data-d4-start]"')[1].split("function sourceChoices")[0];
+assert.match(cognitionStartFlow, /data-d4-prepare[\s\S]*?void startCognitionCompiler\(selected\)/,
+  "用户明确选择经历后才准备 Preview");
+assert.doesNotMatch(cognitionStartFlow, /\/wiki\/cognition\/compiler\/execute/,
+  "打开经历选择和启动 Preview 不会执行 Provider 请求");
+assert.match(bindings, /\[data-d4-confirm\][\s\S]*?onclick = async[\s\S]*?api\("\/wiki\/cognition\/compiler\/execute"/,
+  "只有用户点击‘让 AI 整理’才执行 Provider 请求");
+const cognitionConfirmFlow = bindings.split("async function startCognitionCompiler")[1].split('on("[data-d4-wiki-all]')[0];
+assert.match(cognitionConfirmFlow, /if \(button\.disabled\) return;[\s\S]*button\.disabled = true/,
+  "同一个 Preview 只允许一次确认点击");
+assert.doesNotMatch(bindings + main, /location\.reload\s*\(/,
+  "Cognition 页面刷新也不能整页重载");
 
 const previewContext = {
   raw: { content: "D2 虚构新资料：原型改到下周一。", created_at: "2026-09-26T10:15:00+08:00" },

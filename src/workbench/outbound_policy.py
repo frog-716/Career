@@ -23,6 +23,14 @@ CONNECTION_REQUEST_BYTES_LIMIT = 16 * 1024
 
 
 TASK_POLICIES = {
+    "wiki_cognition_compiler": {
+        "required": {"selected_experiences", "existing_cognition"},
+        "optional": set(),
+        "forbidden": {
+            "raw", "raw_archive", "opportunity", "person", "resume",
+            "interview", "feedback", "secret", "history",
+        },
+    },
     "wiki_compiler": {
         "required": {"selected_raw"},
         "optional": {"current_wiki"},
@@ -83,6 +91,8 @@ def sanitize_packet(task_type, packet):
         raise Invalid("AI 资料包结构不合法")
     if task_type == "wiki_compiler":
         return _sanitize_wiki_compiler_packet(packet)
+    if task_type == "wiki_cognition_compiler":
+        return _sanitize_wiki_cognition_packet(packet)
     policy = TASK_POLICIES.get(task_type)
     if not policy:
         raise Invalid("AI 任务策略不存在")
@@ -190,7 +200,90 @@ def _sanitize_wiki_compiler_packet(packet):
     return deepcopy(packet)
 
 
+def _sanitize_wiki_cognition_packet(packet):
+    """Validate D4's purpose-built cross-experience DTO; never accept Raw."""
+    if set(packet) != {"task", "selected_experiences", "existing_cognition"}:
+        raise Invalid("长期认知 Context DTO 字段不符合合同")
+    if packet.get("task") != "synthesize_long_term_cognition":
+        raise Invalid("长期认知任务不合法")
+    experiences = packet.get("selected_experiences")
+    if not isinstance(experiences, list) or not 2 <= len(experiences) <= 20:
+        raise Invalid("长期认知必须明确选择 2 到 20 段经历")
+    experience_keys = set()
+    knowledge_ids = set()
+    knowledge_count = 0
+    content_chars = 0
+    for experience in experiences:
+        if not isinstance(experience, dict) or set(experience) != {
+            "type", "id", "name", "current_knowledge",
+        }:
+            raise Invalid("长期认知经历 DTO 不合法")
+        kind, identifier = experience.get("type"), experience.get("id")
+        if kind not in {"project", "employment"} or not isinstance(identifier, str) or not identifier:
+            raise Invalid("长期认知只允许项目或任职经历")
+        key = (kind, identifier)
+        if key in experience_keys:
+            raise Invalid("同一经历不能重复计数")
+        experience_keys.add(key)
+        if not isinstance(experience.get("name"), str) or not experience["name"].strip():
+            raise Invalid("长期认知经历名称不合法")
+        knowledge = experience.get("current_knowledge")
+        if not isinstance(knowledge, list) or not knowledge:
+            raise Invalid("所选经历必须有当前 Wiki 知识")
+        for item in knowledge:
+            if not isinstance(item, dict) or set(item) != {
+                "knowledge_id", "type", "content", "tags",
+            }:
+                raise Invalid("长期认知 Wiki DTO 不合法")
+            if (
+                not isinstance(item.get("knowledge_id"), str) or not item["knowledge_id"]
+                or item["type"] not in {"fact", "observation", "hypothesis"}
+                or not isinstance(item.get("content"), str) or not item["content"].strip()
+                or not isinstance(item.get("tags"), list)
+                or any(not isinstance(tag, str) for tag in item["tags"])
+                or item["knowledge_id"] in knowledge_ids
+            ):
+                raise Invalid("长期认知 Wiki DTO 不合法")
+            knowledge_ids.add(item["knowledge_id"])
+            knowledge_count += 1
+            content_chars += len(item["content"])
+    existing = packet.get("existing_cognition")
+    if not isinstance(existing, list) or len(existing) > 200:
+        raise Invalid("已有长期认知 DTO 不合法")
+    existing_ids = set()
+    for item in existing:
+        if not isinstance(item, dict) or set(item) != {
+            "id", "type", "content", "revision", "supporting_experience_ids",
+        }:
+            raise Invalid("已有长期认知 DTO 不合法")
+        if (
+            not isinstance(item.get("id"), str) or not item["id"]
+            or item["id"] in existing_ids
+            or item.get("type") not in {"fact", "observation", "hypothesis"}
+            or not isinstance(item.get("content"), str)
+            or not isinstance(item.get("revision"), int)
+            or isinstance(item.get("revision"), bool)
+            or not isinstance(item.get("supporting_experience_ids"), list)
+            or any(not isinstance(value, str) for value in item["supporting_experience_ids"])
+        ):
+            raise Invalid("已有长期认知 DTO 不合法")
+        existing_ids.add(item["id"])
+        content_chars += len(item["content"])
+    if knowledge_count > SOURCE_LIMIT or content_chars > 200000:
+        raise Invalid("长期认知 Context 超出资料预算")
+    return deepcopy(packet)
+
+
 def source_refs(packet):
+    if isinstance(packet, dict) and packet.get("task") == "synthesize_long_term_cognition":
+        return [
+            {
+                "id": item["knowledge_id"],
+                "purpose": "selected_experience_wiki",
+            }
+            for experience in packet["selected_experiences"]
+            for item in experience["current_knowledge"]
+        ]
     if isinstance(packet, dict) and packet.get("task") == "analyze_new_raw_for_wiki_changes":
         raw = packet["raw"]
         return [
@@ -237,7 +330,19 @@ def metadata_manifest(manifest):
 
 def budget(packet, payload, *, connection=False):
     request_limit = CONNECTION_REQUEST_BYTES_LIMIT if connection else REQUEST_BYTES_LIMIT
-    if isinstance(packet, dict) and packet.get("task") == "analyze_new_raw_for_wiki_changes":
+    if isinstance(packet, dict) and packet.get("task") == "synthesize_long_term_cognition":
+        source_count = sum(
+            len(experience.get("current_knowledge", []))
+            for experience in packet.get("selected_experiences", [])
+        )
+        content_chars = sum(
+            len(item.get("content", ""))
+            for experience in packet.get("selected_experiences", [])
+            for item in experience.get("current_knowledge", [])
+        ) + sum(
+            len(item.get("content", "")) for item in packet.get("existing_cognition", [])
+        )
+    elif isinstance(packet, dict) and packet.get("task") == "analyze_new_raw_for_wiki_changes":
         source_count = 1 + len(packet.get("current_knowledge", []))
         content_chars = len(packet.get("raw", {}).get("content", "")) + sum(
             len(item.get("content", "")) for item in packet.get("current_knowledge", [])
@@ -354,6 +459,10 @@ def public_preparation(record, *, payload_preview=None, status="context_confirma
     return result
 
 
+class PreparationExpired(Missing):
+    code = "prepared_request_expired"
+
+
 def load_preparation(store, prepared_id):
     with store.connect(False) as c:
         row = c.execute("SELECT body FROM records WHERE id=? AND kind='ai_preparation'", (prepared_id,)).fetchone()
@@ -364,9 +473,9 @@ def load_preparation(store, prepared_id):
             try:
                 expires = datetime.fromisoformat(record["expires_at"].replace("Z", "+00:00"))
                 if datetime.now(timezone.utc) >= expires:
-                    raise Missing("准备对象已过期，请重新预览")
+                    raise PreparationExpired("准备对象已过期，请重新预览")
             except ValueError:
-                raise Missing("准备对象已过期，请重新预览") from None
+                raise PreparationExpired("准备对象已过期，请重新预览") from None
         return record
 
 

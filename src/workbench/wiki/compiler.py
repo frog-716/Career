@@ -529,6 +529,9 @@ def _proposal_expected_wiki(proposal):
 
 
 def _assert_proposal_fresh(store, c, proposal, patch):
+    if proposal.get("context_kind") == "cognition":
+        from . import cognition
+        return cognition._assert_proposal_fresh(store, c, proposal, patch)
     dto, manifest, raw, raw_ref, scopes, wiki = _make_context(
         store, c, proposal["raw_id"], proposal.get("target_scope"),
     )
@@ -572,12 +575,25 @@ def _proposal_result(proposal):
                 for key in ("decision", "result", "resolved_at", "edited_reason") if key in resolution
             }
         public_patches.append(item)
-    return {
-        "id": proposal["id"], "raw_id": proposal["raw_id"],
+    result = {
+        "id": proposal["id"], "raw_id": proposal.get("raw_id"),
         "target_scope": deepcopy(proposal.get("target_scope")),
+        # Frozen minimal ownership survives recovery from an unrelated page.
+        "scopes": [
+            {"type": scope["type"], "stable_id": scope["stable_id"],
+             "minimal_identity": {
+                 key: value for key, value in scope.get("minimal_identity", {}).items()
+                 if key in {"name", "company", "role", "title", "employment_role", "project_role"}
+             }}
+            for scope in proposal.get("scopes", [])
+        ],
         "status": proposal["status"], "patches": public_patches,
         "created_at": proposal["created_at"],
     }
+    if proposal.get("context_kind"):
+        result["context_kind"] = proposal["context_kind"]
+        result["selected_experiences"] = deepcopy(proposal.get("selected_experiences", []))
+    return result
 
 
 def compiler_router(store):

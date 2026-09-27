@@ -1,6 +1,6 @@
 # Raw 与 Wiki Semantic Layer
 
-本模块实现 Phase D1 手工 Raw / Wiki 接口、Phase D2 单 Raw Wiki Compiler，以及 Phase D3 业务工作区接入。D2/D3 复用现有 AI operation、prepare/preview/confirm、Provider gateway、幂等、dispatch slot、outbound audit 与 `current` / `revisions`；不修改旧 `wiki_entry`、T14、Resume Context 或 Raw，也不实现 Cognition 自动提炼。
+本模块实现 Phase D1 手工 Raw / Wiki 接口、Phase D2 单 Raw Wiki Compiler、Phase D3 业务工作区接入和 Phase D4 长期 Cognition。各阶段复用现有 AI operation、prepare/preview/confirm、Provider gateway、幂等、dispatch slot、outbound audit 与 `current` / `revisions`；不修改旧 `wiki_entry`、T14、Resume Context 或 Raw。
 
 ## 数据合同
 
@@ -32,6 +32,16 @@
 - Context 仅含所选 Raw、其直接范围/明确关联范围，以及这些范围的当前 Wiki；Cognition、全库资料、其它 Raw、退役知识、Resume、Feedback 与未确认 Person 均不进入模型输入。模型输出本地严格验证，只允许 `add` / `rewrite` / `retire`，且每条来源必须精确回到本轮 Raw。Preview 的“让 AI 整理”仍通过单独 confirm 执行；取消只关闭预览。
 - 继续使用 schema v6，无数据库 migration。隔离 Chrome 合成流程已验证 Preview → TestProvider 确认 → 单条接受 → 当前 Wiki 立即刷新。D2 正式 smoke、用户逐条审批、最终正文、来源和清理状态见 [STATUS](../../../docs/execution/STATUS.md)。
 
+## D4 长期 Cognition
+
+- 专用 Context 只包含用户选择的至少两段 Project / Employment、各自当前 Wiki，以及当前 Cognition。不会发送 Raw 正文、Person、Opportunity、Resume、Interview、Feedback、历史 revision 或未选择经历。Preview 逐段展示实际发送的 Wiki；只保留“AI 将比较 N 段经历”“不会读取原始资料”和默认折叠的发送详情。已有 Cognition 数量大于 0 时才显示可展开内容。
+- Prompt 与动态输出 schema 逐项说明 `add` / `rewrite` / `retire` 的必填字段、来源引用结构、知识类型枚举、目标 ID / revision 配对、禁止额外字段和 `null`。Schema 的示例使用本轮选中 Wiki 的合法 ID；示例正文完全虚构。本地仍按字段类型、长度、目标版本、来源范围和不同经历数严格校验，不修补模型输出。
+- 模型输出校验失败只在操作错误记录中保存固定错误码与 JSON 字段路径，不保存模型正文；用户看到“AI 返回的结果无法安全使用，本次没有修改长期认知。”和“关闭”，没有重试入口。add / rewrite 至少由两个不同经历的 Wiki 支撑，retire 至少由一条支撑。
+- Proposal 一次显示一条：知识类型、建议内容、支撑经历和“接受 / 编辑后接受 / 拒绝”；rewrite 保留冻结的原版本与建议版本，原因默认折叠。来源引用 ID 不出现在主视图。schema 继续为 v6，不新增表或迁移。
+- 仅当测试/运维明确替换了原 smoke 经历范围，系统才可将旧 pending Proposal 和其 Patch 终结为 `superseded`；必须留下系统原因和关联 operation，不能记作用户拒绝或写入 Wiki，原 Proposal 与 Provider 审计保留。
+- 本机运行健康核验使用 `PYTHONPATH=src .venv/bin/python scripts/runtime_health_check.py`。脚本只请求 `/healthz`，并只读取 schema、表行数、数据实例标识和 `id/kind/revision` 元数据；不调用 `/api/state`，不读取 SQLite `body`。`tests/test_runtime_health_check.py` 用数据库读取拦截和虚构隐私哨兵验证此边界。
+- D4 聚焦测试：`PYTHONPATH=src .venv/bin/python -B -m pytest -q tests/test_wiki_d4.py tests/test_model_gateway.py`；前端：`npm --prefix frontend run test:wiki-semantic && npm --prefix frontend run typecheck`。
+
 ## 测试
 
 ```sh
@@ -41,3 +51,16 @@ npm --prefix frontend run test:wiki-d3
 npm --prefix frontend run typecheck
 npm --prefix frontend exec vite build -- --outDir /tmp/career-frontend-build --emptyOutDir
 ```
+
+
+## UX-1 AI状态与原建议恢复
+
+`workbench.ai_activity` 提供 `GET /api/ai/activity` 和 `GET /api/ai/activity/{operation_id}`：读取已有AI operations与Proposal，按准备中/处理中/待处理/完成/失败/结果未知投影，不创建第二套任务数据、不调用Provider、不加载职业正文。对象归属仅返回最小身份，审批数量实时取原Proposal。Wiki/Cognition恢复使用原 `GET /api/wiki/compiler/proposals/{id}` 与既有逐条resolve，不prepare/execute。
+
+前端 `ai-activity.ts` 的全局入口与对象轻提示共用同一只读快照；关闭/导航/刷新后重新读服务器，前端内存不是任务正本。Research/Resume只做状态兼容和所属页面入口，本批不重写其编辑/审批UI。详细映射见[UX Reset计划的UX-1合同](../../../docs/execution/CAREER-UX-RESET-PLAN.md)。
+
+验证：`PYTHONPATH=src .venv/bin/python -m pytest tests/test_ai_activity.py tests/test_wiki_d1.py tests/test_wiki_d2.py tests/test_wiki_d3.py tests/test_wiki_d4.py`；`npm --prefix frontend run test:ai-activity`。普通build继续输出临时目录。关闭浏览器时服务端请求可继续；进程中断不重试，按原recover规则处理。
+
+Preview 有效期仍为 10 分钟。到期固定错误码 `prepared_request_expired`，发送前拒绝；旧审计中未 dispatch 且精确匹配过期原因的 `Missing` 也只读投影为准备中，不改审计。Preview 到期或点击时发现到期，只显示手动重新预览入口，不自动 prepare/execute；定时器不能覆盖已进入处理中的页面。
+
+断连时序测试：`tests/test_ai_activity.py::test_real_http_disconnect_before_provider_completion_restores_original_proposal` 使用真实 Uvicorn/HTTP 连接，在 TestProvider 返回前关闭客户端 socket，再放行 Provider；新连接恢复原 Proposal、审批并再次读取进度，确认一次 dispatch、一次 preparation、一个 Proposal。不是只测试“已完成后刷新”。

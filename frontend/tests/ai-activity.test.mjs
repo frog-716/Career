@@ -1,0 +1,50 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { activityListHTML, activityDetailHTML, attentionItems, createActivityReader, beginAIProcessing } from '../src/ai-activity.ts';
+const operation={operation_id:'internal-id',title:'整理 Wiki',owners:[{type:'project',id:'p',label:'虚构项目甲',href:'#projects/p'}],state:'pending',state_label:'待处理',message:'有2条建议待处理。',proposal_id:'original-proposal',proposal_kind:'wiki_compiler_proposal',review:{total:4,reviewed:2,pending:2}};
+assert.match(activityListHTML([operation]),/虚构项目甲/);
+assert.match(activityListHTML([operation]),/继续/);
+assert.match(activityDetailHTML(operation),/已处理 2 \/ 4/);
+assert.doesNotMatch(activityDetailHTML({...operation,state:'unknown',proposal_id:null,message:'请求已经发送，但 Career 无法确认是否成功。为了避免重复调用，不会自动重试。'}),/<button[^>]*>.*重试/);
+assert.equal(attentionItems([{...operation,state:'completed'},operation]).length,1);
+let requests=[];let snapshot=[operation];
+const reader=createActivityReader(async path=>{requests.push(path);return {items:snapshot};});
+await reader.refresh();await reader.refresh();
+assert.deepEqual(requests,['/ai/activity','/ai/activity']);
+assert.equal(reader.items()[0].proposal_id,'original-proposal');
+snapshot=[{...operation,state:'completed'}];await reader.refresh();assert.equal(attentionItems(reader.items()).length,0);
+let resolve;const sent=new Promise(r=>resolve=r);const events=[];
+const promise=beginAIProcessing(()=>events.push('processing'),()=>{events.push('execute');return sent;});
+assert.deepEqual(events,['processing','execute']);resolve({status:'proposal_pending'});await promise;
+const bindings=readFileSync(new URL('../src/wiki-semantic-bindings.ts',import.meta.url),'utf8');
+assert.match(bindings,/\[data-d2-flow\], \[data-d4-flow\]/,'Cognition shares the same resumable proposal renderer');
+assert.match(bindings,/data-ai-resume-proposal/);
+assert.doesNotMatch(readFileSync(new URL('../src/ai-activity.ts',import.meta.url),'utf8'),/location\.reload|\/compiler\/execute|\/compiler\/prepare/);
+console.log('AI activity projection/recovery tests passed');
+const { proposalScopeLabel } = await import('../src/wiki-semantic-ui.ts');
+assert.equal(proposalScopeLabel({scopes:[{type:'project',stable_id:'p',minimal_identity:{name:'虚构项目甲'}}]}, {scope_type:'project',scope_id:'p'}, '项目 · 项目'),'项目 · 虚构项目甲');
+
+const { operationErrorHTML } = await import('../src/ai-activity.ts');
+assert.match(operationErrorHTML({data:{state:'outcome_unknown'}}), /结果未知/);
+assert.match(operationErrorHTML({data:{state:'failed'}}), /没有修改你的资料/);
+assert.match(operationErrorHTML(new TypeError('Failed to fetch')), /暂时无法读取处理结果/);
+assert.doesNotMatch(operationErrorHTML(new TypeError('Failed to fetch')), /<h3>失败/);
+
+const { previewExpired, isPreparationExpired } = await import('../src/ai-activity.ts');
+assert.equal(previewExpired('2000-01-01T00:00:00Z',Date.parse('2000-01-01T00:10:00Z')),true);
+assert.equal(previewExpired('2000-01-01T00:10:00Z',Date.parse('2000-01-01T00:00:00Z')),false);
+assert.equal(isPreparationExpired({data:{code:'prepared_request_expired'}}),true);
+assert.match(activityDetailHTML({...operation,state:'failed',state_label:'失败',message:'没有修改资料。'}), /整理 Wiki失败/);
+assert.doesNotMatch(activityDetailHTML({...operation,state:'failed',state_label:'失败',message:'没有修改资料。'}), /整理 Wiki · 失败/);
+const { watchPreviewExpiry } = await import('../src/ai-activity.ts');
+const realTimeout=globalThis.setTimeout, realClear=globalThis.clearTimeout;
+let tick,closed,cleared=false,expiredCount=0,hasConfirm=true;
+try {
+  globalThis.setTimeout=fn=>{tick=fn;return 123;};
+  globalThis.clearTimeout=id=>{cleared=id===123;};
+  const dialog={open:true,querySelector:()=>hasConfirm?{}:null,addEventListener:(_name,fn)=>{closed=fn;}};
+  watchPreviewExpiry(dialog,new Date(Date.now()+1000).toISOString(),()=>expiredCount++);
+  tick();assert.equal(expiredCount,1);
+  hasConfirm=false;tick();assert.equal(expiredCount,1,'Expiry must not replace processing/result UI');
+  closed();assert.equal(cleared,true);
+} finally {globalThis.setTimeout=realTimeout;globalThis.clearTimeout=realClear;}

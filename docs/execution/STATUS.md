@@ -1,5 +1,114 @@
 # 当前状态
 
+## 2026-09-28：Checkpoint 导航断言授权修正，进入最终 Git / Runtime 收口
+
+- 用户明确批准 `tests/test_t15_navigation.py` 中“职业 Wiki”→“Wiki”的单行断言作为 checkpoint compatibility test update。工作区原本已经是正确的一行，本轮未重写文件；仅把该行相对 HEAD 的差异加入 index。修改前 hash `f1438fca98b291db413f498243b8381e7913e8ff066539b4ee1d20468640a1b8` 与修改后完全一致，其余字节不变。
+- 解除前节受保护测试依赖阻断；checkpoint 精确范围为原 34 个文件加这一行，README 仍仅追加 7 行。其余 12 个旧 Resume 文件、AGENTS unknown hunk 与 Agent/Skill 本机资料不纳入提交。
+- D4：SYNTHETIC READY / REAL SMOKE PAUSED / NOT YET PASSED；UX-1：用户 UI、机器核验及生命周期 COMPLETE / PASS；UX-2：NOT STARTED，Git/Runtime 全部核验完成后 READY，不自动进入。
+- 真实 Provider 本轮未调用。提交前重跑当前工作区及独立暂存 checkout 回归；commit/push 后才执行正式 Runtime Update。实际测试结果、Git SHA、PID、working-tree source/dist manifest 与安全核验写入 `.career-runtime/cognition-ux-checkpoint.json`；不得把 dirty runtime 说成 SOURCE=GIT。
+
+
+## 2026-09-28：Checkpoint 暂存完成；受保护导航测试依赖阻断 commit
+
+- 真实 Provider 本轮未调用。D4 保持 SYNTHETIC READY / REAL SMOKE PAUSED / NOT YET PASSED；UX-1 功能与用户 UI COMPLETE / PASS；UX-2 NOT STARTED，Git/Runtime 收口尚未完成，不启动下一批。
+- 已精确暂存 34 个 D4 + UX Review/UX-1 文件；README 只追加 7 行，旧 36,748 字节与保护副本完全相同，92 个保护文件 hash 不变。未暂存 AGENTS、其余旧 Resume 文件或本机 Agent/Skill/dist/runtime。cached name-status/stat/check 已核对。
+- 当前 working tree：聚焦 74 passed，全量 509 passed；全部前端测试、typecheck、/tmp build、pip check、npm ls、secret scan、Markdown links、diff check 通过。暂存独立 checkout：前端测试/typecheck/build 通过，但全量 **507 passed / 1 failed**。
+- 精确阻断：`tests/test_t15_navigation.py:10` 在 HEAD/index 仍断言 `"wiki", "职业 Wiki"`，HEAD 与当前 `frontend/src/workspace.ts` 均已使用 `"wiki", "Wiki"`。该测试工作区已有的唯一修正为上述断言改成 Wiki，属于用户明确保护的旧 hunk。本次不能擅自stage；不能以跳过测试、加入无用途兼容字符串或回退正式导航来伪造通过。
+- 依赖完整的 D4/UX 代码边界已解决；剩余仅是这条受保护测试断言的提交范围。需用户明确允许该一行进入 checkpoint，才可满足“checkout 后代码完整且全量通过”。目前保持原文件不变、该 hunk 未 stage；未 commit/push。
+- Git HEAD/main/origin/main 仍为 `6b32ce4fc98187fe1d4614a33f5d3d7d2c0a0acf`。正式 Runtime 仍 PID `16242`、旧 working-tree source manifest `e0be5942a701b3f27bbc866ca5d9c3e1b7ed79d9824b6e63f90f3f99c2725607`。按用户“Git收口后再更新Runtime”的顺序，本轮尚未正式build/restart；最新过期提示仅已隔离验收，未宣称正式加载。
+
+
+## 2026-09-28：Cognition foundation + recoverable AI UX checkpoint
+
+- 用户批准把已完成 synthetic/自动测试的 D4 基础实现、UX Review、UX-1 与必要共同代码作为一个依赖完整的 checkpoint 收进 Git。解除上一节的提交范围阻断；不拆成无法独立运行的 Phase commit。
+- **D4：SYNTHETIC READY；REAL SMOKE PAUSED / NOT YET PASSED。** 本 checkpoint 包含 Cognition 基础实现，但正式 Cognition 未完成真实验收，不能标 COMPLETE。本轮真实 Provider 未调用，不能用 Git 提交代替真实 smoke。
+- **UX-1：COMPLETE / PASS。** 用户 UI 与机器核验 PASS；关闭/切页/刷新不取消后端生命周期，恢复原 operation/Proposal；本次 TestProvider 恰好一次 dispatch、无重复发送，审批状态正确持久化。失败与结果未知分离，Preview 过期显示“尚未发送”。既有隔离测试业务数据已清理，审计保留。
+- **UX-2：NOT STARTED。** checkpoint/push 与本次受控 Runtime 更新全部通过后为 READY，仍须另行启动；D4 smoke 不恢复，不进入 D5。
+- Ownership：33 个 D4/UX 文件整文件纳入，`src/workbench/README.md` 仅纳入 D4 追加段落。README 旧 36,748 字节与 `/tmp/career-src-workbench-readme-pre-d4.md` 完全一致；13 个用户旧 Resume 文件、AGENTS.md 原 4 行、本机 Agent/Skill 文件保持。无 git add .，无混入本机 dist/runtime。
+- 验证采用两层：当前工作区执行 D1–D4/UX-1 聚焦、全量回归和前端/安全检查；暂存导出的独立 checkout 再验证，确保代码不依赖未提交 Resume 改动。最新执行结果与文件级证据保留于本机 `/tmp/career-cognition-ux-checkpoint/`。
+- Git checkpoint 提交时，正式 Runtime 仍为 PID `16242` 的旧 working-tree baseline。按用户批准流程在 commit/push 后执行正式 Runtime Update，运行结果、实际 Git HEAD、dirty source manifest、dist manifest 统一记录到本机 `.career-runtime/cognition-ux-checkpoint.json`，不把未知后续运行结果提前写成已完成，也不为更新文档再重启。
+- Runtime 源码继续包含 Git checkpoint **加 13 个未提交 Resume 源码/文档改动**，AGENTS 等本机资料不参与运行；不得声称 SOURCE=GIT=RUNTIME。正式更新保持 AI_ENABLED、127.0.0.1:8765、schema v6；只做白名单 metadata/健康/静态资源核验，不做 DeepSeek/Tavily smoke。普通 build 始终输出 `/tmp`。
+
+
+## 2026-09-28：UX-1 用户复验与机器核验 PASS；Git 收口 BLOCKED
+
+- 用户已确认真实隔离 UI 链：让 AI 整理→立即关闭→切机会→刷新→AI→原对象→继续→原 Wiki Proposal。无需再让用户重复该验收。真实 Provider 本轮未调用；D4 smoke 继续暂停，未进入 UX-2。
+- 机器证据：`/tmp/career-ux1-recheck` 中唯一 operation `ai-operation:d2da215d-c6b5-4ab5-820c-79777abf2ea9` 为 succeeded，dispatch 于 00:15:18，完成于 00:15:36（北京时间）；唯一 Proposal `wiki-compiler-proposal:ac863c45-e63f-4ea5-a52c-e1c3bd401e33` 的 operation_id 正是该 ID，唯一 Patch pending，持久化进度 0/1。`ai_call=1`、`ai_audit=5`，没有第二次发送或 Proposal。两次 preparation 均在发送前，最早一份已过期；最近准备于 00:15:15，发送和恢复以后没有新 preparation。
+- 审批持久化证据不越权代用户审批：本次用户只恢复，保留 0/1；此前 Fresh-Eyes 接受后为 resolved/accepted；真实 HTTP 断连回归中接受一条后，新客户端恢复进度 1/2。六状态、预览过期≠AI失败，以及前端不决定操作存活的边界已冻结到[长期模型正式规格](../target/long-term-career-model.md#ai-操作状态与恢复ux-1)。
+- 隔离清理完成：`career-ux1`、`career-ux1-fresh`、`career-ux1-user`、`career-ux1-recheck` 四套明确虚构数据库的 Project/Raw/Wiki/Proposal/业务request/revision/prepare/结果副本均删除，残留业务对象为 0，quick_check 均 ok；保留原 operation、dispatch slot、ai_audit/ai_call，未改写其状态。测试服务已停止；metadata证据 `/tmp/career-ux1-closeout/isolated-evidence-metadata.json`，清理记录 `/tmp/career-ux1-closeout/cleanup-metadata.json`。不读取或删除正式职业正文。
+- 自动回归：UX-1 + D1–D4 聚焦 **74 passed**；全量 pytest **509 passed**；全部 8 组前端测试、typecheck、`/tmp/career-ux1-closeout/dist` build、pip check、npm ls（既有 extraneous）、secret scan、Markdown links、git diff --check 通过。正式 frontend/dist 未被测试覆盖。
+- 正式健康：PID `16242`，health/SQLite quick_check=ok、schema v6、data instance `42ff565e28a08e31414442521540ac3e`；current/records/revisions `44/217/203` 与 ID manifest `4e91cd541a4fdf67ef106a8f1cbfab5574e931d0785a3189838339b372b249c1` 不变。全部 operation ID/task/state/dispatched_at 与 UX-1 前基线相同，DeepSeek/Tavily 新增 **0/0**；未读取、显示或记录 Secret。
+- Runtime 区分：用户本次验收的是隔离 `53693` + `index-pKPz6fi6.js`；正式 `8765` 仍运行上次 PID `16242` 的 dirty working-tree baseline，主 JS `index-D_1mFyyV.js`，source manifest SHA `e0be5942a701b3f27bbc866ca5d9c3e1b7ed79d9824b6e63f90f3f99c2725607`。正式尚未加载后续预览过期分类和“AI进度”文案修复；不能宣称正式Runtime已验收该最新版本。本轮未重启。
+- Git ownership：13 个旧 Resume 文件、AGENTS.md、Agent/Skill 本机资料共 92 个保护文件相对 UX-1 开工 SHA 完全一致；AGENTS 仍保留原 4 行 unknown ownership。无新增未知 tracked diff。UX Review/UX-1 与 D4 的修改可识别，但部分存在提交依赖，不是可以直接整文件stage的独立文件。
+- **Git BLOCKED 原因**：`frontend/src/wiki-semantic-bindings.ts` 中 UX-1 的 `startCognitionCompiler` 处理/过期/恢复改动依附于 HEAD 尚不存在的 D4 函数；Cognition 恢复还依赖 `wiki-semantic-ui.ts` 的 D4 展示函数、`compiler.py` 的 D4 context_kind/selected_experiences 与审批分派，以及未提交的 `wiki/cognition.py` / app router。提交完整函数会带入 D4 实现；仅提交可分离的公用部分则会留下已验收 UX-1 的 Cognition 集成未提交。此次授权只允许 UX Review/UX-1，故没有把 D4 实现偷带入 commit，也没有为凑提交重构当前已验收代码。
+- 未 stage、commit、push。HEAD/main/origin/main 仍为 `6b32ce4fc98187fe1d4614a33f5d3d7d2c0a0acf`。工作区剩余：UX Review/UX-1 待收口、既有 D4 实现/测试/文档、13 个旧 Resume 改动、AGENTS 4 行未知改动及本机 Agent/Skill 文件；generated dist/runtime 继续忽略。须先明确 D4 依赖的 Git 基线收口范围，才能整体提交 UX-1。**UX-1 功能/UI/机器检查通过，整体仍 BLOCKED；UX-2 NOT READY。**
+
+
+## 2026-09-27：UX-1 用户验收 FAIL — 预览过期诊断与修复，继续 BLOCKED
+
+- 真实 Provider 本轮未调用，DeepSeek/Tavily 增量 0；D4 smoke 继续暂停，不进入 UX-2。正式 Runtime PID `16242` 仍为上一轮 working-tree baseline，本轮未重启、未覆盖正式 frontend/dist。
+- 旧隔离现场 `127.0.0.1:63127` 保持原样。operation `ai-operation:4369933d-6ea2-4d91-b99a-4dab5c28cf09`、task `wiki_compiler`：准备时间 22:49:26，到期 22:59:26，用户确认时间 23:27:20（北京时间）。confirm 进入 reserved 后约 4ms 因 Missing“准备对象已过期，请重新预览”终止为 failed。dispatched_at/result_ref 均 null，dispatch slot 无占用，Provider/Proposal/结果记录均 0。数据库完整文件 SHA 与只读诊断前一致。
+- 根因 G：10 分钟 Preview 已过期，尚未进入 Provider；叠加 E：状态投影把发送前的过期错误误报成 AI 执行失败。没有证据指向关闭弹窗、TestProvider 返回、Proposal 保存或读错 operation。上一轮交付过早准备 Preview 且没有到期提示，造成真实验收失败；旧 Fresh-Eyes 成功不能覆盖本次失败。
+- 修复：保留有效期与严格确认；为过期添加固定 code `prepared_request_expired`，旧未 dispatch 的精确 Missing 过期记录也只读映射为准备中，不改旧审计。Wiki/Cognition Preview 到期即时收起发送按钮，显示“预览已过期，尚未发送”和手动重新预览；点击确认及服务端仍复查，无自动 prepare/retry。计时器不会覆盖已经处理中的操作或已保存建议。顶部改“AI 进度”，失败卡片减为“整理 Wiki失败 / 没有修改资料。”。
+- 未改后端执行模型。真实 HTTP 断连测试已证明：Provider 被阻塞时关闭原客户端 socket，随后放行 Provider，原服务端线程仍保存 Proposal；新连接读取待处理、同 operation/Proposal、审批后进度 1/2，且只有一次 dispatch/preparation/Proposal。进程退出仍按既有 recover：发送前中断失败，发送后中断结果未知，不自动重试，不承诺进程崩溃后继续计算。
+- 测试先行：只读复现旧场景状态误报；新增过期 API 回归先因缺少 code 失败，修复后通过；新增真实 Uvicorn/HTTP 断连时序与前端到期/状态文案测试。首次全量 508 passed / 1 failed，失败是 STATUS 顶部缺少既有 release-readiness 要求的真实 Provider 未调用声明，现已如实补充；最终重跑 **509 passed**。全部前端测试、typecheck、临时 build、secret scan、文档链接、git diff --check 通过。
+- 用户重验使用全新隔离库和 TestProvider，旧失败库不删除、不重发、不修状态；全量回归完成后新建 `/tmp/career-ux1-recheck/isolated-data`，端口 `53693`，项目“UX1 恢复复验项目”；只连接 TestProvider，外网连接拦截，无真实凭据，使用 `/tmp/career-ux1-diagnosis/dist` 新临时构建。新 Preview 未由 Agent 确认发送。UX-1 仍 BLOCKED，等待新一轮用户 UI 验收。
+
+
+## 2026-09-27：UX-1 — SYNTHETIC / Fresh-Eyes / Runtime PASS，等待用户 UI 验收
+
+- 范围：只实现 AI 状态可见、原操作恢复与对象归属；未进入 UX-2/3/4、D5，D4 smoke 继续暂停。用户层六状态及后端映射见 [UX Reset Plan §15](CAREER-UX-RESET-PLAN.md#15-ux-1-已批准实施合同2026-09-27)。没有新状态表、schema migration、自动 prepare 或重发路径。
+- 实现：新增只读 AI activity 投影与顶部轻量 AI 入口；当前对象仅显示一行处理中/待处理提示。Wiki Compiler / Cognition 关闭、切页、刷新后继续原 Proposal，审批进度从后端读取；Research / Resume 保持兼容状态与所属页面入口，不重做旧界面。0 Patch 完成不形成永久待办；失败/结果未知分开；页面网络读取失败不冒充 Provider 失败。
+- 测试先行：接口初始 404 与前端缺模块的失败先于实现；Fresh-Eyes 发现跨页刷新后对象名退化，接口测试先复现 KeyError，再补返回原 Proposal 冻结的最小身份。没有修改 Proposal 数据或 Provider 合同。
+- 自动检查：全量 pytest **507 passed**；全部 8 组 frontend test 命令、typecheck、临时目录 build、pip check、npm ls（既有 extraneous 本机依赖）、secret scan、文档链接与 git diff --check 通过。新增覆盖处理中读取、状态恢复、四条建议已审批 2/4 后恢复、终态、stale、0 Patch、Cognition/Research/Resume 归属、只读无重复 dispatch。
+- 独立 Fresh-Eyes：gpt-6-astra / high，仅隔离 TestProvider、不读源码/规格、不改代码、不给点击路线。一次发起→立即关闭→切机会页→自行找回→刷新→继续审批成功。发现的归属显示问题修复后，再在另一个既有 pending 隔离现场只读复核通过，未再次发 Provider。原始报告 `/tmp/career-ux1-fresh/report.md`。浏览器权限/可用性限制曾改用原生 Safari，复核边界已在报告记录。
+- Runtime Update：正式 PID **91171 → 16242**，正式启动方式、保持 AI_ENABLED，只监听 `127.0.0.1:8765`。先构建 `/tmp/career-ux1/runtime-build`，再明确更新正式 `frontend/dist`；11 个文件与临时构建及服务实际返回逐文件 hash 相同。主 JS `index-D_1mFyyV.js`。
+- Git HEAD/main/origin/main 仍为 `6b32ce4fc98187fe1d4614a33f5d3d7d2c0a0acf`。Runtime 是本轮 **dirty working-tree baseline**，包含 D4/UX-1 与既有 Resume 源码；不能称 SOURCE=GIT。110 个运行/构建输入文件 manifest：`/tmp/career-ux1/runtime-source-manifest.json`，SHA-256 `e0be5942a701b3f27bbc866ca5d9c3e1b7ed79d9824b6e63f90f3f99c2725607`。
+- 正式健康：health / SQLite quick_check 均 ok，schema v6；data identity `42ff565e28a08e31414442521540ac3e` 不变；current/records/revisions `44/217/203` 不变；ID manifest `4e91cd541a4fdf67ef106a8f1cbfab5574e931d0785a3189838339b372b249c1` 不变。全部 operation ID/task/state/dispatched_at 与开工快照相同，**DeepSeek/Tavily 本轮增量 0/0**。只用白名单 metadata 健康检查；未读取、显示或记录 Secret。
+- D4 现场：原 Proposal `47edc08e…` 仍 pending、原 operation `a8d2e4e5…` 仍 succeeded，正式 Cognition 仍 0；新恢复接口显示待处理、0/1、两段经历归属。没有审批、删除、替换或重新调用。
+- Ownership：与本轮开工 SHA 快照逐文件比对，13 个旧 Resume 文件、AGENTS.md 与 Agent/Skill 本机文件共 92 个保护文件逐字节未变。UX-1 只改计划/本 STATUS、独立 AI activity 模块与测试、main 接入、Wiki UI/接口恢复、局部样式、package 测试入口及 Wiki 模块 README；D4 既有改动继续隔离。没有 stage、commit 或 push。
+- 用户验收：独立虚构库 `/tmp/career-ux1-user/isolated-data`，`127.0.0.1:63127`，同一正式 dist、TestProvider 模拟延迟、外网连接拦截、无真实凭据。已打开“UX1 隔离验收项目”的 Preview，尚未确认发送；等待用户完成发起→关闭→切页→刷新→全局入口恢复。正式 D4 不用作重新发送测试。**UX-1 暂不 COMPLETE/PASS；UX-2 NOT READY。**
+
+
+## 2026-09-27：Career UX Reset — 审查与计划，D4 smoke 暂停
+
+- 用户要求系统性审查信息架构、页面层级、文案、视觉与 AI 反馈；本轮真实 Provider 未调用，不继续 D4 smoke、不进入 D5、不修改业务代码。D4 底层实现保留，既有待审建议不处理。
+- 白名单 metadata 复核：D4 DeepSeek dispatched 累计 `3`，较前节基线新增 `1`（用户上次点击后）；最新 operation `a8d2e4e5…` 为 succeeded，约 4 秒完成，关联 Proposal `47edc08e…` 为 pending。正式 Cognition `0`；Tavily dispatch `7`。没有 reserved / dispatching / outcome_unknown；failed 历史操作保留。当前 health / quick_check 正常、schema v6，正式 Runtime 未重启。
+- 独立 Fresh-Eyes 使用 `gpt-6-astra / high`，不继承本讨论、不给产品规格/源码/既往抱怨或点击路径；使用隔离空库和 TestProvider、25 秒模拟延迟。隔离服务不读取正式数据或 Keychain，外部连接被拦截。最初 LOCAL_ONLY 导致 prepare 被拒、一次重启中断保存，已明确排除为测试环境干扰，不能算产品问题。
+- Fresh-Eyes 已完成真实UI审查：独立项目、资料、任职/人物、关系、机会/简历、TestProvider建议、关闭后找回、完成后刷新、来源和历史均有操作证据；长期认知找到但未生成，面试内部被404阻断，处理中刷新未验证。原始报告见[独立盲审](../audit/2026-09-27-career-ux-fresh-eyes.md)。主Agent复核AI容器不一致、直接资料与可引用来源混用、面试接口路径不一致，全部仅记录，未修改代码。
+- 收尾：隔离审查服务已停止；正式 D4 operations / Proposal metadata 前后完全一致，Cognition仍0、本轮DeepSeek/Tavily增量0/0。文档链接及diff空白检查通过；逐文件hash确认除本STATUS外所有既有tracked文件未改变。本轮仅新增计划及审查报告，未stage/commit/push；UX实施等待审阅，D4仍暂停。
+- 方案正本：[CAREER-UX-RESET-PLAN.md](CAREER-UX-RESET-PLAN.md)。这是待审计划，不是已实现的新规范；审批前不重写已确认目标模型。新增计划与本 STATUS 是本轮文档改动，原 D4/Resume/AGENTS/本机配置保持隔离。
+
+## 2026-09-27：D4 旧 Proposal 终结与第二次 smoke Preview — 等待用户确认
+
+- 旧 pending Proposal 并非来自上一轮 `invalid_result`：它关联的真实 D4 operation 已成功，选了 3 段经历，其中包括 A/B 和另一段虚构经历；invalid-result operation 没有创建 Proposal。为避免把不同范围的旧建议混入本次只选 A/B 的验收，系统将旧 Proposal 和其 1 条 Patch 标为 `superseded`，原因码为 `smoke_scope_replaced`。没有设置用户拒绝决定、没有写入 Cognition；关联 operation 保持 `succeeded`，原 85 条 AI 审计行前后不变。
+- 第二次 smoke 起始基线：D4 DeepSeek outbound 总数 `2`，Tavily 搜索 dispatch 总数 `7`，Cognition `0`，pending D4 Proposal `0`。A/B Project revision 均为 `1`，各有一条当前 Wiki revision `1`；只在内存计算的 Context DTO / manifest SHA-256 分别为 `4c7a9da10528799b9d34fdddffc69339cbac2ec8d077b36cfdf81927c128a267` / `690ee99346d579e57c82953f3e376bfedf5e693bc7e15d5ba59da321bd14deb2`。
+- 本轮真实 Provider 未再次调用；第二次 smoke 只停在用户确认前的 Preview。
+- Career 页面已重新准备一份新的 D4 `ai_preparation`（`prepared`，不是 Provider operation；真实 operation 只会在用户确认时创建）。它的两个来源恰好是 A/B Wiki，manifest 恰好是 A/B Project 与各自 Wiki；UI 当前显示 A/B 两段实际 Wiki 内容与“不会读取原始资料”。confirm 前 DeepSeek 增量 `0`、Tavily 增量 `0`；未点击“让 AI 整理”。本轮 A/B 与 Wiki 没有修改。
+- 正式 Runtime 未重启，仍是已验收的 PID `91171`，`127.0.0.1:8765`、`AI_ENABLED`。白名单健康脚本 `/Users/frog/Projects/Career/scripts/runtime_health_check.py` 只读取 `/healthz` 与 schema、行数、数据实例标识、ID manifest hash；不请求 `/api/state`，SQLite 查询不读取 `body` 列。回归测试通过 SQLite authorizer 禁止读取 `body`，并植入 Profile / Resume / Person / Raw 虚构哨兵。此前一次宽泛状态检查的工具输出包含 Profile 联系字段，但没有在聊天中复述；本轮没有再读取这些字段，也没有读取 Secret。
+- 检查：D1–D4 聚焦测试 `42 passed`；修正文档回归断言后，全量 pytest `501 passed`。文档链接、`git diff --check`、secret scan、`pip check` 均通过；`npm ls --depth=0` exit 0，只有既有本机 extraneous 包。未执行正式 build 或重启，避免无关改变 Preview Runtime。
+- 最近健康检查：health=`ok`，SQLite `quick_check=ok`，schema v6，data instance=`42ff565e28a08e31414442521540ac3e`；`current / records / revisions` 为 `44 / 208 / 203`，ID manifest SHA-256=`c6110440f7f32e5bfb3d957b8b3f60f529e19c8c3adb22007931ae7bfb686993`。Git `HEAD = main = origin/main = 6b32ce4fc98187fe1d4614a33f5d3d7d2c0a0acf`，working tree dirty；未 stage、commit 或 push。D4 虚构数据保留，未进入 D5。
+
+## 2026-09-27：Phase D4 Cognition — SYNTHETIC READY
+
+- 建模：Cognition 是 Wiki 的 `cognition` scope，复用 schema v6 的 `current` / `revisions`、typed `source_refs`、现有 Proposal 与逐条审批；没有新表、schema migration 或第二套历史。用户选择 2–20 段 Project / Employment，未选择的经历不进入 Context。
+- 发送边界：专用 DTO 仅含所选经历的 `{type,id,name}`、其当前 Wiki 的 `{knowledge_id,type,content,tags}` 和当前 Cognition 的 `{id,type,content,revision,supporting_experience_ids}`。不含 Raw 正文、Person、Opportunity、Resume、Interview、Feedback、历史 revision 或 Secret。Preview 与实际 DTO 共用数据；来源 UI 先显示经历和具体 Wiki revision，原始资料保持折叠并只在用户点击后读取。
+- 跨经历与候选：本地按不同 Project / Employment ID 校验。add / rewrite 必须引用至少两段不同经历的本轮当前 Wiki；retire 至少引用一条所选 Wiki。同一 Project 的多条 Wiki 不会增加经历数。只允许 add / rewrite / retire；返回 0 Patch 是成功；pending 不写正式 Cognition；每条仍单独接受、编辑后接受或拒绝。当前输出校验拦截人格/心理诊断和伪精确评分，不产生 Resume 或 Interview 更新。
+- 合成验收：全部经隔离 TestProvider 与临时数据库；D1–D4 聚焦 `61 passed`，全量 pytest `495 passed`。前端导航 8 项、本地请求 3 项、Employment/Person、Project 协作、workspace mutation、Wiki semantic、Wiki D3 回归全部通过；typecheck 通过；Vite build 输出到 `/tmp/career-d4-final-build.avzAOm`，没有覆盖 `frontend/dist`。`pip check` 通过；`npm ls --depth=0` exit 0，只有既有 extraneous 本机包；secret scan、文档链接（含长期模型目标文档）及 `git diff --check` 通过。
+- Fresh-Eyes：已尝试一次只读独立 UI 观察。Subagent 没有可用隔离浏览器或已确认的 TestProvider UI 入口，未进入应用、未生成数据、未读取设计文档；因此“长期认知”理解度、来源清晰度、审批压力和 0 Patch 文案不作通过声明。当前没有真实用户 UI 验收。
+- 正式环境：没有改正式 Runtime 或生产数据库；仍是 D3.5 基线 PID `83321`，`127.0.0.1:8765`、health=`ok`、运行模式沿用已确认的 `AI_ENABLED`。生产 SQLite `quick_check=ok`、schema v6，`current / records / revisions` 行数仍为 `40 / 182 / 199`。生产 `ai_call` 总数仍为基线 `19`；D4 `ai_operations=0`、D4 dispatched audit=`0`，无本轮 DeepSeek 或 Tavily outbound。未读取、显示或记录 Secret。
+- 文档与 Git：长期模型、产品/上下文/架构/旅程/路线图和模块 README 已补 D4 合同及当前实现状态。`src/workbench/README.md` 原有字节前缀与 D4 修改前快照完全一致，D4 只追加独立章节。13 个用户旧 Resume 文件中其余 12 个 hash 与 D3.5 基线一致；README 因新增 D4 尾部章节而整体 hash 改变，原有 36,748 字节逐字节保留。`AGENTS.md` hash 未变；`.agents/skills/` 与 `docs/agents/` 未触碰。没有 stage、commit 或 push；Runtime 未更新。
+- 判定：Phase D4 `SYNTHETIC READY`。`D4 REAL SMOKE = NOT READY`：正式 Runtime 仍未加载 D4，Fresh-Eyes/UI 验收也尚未完成。真实 smoke 需另行受控 Runtime 更新和用户 Preview 验收；本阶段不调用真实 Provider、不进入 D5。
+
+## 2026-09-27：Post-D3.5 Runtime Cutover — PASS
+
+- Git 基线：`HEAD = main = origin/main = 6b32ce4fc98187fe1d4614a33f5d3d7d2c0a0acf`。本次只对齐正式 Runtime；真实 Provider 未调用，没有进入 D4，也没有提交或推送新代码。开工时剩余 tracked diff 精确为 13 个用户旧 Resume 文件和 `AGENTS.md` 未知 4 行；它们与 D3.5 开工前哈希一致，`.agents/skills/` 和 `docs/agents/` 本机资料清单哈希亦未变。本节 STATUS 是本次明确归属的新增文档 diff。
+- 实际源码：正式 Runtime 加载当前 working tree，不冒称 `SOURCE = GIT`。87 个受控运行源码/前端构建输入的逐文件 SHA-256 清单，聚合 SHA-256=`f1e57af5206f9c1bf55084d418bf7510b0e69644714dfcb3f67b1f51348e2051`；其中仍有 6 个用户未提交的运行输入：`frontend/index.html`、`frontend/src/editor/legacy-app.js`、`frontend/src/editor/legacy.css`、`src/workbench/profile.py`、`src/workbench/resume_documents.py`、`src/workbench/resume_pdf.py`。其余 7 个受保护 Resume 文件属于 README/测试，不是本清单运行输入；`AGENTS.md` 和本机 Agent/Skill 资料不参与 Runtime。
+- 前端：先在 `/tmp/career-post-d35-frontend-verify` 完成 typecheck 与 Vite 验证 build，再明确生成正式 `frontend/dist`。两处 11 个文件路径及字节逐一相同；正式 dist 清单 SHA-256=`b3c9d8fb20201af75d4ae8b59f59e3de95ee99d702aed46392a8ff0e1d021d07`。正式 HTTP 对全部 11 个静态文件提供的字节与 dist 一致。后续普通 build 仍输出 `/tmp`，只有正式 Runtime Update 才覆盖 dist。
+- 受控重启：旧 PID `70394` 经 `scripts/macos_app.py stop` 的身份验证控制通道优雅退出；端口释放后以显式 `CAREER_AI_MODE=AI_ENABLED` 和正式启动器启动新 PID `83321`。`/healthz=ok`，只监听 `127.0.0.1:8765`，运行模式仍为 `AI_ENABLED`，schema v6、SQLite `quick_check=ok`、data instance 不变。
+- 数据核对：`current` 与 `revisions` 的完整内容摘要一致；`current`、`records`、`revisions` 的 ID/kind/revision 清单及数量不变（40 / 182 / 199）。`records` 完整摘要发生启动期变化；只读定位到既有 `ai_secret_operation` 清理日志的 `updated_at` 被恢复流程刷新，仍是 `manual_cleanup_required`；不属于职业业务对象、Wiki/Raw 或 Provider 调用。未读取、显示、复制或记录 Secret 值。
+- D3.5 正式加载：正式入口 JS 含“保存到：”“继续处理建议”、来源标题目录及当前理解；Wiki 只读 API 在当前正式资料上返回 1 个非空来源标题，来源目录不含 Raw 正文且只引用当前可见知识。不创建任何测试业务对象，不重复用户 D3 验收。DeepSeek `ai_call` 增量 `0`、`wiki_compiler` dispatch 增量 `0`；Tavily/research dispatch 增量 `0`。Phase D4 = `READY TO START`，本次未开发 D4。
+
 ## 2026-09-27：Phase D3 / D3.5 — COMPLETE / PASS
 
 - D3 两轮用户 UI 验收均已 PASS；D3 专属虚构测试数据已从隔离环境清理。D3.5 真实 Provider 未调用：本轮 DeepSeek outbound 增量 `0`、Tavily `0`。用户已确认此前那笔来源不明的 DeepSeek 调用由用户本人触发，本批不再调查或归类为异常。

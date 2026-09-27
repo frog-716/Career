@@ -41,7 +41,7 @@ D1 手工新增的 Raw 保存标题、正文、来源类型、所属范围、创
 
 已有原始记录按原 ID 引用，不复制正文来制造统一副本。`source_ref` 是稳定类型化指针：`kind + id + revision + hash`。读取时检查版本与摘要；如果旧记录只保留当前正文且已经变化，系统拒绝把新正文冒充为旧版本。现有事件、证据、面试转写、任职/机会原话、沟通和资料原件可作为 Raw 来源；AI 复盘、Research 派生结论、Achievement 与 Wiki 不属于 Raw。
 
-Raw 的范围由 Career 正式对象拥有。Person 范围只能指向已确认人物；机会材料只在同一 Opportunity 内可见，通用 Wiki / Cognition 读取不得预装机会私有知识。Cognition 可以引用个人、Project、Employment 与已确认 Person 的资料，但本期不自动提炼 Cognition。
+Raw 的范围由 Career 正式对象拥有。Person 范围只能指向已确认人物；机会材料只在同一 Opportunity 内可见，通用 Wiki / Cognition 读取不得预装机会私有知识。Cognition 作为 Wiki 范围可以保留用户手工记录和来源；D4 自动提炼只读取本轮用户选择的 Project / Employment 当前 Wiki，不把其它允许的 Wiki 引用范围扩成自动搜索权限。
 
 ## Domain Objects
 
@@ -81,13 +81,27 @@ Wiki 是 Raw 与 Domain Objects 之上的持续语义知识层，保存当前有
 
 第一版语义类型只用 `Fact`、`Observation`、`Hypothesis`：Fact 是用户当前确认、由原始材料支持的事实；Observation 是从材料中观察到、尚未升格为绝对事实的模式；Hypothesis 是仍待验证的推断。类型不带 AI confidence 分数。用户可以直接写 Wiki；这种记录的 provenance 明确标记为 `user`，来源列表为空，不伪造 Raw 引用，也不建立第二套来源账本。
 
-每条 Wiki Knowledge 属于一个明确的 Project、Employment、Opportunity、已确认 Person、Personal 或 Cognition 范围，可带自由 Tags 和 0..N 个稳定 `source_refs`。Person 范围必须引用已存在且身份已确认的 Person；Wiki 写入不创建 Person。一份 Raw 可以支持多条知识，一条知识也可引用多份 Raw。写入和改动只保存引用，不复制原文。Opportunity A 的知识只能在 A 的显式范围中显示；“全部长期范围”视图不读取 Opportunity 私有知识。Cognition 只保留手工记录能力，不在 D1 自动归纳。
+每条 Wiki Knowledge 属于一个明确的 Project、Employment、Opportunity、已确认 Person、Personal 或 Cognition 范围，可带自由 Tags 和 0..N 个稳定 `source_refs`。Person 范围必须引用已存在且身份已确认的 Person；Wiki 写入不创建 Person。一份 Raw 可以支持多条知识，一条知识也可引用多份 Raw。写入和改动只保存引用，不复制原文。Opportunity A 的知识只能在 A 的显式范围中显示；“全部长期范围”视图不读取 Opportunity 私有知识。D1 只提供手工 Cognition 记录，不做自动归纳。
 
 Wiki Knowledge 的状态为 `current` 或 `retired`。新建、编辑、退役与恢复都使用同一对象 ID，沿用 Career 的 `current` / `revisions` 版本机制与 CAS；改写以新修订更新当前语义，默认读取当前知识，历史视图保留旧版本。退役只让知识退出默认当前视图，不物理删除内容、修订或来源引用。来源与版本历史沿用这套现有机制，不另建第二套 provenance、archive 或 history 系统。D1 没有 Compiler：所有写入均由用户手工创建或编辑，不调用 Provider。
 
 Wiki 不创建第二套 Project、Employment、Opportunity 或 Person 正本。对象的身份、主字段、状态及真实关系由 Domain Object 拥有；Wiki 保存需要跨材料理解的语义。业务含义优先使用 `scope` 与自由 `tags` 表达，不为 Decision、Commitment、Risk、Achievement 等词各造一套实体表。知识语义优先收敛到 `Fact`、`Observation`、`Hypothesis`。
 
-Cognition 是 Wiki 的一部分，表达从多段经历中归纳、未来还可复用的关于用户自身的认知，例如工作方法、能力证据或规律。它可以跨 Employment、Project、Opportunity，并保留来源；不另建独立数据库。
+Cognition 是 Wiki 的一部分，表达从多段经历中逐渐形成、未来还可复用的关于用户自身的认知，例如工作方法、决策方式、能力线索或长期偏好。它回答“这些经历长期说明了我的什么”，不是单个项目状态、任职要求、人物偏好、单次事件总结、简历文案或人格画像。它复用 Wiki Knowledge 的 `Fact`、`Observation`、`Hypothesis`、Tags、current/revisions、source_refs 与 Patch 审批，不另建数据库或第二套历史。
+
+### D4 长期认知提炼合同
+
+正式 Cognition Candidate 必须有至少两个不同 Project / Employment 的经历来源。一个经历中的多条 Wiki Knowledge 不能冒充多段经历；单个经历最多提供 Observation 线索，不能据此写成用户稳定的能力或规律。新增和强化 Cognition 的 Patch 必须分别引用至少两个本轮所选经历的当前 Wiki Knowledge；退役 Patch 至少引用一条本轮所选经历的当前 Wiki Knowledge。服务器本地校验不同 `experience_id` 和来源条目，不能由模型自行声明“跨经历”。
+
+用户从已完成或 canceled Project、已结束 Employment 的工作区主动复盘，或在 Wiki 中主动选择“整理长期认知”时，才可打开整理流程。D4 不在 Raw 保存时自动运行、不定时扫描、不搜索全 Career。用户选择至少两段 Project / Employment 后，专用 Context DTO 只包含所选经历的 `{type,id,name}`、这些经历的当前 Wiki `{knowledge_id,type,content,tags}`，以及当前 Cognition `{id,type,content,revision,supporting_experience_ids}`。不会发送 Raw 正文、Person、Opportunity、Resume、Interview、Feedback、其它范围 Wiki 或历史 revision；UI 预览只能展示这份实际 DTO，长内容可以滚动查看全文。
+
+D4 Preview 只保留“整理长期认知”“AI 将比较 N 段经历”、每段经历名称及其实际发送的 Wiki、可选的折叠“已有长期认知（N）”、一句“不会读取原始资料”、默认折叠的发送详情和“让 AI 整理 / 取消”。已有 Cognition 为 0 时不显示空区块。Proposal 每次一条，主视图只展示中文知识类型、建议内容、支撑经历与逐条审批按钮；原因放在“为什么？”折叠区，内部来源 ID 默认隐藏。rewrite 展示冻结的旧内容和建议内容，不能用新的 current 内容冒充旧版本。
+
+Candidate 只允许 `add`、`rewrite`、`retire`，并可正常返回 0 Patch；0 Patch 是成功结果，不是失败。pending Candidate 与正式 Cognition 分离；只有用户逐条接受或编辑后接受才写当前 Wiki，拒绝不改 Wiki；不提供批量审批。rewrite 保留同一 Wiki ID 并新增 revision，retire 只退出当前视图，历史继续可读。新的经历可反驳已有假设，rewrite 或 retire 必须展示理由并保留版本。每条 Cognition 的 typed `source_refs` 指向其支撑的经历 Wiki revision；查看来源先列经历和该 Wiki，再按需沿既有 Wiki 来源进入 Raw，不在 Cognition 页面铺开 Raw 正文。Cognition 流程不自动修改 Resume 或 Interview Context。
+
+仅在测试或运维验收明确替换了原先的经历范围时，系统可以把尚未处理的旧 Candidate 及其 Patch 标为 `superseded`，并记录系统原因与关联 operation。它不是用户拒绝，也不能写入 Cognition；Proposal 和 Provider 审计必须保留。正常产品流程仍由用户逐条处理 pending Candidate。
+
+模型输出合同必须把每种 Patch 的必填字段和差异、`source_refs: [{knowledge_id}]` 结构、小写知识类型、目标与 revision 配对、禁止额外字段及 `null` 规则明确告诉 Provider，并给出引用本轮选中 Wiki ID 的完整虚构合法示例。服务器保留严格本地校验；失败记录只写固定错误码与字段路径，不持久化模型正文。模型结果不可安全使用时，用户看到关闭提示，不出现重试入口；不自动修 JSON、补来源或写入 Cognition。
 
 AI 与界面先看相关 Wiki。当前语义不足以回答任务时，再按需查找并读取具体 Raw，避免每次把全部原文塞进上下文。引用 Raw 只表示来源可追溯，不自动证明推论正确。
 
@@ -128,6 +142,25 @@ Project、Employment 和已确认 Person 的工作区都直接展示各自的 Ra
 Project 页面先显示当前理解，再显示轻量资料列表；Employment 页面同步显示任职理解和资料，Person 详情保持轻量，只显示该人物范围的理解、关联项目和明确关联的 Raw。当前理解是 Wiki 的只读投影，不另存摘要。知识按 Fact、Observation、Hypothesis 顺序展示，同类型内按最近更新时间排序；retired 知识默认隐藏，既有 Wiki 历史和来源入口仍可回看。
 
 用户逐条接受 Wiki Patch 后，当前业务工作区重新读取并显示最新 Wiki，同时保留正在查看的 Project、Employment 或 Person。0 Patch 时不写空知识、不重试，返回对象工作区并提示“这份资料没有发现值得更新到 Wiki 的长期知识。”这些接入复用 D1 Raw/Wiki 与 D2 Compiler 的 API、版本、安全和来源合同；不新增 schema 或第二套历史记录。
+
+## AI 操作状态与恢复（UX-1）
+
+用户状态固定为：准备中、处理中、待处理、完成、失败、结果未知。界面只投影既有 AI operations、dispatch 与 Proposal 生命周期，不创建另一套任务或通知状态存储。
+
+| 后端事实 | 用户状态 |
+| --- | --- |
+| 准备/已 prepared、尚未确认；预览 stale 或已过期且未发送 | 准备中 |
+| 确认后 reserved/confirmed/dispatching；Provider 已返回但本地校验或保存尚未完成 | 处理中 |
+| 成功并产生 pending Proposal，含部分已审批 | 待处理 |
+| Proposal 全部处理完，或合法 0 Patch；superseded 按真实终态说明 | 完成 |
+| failed 或结果 invalid，无法安全应用 | 失败 |
+| outcome_unknown，无法确定外部结果 | 结果未知 |
+
+预览过期必须显示“预览已过期，尚未发送”，不能显示成 AI 失败；保留发送前有效期校验，只有用户重新预览并确认才可发送，不自动 prepare/retry。读取状态暂时失败不改变操作的后端状态，也不推断 Provider 失败。
+
+用户确认发送后，AI operation 属于 Career 后端生命周期。关闭弹窗、切页、刷新不得取消 operation、丢失结果或 Proposal；前端只负责查看状态、恢复原建议与继续审批，浏览器连接不能成为 Provider operation 存活的必要条件。执行和保存沿用现有持久化 operation/dispatch/Proposal；进程重启时，发送前中断按失败、发送后不确定按结果未知处理，不自动重发，也不宣称进程崩溃后能继续原计算。
+
+全局“AI”入口打开“AI 进度”，明确对象归属及唯一下一步；对象页仅有轻量处理中/待处理提示。恢复读取原 operation/Proposal ID 与每条审批状态，不重新 Preview、调用 Provider 或复制建议。全部处理完不再计入待处理；0 Patch 短暂完成、不制造永久待办。失败与结果未知分开呈现，均无默认重试；未知结果不得推定为失败或成功。Wiki Compiler/Cognition 完整恢复，Research/Resume 使用兼容状态映射及所属页面入口，本批不重写其业务界面。
 
 ## Resume / Submission
 
