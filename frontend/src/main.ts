@@ -14,7 +14,7 @@ import { mountResumeWorkspaceEditor, type ResumeEditorController } from "./resum
 import { eligiblePeopleForProject } from "./person-relations";
 import { mutateAndRefreshWorkspace } from "./workspace-mutation";
 import { bindWikiSemantic } from "./wiki-semantic-bindings";
-import { semanticWikiUI } from "./wiki-semantic-ui";
+import { semanticWikiUI, wikiReadingQuery, restoreWikiReadingRoute, loadWikiReadingPages } from "./wiki-semantic-ui";
 
 type Obj = Record<string, any>;
 type Page =
@@ -236,10 +236,11 @@ async function load() {
       : [semanticWikiUI.scope, ""];
     query.set("scope_type", scopeType);
     query.set("scope_id", scopeId);
+    if (semanticWikiUI.historyId) query.set("history", semanticWikiUI.historyId);
     const [journeyResult, workResult, wikiResult, rawResult, cognitionResult, cognitionExperiencesResult] = await Promise.all([
       api("/journey?summary=true"),
       api("/work-domain"),
-      api("/wiki?" + query.toString()),
+      loadWikiReadingPages(api, query),
       semanticWikiUI.scope === "all" || scopeType === "cognition"
         ? Promise.resolve({ items: [] })
         : api(`/raw?scope_type=${encodeURIComponent(scopeType)}&scope_id=${encodeURIComponent(scopeId)}`),
@@ -257,6 +258,8 @@ async function load() {
       items: wikiResult.items || wikiResult,
       raw: rawResult.items || [],
       sourceCatalog: wikiResult.source_catalog || [],
+      history_revisions: wikiResult.history_revisions || [],
+      history_catalog: wikiResult.history_catalog || [],
       next_cursor: wikiResult.next_cursor || "",
       cognition: cognitionResult ? {
         ...cognitionResult,
@@ -718,7 +721,7 @@ async function navigate(next: Page, id = jobId) {
         : page === "work" && ui.episodeId
           ? "/" + encodeURIComponent(ui.episodeId)
           : "") +
-      (page === "resume" && (resumeDocumentId || resumeLegacy)
+      (page === "wiki" && !semanticWikiUI.legacyView ? "?" + wikiReadingQuery() : page === "resume" && (resumeDocumentId || resumeLegacy)
         ? `?${resumeLegacy ? "legacy=1" : `document_id=${encodeURIComponent(resumeDocumentId)}`}`
         : ""),
   );
@@ -1902,6 +1905,7 @@ function routeSelection(p: string, id: string, params: URLSearchParams) {
   if (p === "footprint" && params.get("record")) ui.selectedNote = params.get("record")!;
   if(p==='jobs'||p==='progress') {opportunityView=params.get('view')||opportunityView;opportunityAnchor=params.get('tab')||'';}
   if (p === "jobs" && ["jd","analysis","resume",...Object.keys(noteNames)].includes(params.get("tab") || "")) ui.jobTab = params.get("tab")!;
+  if (p === "wiki") restoreWikiReadingRoute(params);
   if (p === "wiki" && id) {knowledgeUI.tab = "entries";knowledgeUI.scope = "all";knowledgeUI.category = "all";knowledgeUI.selected = id;}
   if (p === "resume") {
     resumeDocumentId = params.get("document_id") || "";

@@ -32,16 +32,18 @@ semanticWikiUI.status = "current";
 semanticWikiUI.selected = "wiki-fixture";
 const dataBeforeRender = structuredClone(data);
 const wikiHtml = wikiSemanticView(data);
-assert.match(wikiHtml, /<b>已确认事实<\/b>/);
-assert.match(wikiHtml, /虚构项目 · 当前/);
+assert.match(wikiHtml, /已确认事实/);
+assert.match(wikiHtml, /项目 · 虚构项目/);
 assert.match(wikiHtml, /周五提交方案。/);
 assert.match(wikiHtml, /#D1/);
 assert.match(wikiHtml, /data-d1-open-raw-kind="raw_material"/);
 assert.match(wikiHtml, /data-d1-open-raw-id="raw-fixture"/);
 assert.match(wikiHtml, /data-d1-open-raw-revision="1"/);
 assert.match(wikiHtml, new RegExp(`data-d1-open-raw-hash="${raw.hash}"`));
-assert.match(wikiHtml, /添加原始资料/);
-assert.match(wikiHtml, /写入 Wiki/);
+assert.ok(wikiHtml.indexOf("周五提交方案。") < wikiHtml.indexOf("虚构会议原文"), "Wiki 正文先于来源显示");
+assert.ok(wikiHtml.indexOf("虚构会议原文") < wikiHtml.indexOf("已确认事实"), "Wiki 来源先于知识性质显示");
+assert.doesNotMatch(wikiHtml, /添加原始资料/);
+assert.match(wikiHtml, /手工记一条/);
 semanticWikiUI.scope = "all";
 const allWithTitles = wikiSemanticView({
   ...data,
@@ -50,7 +52,7 @@ const allWithTitles = wikiSemanticView({
     sourceCatalog: [{ ...raw.source_ref, title: "虚构会议原文", source_kind: "manual_text", source_ref: raw.source_ref }],
   },
 });
-assert.match(allWithTitles, /虚构会议原文 · 手工原文/,
+assert.match(allWithTitles, /虚构会议原文/,
   "全部 Wiki 范围也必须显示可区分的来源标题");
 assert.doesNotMatch(allWithTitles, /手工原文（版本可能已变化）/,
   "有精确版本的来源不能误称版本可能变化");
@@ -93,7 +95,7 @@ const historyInputBefore = structuredClone(currentRevisions);
 for (const item of currentRevisions) wikiHistoryStatusLabel(item, currentRevisions);
 assert.deepEqual(currentRevisions, historyInputBefore, "历史状态展示不能修改 Wiki revision 数据");
 assert.deepEqual(data, dataBeforeRender, "Wiki 当前页渲染不能修改 Wiki 对象");
-assert.match(bindings, /wikiHistoryStatusLabel\(item, revisions\)/,
+assert.match(ui, /wikiHistoryStatusLabel\(current, revisions\)/,
   "历史列表必须依据整组 revision 和最新状态标记唯一当前版本");
 assert.match(bindings, /knowledgeTypeLabel\(item\.knowledge_type\)/,
   "历史、编辑表单等使用统一中文知识类型映射");
@@ -105,7 +107,7 @@ const newerRaw = {
   source_ref: { ...raw.source_ref, revision: 2, hash: "b".repeat(64) },
 };
 const staleHtml = wikiSemanticView({ ...data, wikiSemantic: { items: [knowledge], raw: [newerRaw] } });
-const sourcePanel = staleHtml.split("<section><h4>来源</h4>")[1].split("</section>")[0];
+const sourcePanel = staleHtml.split('class="reading-section reading-sources"')[1].split("</section>")[0];
 assert.match(sourcePanel, new RegExp(`data-d1-open-raw-hash="${raw.hash}"`),
   "已有 Wiki 必须保留它原来引用的 revision/hash");
 assert.doesNotMatch(sourcePanel, new RegExp(newerRaw.hash),
@@ -262,6 +264,8 @@ const cognitionExperienceB = {
 };
 const currentCognition = {
   id: "cognition-fixture", knowledge_type: "observation", status: "current",
+  scope_type: "cognition", scope_id: "",
+  source_refs: [{ kind: "wiki_knowledge", id: "wiki-d4-a", revision: 1, hash: "a".repeat(64) }],
   content: "不同经历中都先明确边界，再开始拆解。",
   supporting_experiences: [
     { type: "project", id: "project-d4-a", name: "D4 虚构项目 A" },
@@ -358,13 +362,13 @@ assert.match(cognitionRetireProposal, /旧的虚构事实。/);
 const cognitionView = cognitionWikiHTML({
   knowledge: [currentCognition], retired: [], proposals: [],
 }, "current", currentCognition.id);
-assert.match(cognitionView, /<h2>长期认知<\/h2>/);
+assert.match(cognitionView, /class="reading-owner">长期认知<\/p>/);
 assert.match(cognitionView, /不同经历中都先明确边界/);
 assert.match(cognitionView, /支持这个判断的经历/);
 assert.match(cognitionView, /D4 虚构项目 A/);
 assert.match(cognitionView, /data-d4-open-experience-type="project"/);
 assert.match(cognitionView, /data-d4-open-source-tree=/);
-assert.match(cognitionView, /data-d4-start/);
+assert.doesNotMatch(cognitionView, /data-d4-start/, "详情以阅读为主，整理入口在长期认知列表");
 assert.doesNotMatch(cognitionView, /原文正文|D4 RAW MUST NOT BE SENT/,
   "默认页面只显示来源经历，不铺开 Raw 原文");
 assert.match(ui, /data-d4-resume-proposal/);

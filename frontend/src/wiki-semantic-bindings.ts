@@ -3,7 +3,7 @@ import {
   proposalScopeLabel, knowledgeTypeLabel, knowledgeTypeLabels, semanticWikiUI, sourceLabel,
   cognitionExperiencePickerHTML, cognitionPreviewHTML, cognitionOutputErrorHTML,
   wikiCompilerFrozenBefore, wikiCompilerPatchHTML, wikiCompilerPreviewHTML,
-  wikiHistoryStatusLabel,
+  wikiReadingQuery,
 } from "./wiki-semantic-ui";
 
 type Obj = Record<string, any>;
@@ -114,23 +114,28 @@ export function bindWikiSemantic(ctx: Obj) {
   on("[data-d3-open-wiki-scope-type]", (el) => {
     semanticWikiUI.legacyView = false;
     semanticWikiUI.scope = `${el.dataset.d3OpenWikiScopeType}:${el.dataset.d3OpenWikiScopeId || ""}`;
-    semanticWikiUI.status = "all";
+    semanticWikiUI.status = "current";
+    semanticWikiUI.selected = "";
+    semanticWikiUI.historyId = "";
     if (typeof ctx.navigate === "function") void ctx.navigate("wiki").catch(ctx.failure);
   });
-  change("#d1-wiki-scope", (value) => {
-    semanticWikiUI.scope = value;
-    semanticWikiUI.selected = "";
-    void load().then(render).catch(ctx.failure);
+  function readAt(changes: Obj, reload = true) {
+    Object.assign(semanticWikiUI, changes);
+    history.pushState(null, "", "#wiki?" + wikiReadingQuery());
+    if (reload) void load().then(render).catch(ctx.failure);
+    else render();
+  }
+  on("[data-wiki-browse]", (el) => {
+    const browse = el.dataset.wikiBrowse || "recent";
+    readAt({ browse, scope: browse === "cognition" ? "cognition" : "all", status: "current", selected: "", historyId: "" });
   });
-  change("#d1-wiki-status", (value) => {
-    semanticWikiUI.status = value;
-    semanticWikiUI.selected = "";
-    void load().then(render).catch(ctx.failure);
-  });
-  on("[data-d1-select-wiki]", (el) => {
-    semanticWikiUI.selected = el.dataset.d1SelectWiki || "";
-    render();
-  });
+  on("[data-wiki-object]", el => readAt({ scope: el.dataset.wikiObject || "all", selected: "", historyId: "" }));
+  on("[data-wiki-personal]", () => readAt({ browse: "recent", scope: "personal", status: "current", selected: "", historyId: "" }));
+  on("[data-wiki-back]", () => readAt({ selected: "", historyId: "" }, false));
+  on("[data-wiki-history-back]", () => readAt({ historyId: "" }, false));
+  change("#d1-wiki-scope", value => readAt({ scope: value, selected: "" }));
+  change("#d1-wiki-status", value => readAt({ status: value, selected: "" }));
+  on("[data-d1-select-wiki]", el => readAt({ selected: el.dataset.d1SelectWiki || "" }, false));
 
   async function openRaw(el: HTMLElement) {
     const kind = el.dataset.d1OpenRawKind || "";
@@ -143,7 +148,7 @@ export function bindWikiSemantic(ctx: Obj) {
       const value = await api(`/raw/${encodeURIComponent(kind)}/${encodeURIComponent(id)}?${params}`);
       modal(
         "原始资料",
-        `<h3>${esc(value.title)}</h3><p class="muted">${esc(scopeLabel(getData(), value))} · ${esc(sourceLabel(value))}</p><div class="prose preserve">${esc(value.content)}</div>`,
+        `<article class="reading-surface reading-source"><h3>${esc(value.title)}</h3><p class="reading-meta">${esc(scopeLabel(getData(), value).replace(/^(项目|任职|人物) · /, ""))}</p><div class="reading-body preserve">${esc(value.content)}</div></article>`,
       );
     } catch (error) {
       ctx.failure(error);
@@ -157,8 +162,8 @@ export function bindWikiSemantic(ctx: Obj) {
       const item = (response.revisions || []).find((value: Obj) => value.revision === revision);
       if (!item) throw new Error("找不到这段经历当时的 Wiki 版本，已停止显示。");
       const rawRefs = (item.source_refs || []).filter((ref: Obj) => ref.kind !== "wiki_knowledge");
-      const html = `<h3>${esc(knowledgeTypeLabel(item.knowledge_type))} · 第 ${esc(item.revision)} 版</h3><p class="muted">${esc(scopeLabel(getData(), item))}</p><p class="preserve">${esc(item.content)}</p><h4>它的原始依据</h4>${rawRefs.length ? rawRefs.map((ref: Obj) => `<p>${openRawButton(ref)}</p>`).join("") : '<p class="muted">这条 Wiki 没有原始资料来源。</p>'}`;
-      modal("经历中的 Wiki 知识", html, (dialog: HTMLDialogElement) => {
+      const html = `<article class="reading-surface"><h3>${esc(scopeLabel(getData(), item).replace(/^(项目|任职|人物) · /, ""))}</h3><p class="reading-kind">${esc(knowledgeTypeLabel(item.knowledge_type))}</p><div class="reading-body preserve">${esc(item.content)}</div><section class="reading-section"><h4>来源</h4>${rawRefs.length ? rawRefs.map((ref: Obj) => `<p>${openRawButton(ref)}</p>`).join("") : '<p class="reading-meta">由你记录，未关联资料。</p>'}</section></article>`;
+      modal("支撑知识", html, (dialog: HTMLDialogElement) => {
         dialog.querySelectorAll<HTMLElement>("[data-d1-open-raw-kind]").forEach((button) => {
           button.onclick = () => void openRaw(button);
         });
@@ -182,7 +187,7 @@ export function bindWikiSemantic(ctx: Obj) {
         const rawDetails = raws
           ? `<details class="d4-raw-sources"><summary>需要时查看原始资料 · ${Number(trace.raw_sources.length)} 条</summary><ul>${raws}</ul></details>`
           : '<p class="muted">这条经历 Wiki 没有关联原始资料。</p>';
-        return `<section class="work-domain-card"><button class="text-btn" data-d4-open-experience-type="${esc(trace.experience?.type)}" data-d4-open-experience-id="${esc(trace.experience?.id)}">支持经历：${esc(trace.experience?.name || "经历")}</button><p><b>${esc(knowledgeTypeLabel(knowledge.type))} · 第 ${esc(knowledge.revision)} 版</b></p><p class="preserve">${esc(knowledge.content)}</p>${knowledge.version_changed ? '<p class="muted">这段经历 Wiki 后来已修改；这里仍显示当时被引用的版本。</p>' : ""}${rawDetails}</section>`;
+        return `<section class="reading-surface reading-version"><button class="text-btn" data-d4-open-experience-type="${esc(trace.experience?.type)}" data-d4-open-experience-id="${esc(trace.experience?.id)}">支持经历：${esc(trace.experience?.name || "经历")}</button><p class="reading-kind">${esc(knowledgeTypeLabel(knowledge.type))}</p><div class="reading-body preserve">${esc(knowledge.content)}</div>${knowledge.version_changed ? '<p class="muted">这段经历 Wiki 后来已修改；这里仍显示当时被引用的版本。</p>' : ""}${rawDetails}</section>`;
       }).join("");
       modal("支持这个判断的经历", rows || '<p class="muted">暂时找不到可读取的经历来源。</p>', (dialog: HTMLDialogElement) => {
         dialog.querySelectorAll<HTMLElement>("[data-d1-open-raw-kind]").forEach((button) => {
@@ -401,7 +406,7 @@ export function bindWikiSemantic(ctx: Obj) {
     );
     const selectedRefs = item?.source_refs || [];
     const type = item?.knowledge_type || "fact";
-    const html = `<form class="knowledge-form"><fieldset><label>类型<select name="knowledge_type">${Object.entries(knowledgeTypeLabels).map(([key, label]) => `<option value="${key}" ${type === key ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></label><label>内容<textarea name="content" required maxlength="100000">${esc(item?.content || "")}</textarea></label><label>Tags（每行一个，可自由填写）<textarea name="tags" maxlength="10000">${esc((item?.tags || []).join("\n"))}</textarea></label>${sourceChoices(rawItems, selectedRefs)}</fieldset><button class="primary full" type="submit">保存</button></form>`;
+    const html = `<form class="knowledge-form"><fieldset><label>类型<select name="knowledge_type">${Object.entries(knowledgeTypeLabels).map(([key, label]) => `<option value="${key}" ${type === key ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></label><label>内容<textarea name="content" required maxlength="100000">${esc(item?.content || "")}</textarea></label><label>标签（每行一个）<textarea name="tags" maxlength="10000">${esc((item?.tags || []).join("\n"))}</textarea></label>${sourceChoices(rawItems, selectedRefs)}</fieldset><button class="primary full" type="submit">保存</button></form>`;
     modal(item ? "编辑 Wiki 知识" : "写入 Wiki", html, (dialog: HTMLDialogElement) => {
       const form = dialog.querySelector<HTMLFormElement>("form")!;
       const button = form.querySelector<HTMLButtonElement>("button[type=submit]")!;
@@ -478,25 +483,10 @@ export function bindWikiSemantic(ctx: Obj) {
   on("[data-d1-retire-wiki]", (el) => void changeStatus(el, "retired"));
   on("[data-d1-revive-wiki]", (el) => void changeStatus(el, "current"));
 
-  on("[data-d1-wiki-history]", (el) => void (async () => {
-    try {
-      const response = await api(`/wiki/${encodeURIComponent(el.dataset.d1WikiHistory || "")}/history`);
-      const revisions = response.revisions || [];
-      const html = revisions.map((item: Obj) => {
-        const refs = (item.source_refs || []).map((ref: Obj) =>
-          `<p>${esc(sourceNames[ref.kind] || "原始来源")} · ${openRawButton(ref)}</p>`,
-        ).join("");
-        return `<section class="work-domain-card"><small>${esc(knowledgeTypeLabel(item.knowledge_type))} · ${wikiHistoryStatusLabel(item, revisions)}</small><p class="preserve">${esc(item.content)}</p><div class="actions">${(item.tags || []).map((tag: string) => `<span class="pill">${esc(tag)}</span>`).join("")}</div>${refs || '<p class="muted">手工写入 · 未引用原文</p>'}</section>`;
-      }).join("") || '<p class="muted">暂无修订记录。</p>';
-      modal("Wiki 修订历史", html, (dialog: HTMLDialogElement) => {
-        dialog.querySelectorAll<HTMLElement>("[data-d1-open-raw-kind]").forEach((button) => {
-          button.onclick = () => void openRaw(button);
-        });
-      });
-    } catch (error) {
-      ctx.failure(error);
-    }
-  })());
+  on("[data-d1-wiki-history]", (el) => readAt({
+    historyId: el.dataset.d1WikiHistory || "",
+    selected: el.dataset.d1WikiHistory || "",
+  }));
 
   function finishCompilerReview(dialog: HTMLDialogElement, message = "") {
     dialog.close();

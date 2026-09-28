@@ -430,3 +430,9 @@ UX-1虽然优先，但按本计划统一设计实施，不能仅修容器选择�
 先运行状态接口测试：修正fixture自身reserved_at约束后，3项均因缺少接口404失败，再实现；前端先因缺少恢复模块失败，再实现。跨页恢复发现Proposal归属回退为“项目·项目”，新增测试复现后使用原Proposal冻结身份修正。后续补充Cognition终态、真实四条Proposal部分审批及stale分类测试。
 
 所有正式运行结论、最终测试数字与用户验收状态以STATUS最新记录为准。UX-1只有自动回归、独立Fresh-Eyes和用户UI三层均通过才可COMPLETE/PASS。
+
+## 16. UX-2 已批准执行范围（2026-09-28）
+
+本轮按[长期模型 Wiki 阅读合同](../target/long-term-career-model.md#wiki-阅读结构ux-2)实施：五个同级浏览入口、正文优先的单列列表、独立知识详情、来源/唯一修订历史、次级筛选和写入。共享 `.reading-*` 字级/间距/section/list/detail 模式只在 Wiki opt-in；不提前改 Project/Employment/Person/Opportunity/Resume 完整页面。详情历史为弱化文字入口；编辑/不再有效进入更多。
+
+验收用独立虚构 Project/Employment/Person/Cognition、来源和历史；LOCAL_ONLY、无 Provider。Fresh-Eyes 只收到用户任务，不提供点击路线，不改代码。当前结果与 Runtime/用户验收状态统一在 [STATUS](STATUS.md)，不能用 UI 自动测试代替真人确认。D4 real smoke 保持暂停。

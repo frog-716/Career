@@ -6,6 +6,7 @@ type Row = Record<string, any>;
 type Context = {state: Row; domain: Row; journey: Row; id: string; filter: string; anchor: string; communications:Row[]; timeline:Row; interviews:Row[]; offer:Row|null; research?:Row};
 type Actions = {api:<T = Row>(path:string, body?:Row, method?:string)=>Promise<T>; refresh:()=>Promise<void>; go:(id:string,filter?:string)=>void};
 const phases: Record<string,string> = {resume:'写简历',submitted:'已投递',interview:'面试',offer:'Offer'};
+const phaseTones: Record<string,string> = {resume:'resume',submitted:'submitted',interview:'interview',offer:'offer'};
 const results: Record<string,string> = {active:'推进中',accepted:'已接受',rejected:'被招聘方终止',withdrawn:'主动退出'};
 const views = [['all','全部'],...Object.entries(phases),['ended','已结束']];
 const escape = (value:unknown) => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
@@ -15,14 +16,37 @@ function versionLabel(ctx:Context,v:Row) { const o=(ctx.state.opportunities||[])
 function selected(ctx:Context) {return (ctx.state.opportunities||[]).find((o:Row)=>o.id===canonical(ctx.id));}
 function localDay(){const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');}
 function displayDay(value:unknown,fallback='日期待核对'){if(!value)return fallback;const date=new Date(String(value));if(Number.isNaN(date.valueOf()))return fallback;const parts=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);const pick=(type:string)=>parts.find(p=>p.type===type)?.value||'';return `${pick('year')}-${pick('month')}-${pick('day')}`;}
+function shanghaiDay(value:Date){const parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(value);const pick=(type:string)=>parts.find(p=>p.type===type)?.value||'';return `${pick('year')}-${pick('month')}-${pick('day')}`;}
+function validDay(value:unknown){const match=String(value||'').match(/^(\d{4})-(\d{2})-(\d{2})/);if(!match)return '';const [,year,month,day]=match;const date=new Date(Date.UTC(Number(year),Number(month)-1,Number(day)));return date.getUTCFullYear()===Number(year)&&date.getUTCMonth()===Number(month)-1&&date.getUTCDate()===Number(day)?`${year}-${month}-${day}`:'';}
+function dayOrdinal(value:string){const [year,month,day]=value.split('-').map(Number);return Date.UTC(year,month-1,day)/86400000;}
+function shortDay(value:string){const [year,month,day]=value.split('-').map(Number);return `${String(year).slice(-2)}年${month}月${day}日`;}
+export function opportunityReminderLabel(value:unknown,now=new Date()){
+ const due=validDay(value);if(!due)return '日期待核对';
+ const delta=dayOrdinal(due)-dayOrdinal(shanghaiDay(now));
+ if(delta===0)return '今天';if(delta===1)return '明天';
+ return delta<0?`已逾期 · ${shortDay(due)}`:shortDay(due);
+}
 function communicationLabel(type:unknown){return ({text:'线上沟通',phone:'电话沟通',other:'其他沟通'} as Row)[String(type)]||'历史沟通 · 类型待核对';}
 
 export function opportunityHTML(ctx:Context) {
  const items:Row[]=ctx.state.opportunities||[];
  if (!ctx.id) {
   const filtered=items.filter(o=>ctx.filter==='all'||(!o.read_only&&(ctx.filter==='ended'?o.result!=='active':o.result==='active'&&o.phase===ctx.filter)));
-  const rows=filtered.map(o=>`<tr data-opportunity="${escape(o.id)}" tabindex="0" role="link" aria-label="打开${escape(o.company)} ${escape(o.title)}"><td>${escape(o.company)}</td><td><strong>${escape(o.title)}</strong>${o.read_only?'<small>历史资料 · 状态待核对</small>':''}</td><td><span class="op-badge">${escape(phases[o.phase]||'待核对')}</span>${!o.read_only&&o.result!=='active'?`<small>${escape(results[o.result])}</small>`:''}</td><td>${escape(o.phase_changed_on||'历史日期待核对')}</td><td>${link(o.action_url)}</td></tr>`).join('');
-  return `<section class="op-page"><div class="op-heading"><div><p class="op-eyebrow">一次尝试，一条机会</p><h2>机会管线</h2></div><button class="primary" id="op-create">添加机会</button></div><nav class="op-views" aria-label="机会视图">${views.map(([key,label])=>`<button data-op-view="${key}" aria-pressed="${ctx.filter===key}" class="${ctx.filter===key?'selected':''}">${label}</button>`).join('')}</nav>${filtered.length?`<div class="op-table-wrap"><table class="op-table"><thead><tr><th>公司</th><th>岗位</th><th>阶段</th><th>阶段日期</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="op-empty"><h3>这里还没有机会</h3><p>添加公司、岗位和 JD，即可开始。简历不是前置条件。</p></div>'}<p class="muted op-caption">${filtered.length} 条 · 历史待核对资料不会自动计入四阶段或已结束。</p></section>`;
+  const canonicalItems=items.filter(o=>!o.read_only);
+  const visibleViews=canonicalItems.length?views:[];
+  const viewCount=(key:string)=>items.filter(o=>key==='all'||(!o.read_only&&(key==='ended'?o.result!=='active':o.result==='active'&&o.phase===key))).length;
+  const rows=filtered.map(o=>{
+   const alias=o.legacy_job_id||o.id.slice('opportunity:'.length);
+   const plan=(ctx.journey.plans||[]).find((item:Row)=>item.job_id===alias);
+   const phaseMeta=o.read_only?'历史资料':o.result!=='active'?results[o.result]||'':'';
+   const reminder=plan?.due_date?opportunityReminderLabel(plan.due_date):'';
+   const urgent=reminder==='今天'||reminder.startsWith('已逾期');
+   return `<tr data-opportunity="${escape(o.id)}" tabindex="0" role="link" aria-label="打开${escape(o.company)} ${escape(o.title)}"><td><div class="op-identity"><strong>${escape(o.company)} · ${escape(o.title)}</strong>${link(o.action_url)}</div></td><td><span class="op-badge op-stage-${phaseTones[o.phase]||'unknown'}"><i class="op-stage-dot" aria-hidden="true"></i><span>${escape(phases[o.phase]||(o.read_only?'历史资料':'待核对'))}</span></span>${phaseMeta?`<small class="op-stage-meta">${escape(phaseMeta)}</small>`:''}</td><td>${plan?.next_action?`<span class="op-next-value">${escape(plan.next_action)}</span>`:''}</td><td>${reminder?`<time class="op-date${urgent?' is-urgent':''}" datetime="${escape(plan.due_date)}">${escape(reminder)}</time>`:''}</td></tr>`;
+  }).join('');
+  const empty=items.length===0
+   ? '<div class="op-empty"><h3>还没有机会</h3><button class="op-empty-link" id="op-create-empty">添加第一个机会</button></div>'
+   : '<div class="op-empty"><h3>当前没有这类机会</h3></div>';
+  return `<section class="op-page career-visual"><div class="op-heading"><h1>机会</h1>${items.length?'<button class="primary" id="op-create">+ 添加机会</button>':''}</div>${visibleViews.length?`<nav class="op-views" aria-label="机会视图">${visibleViews.map(([key,label])=>`<button data-op-view="${key}" aria-pressed="${ctx.filter===key}" class="${ctx.filter===key?'selected':''}">${label}<span class="op-view-count">${viewCount(key)}</span></button>`).join('')}</nav>`:''}${filtered.length?`<div class="op-table-wrap"><table class="op-table"><thead><tr><th>公司 / 岗位</th><th>阶段</th><th>下一步</th><th>提醒日期</th></tr></thead><tbody>${rows}</tbody></table></div>`:empty}</section>`;
  }
  const o=selected(ctx);
  if (!o)return '<section class="op-page"><button class="text-btn" id="op-back">← 返回机会管线</button><div class="op-empty"><h2>机会不存在</h2><p>链接无法对应到已有机会，未切换到其他记录。</p></div></section>';
@@ -64,6 +88,7 @@ export function bindOpportunity(ctx:Context,actions:Actions) {
  });
  document.querySelector('#op-back')?.addEventListener('click',()=>actions.go(''));
  document.querySelector('#op-create')?.addEventListener('click',()=>form());
+ document.querySelector('#op-create-empty')?.addEventListener('click',()=>form());
  document.querySelector('#op-edit')?.addEventListener('click',()=>form(selected(ctx)));
  document.querySelector('#op-end')?.addEventListener('click',()=>end(selected(ctx)));
  document.querySelectorAll<HTMLElement>('[data-end-opportunity]').forEach(el=>el.onclick=()=>end(selected(ctx),el.dataset.endOpportunity));
