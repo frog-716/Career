@@ -1,6 +1,6 @@
 # 当前状态
 
-## 2026-09-28：UX-2 用户截图验收通过，最终 Git / Runtime 收口中
+## 2026-09-28：UX-2 COMPLETE / PASS
 
 - 保留现有页面结构，只做用户要求的减法。Opportunity 列表去掉每行重复的阶段日期；提醒日期使用“今天 / 明天 / 26年9月30日”等表达，今天和逾期才用克制强调；阶段以 6px 弱色点配可读文字，仍低于公司/岗位与“下一步”；空态“添加第一个机会”仍是已绑定打开新建表单的按钮，并以链接样式明确可点击。
 - Wiki 首页把正文移到对象名、类别/日期 metadata 前；日期改成“今天 / 昨天 / 9月28日”，来源标题去除重复日期，长期认知不重复显示对象名。Wiki 历史保留“当前 / 之前的变化 / 首次记录”，当前正文维持焦点；时间使用两位年份与分钟，来源变成低权重标题链接。
@@ -8,7 +8,11 @@
 - 截图服务使用 LOCAL_ONLY、禁止 TestProvider 调用并拦截外网 socket。本轮截图服务已关闭，正式数据库与 Runtime 未触碰，没有调用 DeepSeek/Tavily，也没有 commit/push。
 - UX-2 聚焦后端回归 124 项、全量 pytest 509 项、全部 10 组前端测试均通过；typecheck、`/tmp/career-ux2-closeout/build` 临时构建、pip check、npm ls、secret scan、Markdown links 与 `git diff --check` 通过。临时构建未覆盖正式 `frontend/dist`。
 - Fresh-Eyes 自查：机会列表可直接先读“北辰创新 · 解决方案顾问 / 确认下一轮安排”，公司岗位与下一步自然突出，阶段色点可扫读；Wiki 首页回答是“红色原型改为下周一交付”；历史页能直接区分当前改为红色原型下周一交付，以及之前的蓝色原型周五交付和内部评审版本。虚构数据没有今天或逾期日期，因此截图不显示紧急色。空态按钮已在隔离页面实际点击并打开表单，随即关闭，没有保存或新增数据。
-- UX-1 保持 COMPLETE / PASS；D4 SYNTHETIC READY / REAL SMOKE PAUSED / NOT YET PASSED。UX-2 视觉和自动验收 PASS；当前等待精确 Git 收口与正式 Runtime Update，完成后才标记 COMPLETE / PASS；UX-3 未开始。正式 Runtime 当前仍为 PID `55437`，Provider audit 计数在本轮自动检查前后不变。
+- Git 主提交 `f157cdbfaf9c6e6a2a1a45e3923110deb7e58538`（`Refine Career workspace visual hierarchy`）已 push；HEAD = main = origin/main。精确提交仅含 14 个 UX-2 文件。
+- 正式 Runtime 已从 PID `55437` 受控切换为 `43209`，使用 `AI_ENABLED`，仅监听 `127.0.0.1:8765`。工作树仍 dirty；运行时代码清单为 103 个文件，manifest SHA-256 `b5fad1ce913b90a17571d3126cd0cc9a151105f80a60d7ff40a3fff3cd062e1d`。它包含已提交 UX-2 与用户保留的 Resume 源码改动，不等于 Git HEAD。
+- 正式 `frontend/dist` 共 11 个文件，SHA-256 manifest `19b23d2018bc53d1aab0ee3201f2e0b8d45ae107ff149ba0235f9943430eea40`；与临时构建逐文件一致，服务实际返回的首页及引用资源也与 dist 一致。
+- Runtime health=ok、SQLite quick_check=ok、schema v6；数据实例、业务行数和 ID manifest 与重启前一致。DeepSeek/Tavily outbound 增量均为 0。Opportunity / Wiki 用户验收版本已正式加载。
+- UX-1、UX-2 均 COMPLETE / PASS；UX-3 READY。D4 仍为 SYNTHETIC READY / REAL SMOKE PAUSED / NOT YET PASSED；本轮没有恢复 D4 smoke。
 
 
 ## 2026-09-28：Checkpoint 导航断言授权修正，进入最终 Git / Runtime 收口
