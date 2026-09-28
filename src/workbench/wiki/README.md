@@ -64,3 +64,9 @@ npm --prefix frontend exec vite build -- --outDir /tmp/career-frontend-build --e
 Preview 有效期仍为 10 分钟。到期固定错误码 `prepared_request_expired`，发送前拒绝；旧审计中未 dispatch 且精确匹配过期原因的 `Missing` 也只读投影为准备中，不改审计。Preview 到期或点击时发现到期，只显示手动重新预览入口，不自动 prepare/execute；定时器不能覆盖已进入处理中的页面。
 
 断连时序测试：`tests/test_ai_activity.py::test_real_http_disconnect_before_provider_completion_restores_original_proposal` 使用真实 Uvicorn/HTTP 连接，在 TestProvider 返回前关闭客户端 socket，再放行 Provider；新连接恢复原 Proposal、审批并再次读取进度，确认一次 dispatch、一次 preparation、一个 Proposal。不是只测试“已完成后刷新”。
+
+## UX-2 Wiki 阅读
+
+前端 `wiki-semantic-ui.ts` 只读投影已有知识与 revision：最近更新、按对象浏览、详情、来源、历史；`main.ts` 通过既有 cursor 读齐列表，hash query 保存浏览位置。状态筛选和编辑动作降为次级；旧资料数据不删。`style.css` 的 `.reading-*` 为 opt-in 阅读骨架，未全局改写其他工作区。无新 API/schema/Provider 合同。
+
+前端回归：`npm --prefix frontend run test:wiki-reading`（路由恢复、分页、跨范围隔离、历史唯一当前、来源版本与只读投影）及现有 `test:wiki-semantic`、`test:wiki-d3`、`test:ai-activity`。验收使用完全隔离虚构资料；正常 build 输出 `/tmp`，仅正式 Runtime Update 覆盖 dist。

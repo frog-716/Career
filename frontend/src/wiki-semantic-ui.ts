@@ -1,9 +1,11 @@
 type Obj = Record<string, any>;
 
 export const semanticWikiUI = {
+  browse: "recent",
   scope: "all",
   status: "current",
   selected: "",
+  historyId: "",
   legacyView: false,
 };
 
@@ -178,28 +180,6 @@ function labelFor(d: Obj, scopeType: string, scopeId: string) {
   return "未知范围";
 }
 
-function scopeOptions(d: Obj) {
-  const values: Array<[string, string]> = [
-    ["personal", labelFor(d, "personal", "")],
-    ["cognition", labelFor(d, "cognition", "")],
-    ...(d.workDomain.projects || []).map((x: Obj) => [
-      scopeKey("project", x.id), labelFor(d, "project", x.id),
-    ] as [string, string]),
-    ...(d.workDomain.employments || []).map((x: Obj) => [
-      scopeKey("employment", x.id), labelFor(d, "employment", x.id),
-    ] as [string, string]),
-    ...(d.workDomain.persons || []).filter((x: Obj) => x.identity_status === "confirmed").map((x: Obj) => [
-      scopeKey("person", x.id), labelFor(d, "person", x.id),
-    ] as [string, string]),
-    ...(d.state.opportunities || []).map((x: Obj) => [
-      scopeKey("opportunity", x.id), labelFor(d, "opportunity", x.id),
-    ] as [string, string]),
-  ];
-  return values.map(([value, label]) =>
-    `<option value="${esc(value)}" ${value === semanticWikiUI.scope ? "selected" : ""}>${esc(label)}</option>`,
-  ).join("");
-}
-
 function rawLink(source: Obj, label = source.title) {
   const ref = source.source_ref || source;
   if (ref.kind === "wiki_knowledge") {
@@ -247,20 +227,10 @@ export function cognitionOutputErrorHTML() {
 }
 
 export function cognitionWikiHTML(data: Obj, status = "current", selectedId = "") {
-  const all = [...(data.knowledge || []), ...(data.retired || [])];
-  const visible = status === "all" ? all : all.filter((item: Obj) => item.status === status);
-  const selected = visible.find((item: Obj) => item.id === selectedId) || visible[0];
-  const proposals = (data.proposals || []).filter((item: Obj) => item.status === "pending");
-  const proposalRows = proposals.map((item: Obj, index: number) =>
-    `<div class="setting-row"><span>有一组长期认知建议待处理<small>${(item.patches || []).filter((patch: Obj) => patch.status === "pending").length} 条尚未处理</small></span><button class="secondary" data-d4-resume-proposal="${esc(item.id)}">继续逐条处理</button></div>`,
-  ).join("");
-  const list = visible.map((item: Obj) =>
-    `<button class="entity-row ${selected?.id === item.id ? "selected" : ""}" data-d1-select-wiki="${esc(item.id)}"><b>${esc(knowledgeTypeLabel(item.knowledge_type))}</b><small>${esc(item.content)}</small><span>${item.status === "retired" ? "不再有效" : "当前"}</span></button>`,
-  ).join("");
-  const support = (selected?.supporting_experiences || []).map((experience: Obj) =>
-    `<li><button class="text-btn" data-d4-open-experience-type="${esc(experience.type)}" data-d4-open-experience-id="${esc(experience.id)}">${esc(experienceName(experience.type))} · ${esc(experience.name)}</button></li>`,
-  ).join("");
-  return `<section class="materials d1-wiki d4-cognition"><div class="pane-heading"><div><h2>长期认知</h2><p class="muted">从不同项目和任职中逐渐形成、以后还可能有用的工作方式或能力线索。它不是人格标签或分数。</p></div><div class="actions"><button class="text-btn" data-d4-wiki-all>返回全部 Wiki</button><button class="primary" data-d4-start>整理长期认知</button></div></div>${proposalRows ? `<section class="work-domain-card"><h3>待处理建议</h3>${proposalRows}</section>` : ""}<div class="pane-heading"><div></div><select aria-label="长期认知状态" id="d1-wiki-status"><option value="current" ${status === "current" ? "selected" : ""}>当前</option><option value="retired" ${status === "retired" ? "selected" : ""}>不再有效</option><option value="all" ${status === "all" ? "selected" : ""}>全部</option></select></div><div class="split"><section class="entity-rail"><h3>长期认知</h3><div class="scroll rail-list">${list || '<div class="empty">目前还没有长期认知。选几段有 Wiki 信息的经历，整理后再逐条确认。</div>'}</div></section><section class="detail-pane scroll">${selected ? `<div class="pane-heading"><div><small>${esc(knowledgeTypeLabel(selected.knowledge_type))}</small><p class="muted">${selected.status === "retired" ? "不再有效" : "当前"}</p></div><div class="actions"><button class="secondary" data-d1-edit-wiki="${esc(selected.id)}">编辑</button>${selected.status === "current" ? `<button class="quiet" data-d1-retire-wiki="${esc(selected.id)}">标记不再有效</button>` : `<button class="quiet" data-d1-revive-wiki="${esc(selected.id)}">恢复为当前</button>`}<button class="text-btn" data-d1-wiki-history="${esc(selected.id)}">历史</button></div></div><p class="preserve">${esc(selected.content)}</p><h4>支持这个判断的经历</h4><ul class="d4-supporting-experiences">${support || '<li class="muted">这条认知还没有可识别的项目或任职 Wiki 来源。</li>'}</ul>${support ? `<button class="text-btn" data-d4-open-source-tree="${esc(selected.id)}">查看支撑知识</button>` : ""}` : '<div class="empty">选择一条长期认知查看内容和来源。</div>'}</section></div></section>`;
+  const snapshot = { ...semanticWikiUI };
+  Object.assign(semanticWikiUI, { browse: "cognition", scope: "cognition", status, selected: selectedId });
+  try { return wikiSemanticView({ state: {}, workDomain: {}, wikiSemantic: { cognition: data } }); }
+  finally { Object.assign(semanticWikiUI, snapshot); }
 }
 
 export function wikiCompilerAction(source: Obj, targetScope?: Obj) {
@@ -314,6 +284,37 @@ function rawTime(value: string) {
     : new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
+function shanghaiDateParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Shanghai", year: "numeric", month: "numeric", day: "numeric" }).formatToParts(date);
+  const pick = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
+  return { year: pick("year"), month: pick("month"), day: pick("day") };
+}
+export function wikiReadingDay(value: string, now = new Date()) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value || "");
+  const target = shanghaiDateParts(date), today = shanghaiDateParts(now);
+  const ordinal = (x: { year: number; month: number; day: number }) => Date.UTC(x.year, x.month - 1, x.day) / 86400000;
+  const difference = ordinal(today) - ordinal(target);
+  if (difference === 0) return "今天";
+  if (difference === 1) return "昨天";
+  return `${target.month}月${target.day}日`;
+}
+export function wikiHistoryTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value || "");
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Shanghai", year: "2-digit", month: "numeric", day: "numeric",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(date);
+  const pick = (type: string) => parts.find((part) => part.type === type)?.value || "";
+  return `${pick("year")}年${Number(pick("month"))}月${Number(pick("day"))}日 ${pick("hour")}:${pick("minute")}`;
+}
+function sourceDisplayTitle(value: unknown) {
+  const title = String(value || "").trim();
+  const shorter = title.replace(/^(?:(?:20\d{2}年)?\d{1,2}月\d{1,2}日|\d{4}[-/]\d{1,2}[-/]\d{1,2})(?:\s+\d{1,2}:\d{2})?(?:\s*[·•｜|]\s*|\s*)/, "").trim();
+  return shorter || title;
+}
+
 export function scopeRawHTML(scopeType: string, scopeId: string, rawItems: Obj[]) {
   const scope = { scope_type: scopeType, scope_id: scopeId };
   const rows = (rawItems || []).map((item: Obj) => `<div class="setting-row d3-raw-row"><span><b>${esc(item.title || "未命名资料")}</b><small>${esc(rawTime(item.created_at))} · ${esc(sourceLabel(item))}</small>${Number(item.pending_patch_count || 0) > 0 ? `<small>${esc(item.pending_patch_count)} 条建议待处理</small>` : ""}</span><div class="actions">${rawLink(item, "查看")}${wikiCompilerAction(item, scope)}</div></div>`).join("");
@@ -331,18 +332,155 @@ export function wikiCurrentUnderstandingHTML(
   return `<section class="work-domain-card d3-current-understanding" data-d3-wiki-scope-type="${esc(scopeType)}" data-d3-wiki-scope-id="${esc(scopeId)}"><div class="pane-heading"><div><h2>当前理解</h2><p class="muted">这是这个对象当前 Wiki 的内容。</p></div><div class="actions"><button class="text-btn" data-d3-open-wiki-scope-type="${esc(scopeType)}" data-d3-open-wiki-scope-id="${esc(scopeId)}">在 Wiki 查看历史</button>${options.showActions ? `<button class="primary" data-d1-add-wiki data-d1-scope-type="${esc(scopeType)}" data-d1-scope-id="${esc(scopeId)}">写入 Wiki</button>` : ""}</div></div>${cards || '<p class="muted">目前还没有值得长期保留的知识。</p>'}</section>`;
 }
 
+/** UX-2: read-only projections over the existing knowledge and revision records. */
+export function wikiReadingQuery() {
+  const params = new URLSearchParams({ browse: semanticWikiUI.browse, scope: semanticWikiUI.scope,
+    status: semanticWikiUI.status, knowledge: semanticWikiUI.selected });
+  if (semanticWikiUI.historyId) params.set("history", semanticWikiUI.historyId);
+  return params.toString();
+}
+export function restoreWikiReadingRoute(params: URLSearchParams) {
+  const browse = params.get("browse") || "recent";
+  semanticWikiUI.browse = ["recent", "project", "employment", "person", "cognition"].includes(browse) ? browse : "recent";
+  semanticWikiUI.scope = params.get("scope") || (browse === "cognition" ? "cognition" : "all");
+  semanticWikiUI.status = ["current", "retired", "all"].includes(params.get("status") || "") ? params.get("status")! : "current";
+  semanticWikiUI.selected = params.get("knowledge") || "";
+  semanticWikiUI.historyId = params.get("history") || "";
+  semanticWikiUI.legacyView = false;
+}
+export async function loadWikiReadingPages(api: (path: string) => Promise<Obj>, query: URLSearchParams) {
+  const params = new URLSearchParams(query);
+  const historyId = params.get("history") || "";
+  params.delete("history");
+  const items: Obj[] = [], source_catalog: Obj[] = [];
+  const seen = new Set<string>();
+  while (true) {
+    const result = await api("/wiki?" + params.toString());
+    items.push(...(result.items || result));
+    source_catalog.push(...(result.source_catalog || []));
+    if (!result.next_cursor) break;
+    if (seen.has(result.next_cursor)) throw new Error("无法载入下一页，请稍后重新打开 Wiki。");
+    seen.add(result.next_cursor);
+    params.set("cursor", result.next_cursor);
+  }
+  let history_revisions: Obj[] = [], history_catalog: Obj[] = [];
+  if (historyId) {
+    const history = await api(`/wiki/${encodeURIComponent(historyId)}/history`);
+    history_revisions = history.revisions || [];
+    const latest = history_revisions[history_revisions.length - 1];
+    if (latest && latest.scope_type !== "cognition") {
+      const sources = await api(`/raw?scope_type=${encodeURIComponent(latest.scope_type)}&scope_id=${encodeURIComponent(latest.scope_id)}`);
+      history_catalog = sources.items || [];
+    }
+  }
+  return { items, source_catalog, next_cursor: "", history_revisions, history_catalog };
+}
+
+const readingTabs = [["recent", "最近更新"], ["project", "项目"], ["employment", "任职"], ["person", "人物"], ["cognition", "长期认知"]];
+function readingObjectName(d: Obj, item: Obj) {
+  return labelFor(d, item.scope_type, item.scope_id).replace(/^(项目|任职|人物|机会) · /, "");
+}
+function readingObjectKind(item: Obj) {
+  return ({ project: "项目", employment: "任职", person: "人物", opportunity: "机会", cognition: "长期认知", personal: "个人职业资料" } as Record<string, string>)[item.scope_type] || "职业资料";
+}
+export function recentWikiKnowledge(items: Obj[]) {
+  return [...items].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")) || String(a.id).localeCompare(String(b.id)));
+}
+function readingSources(item: Obj, catalog: Obj[]) {
+  const refs = item.source_refs || [];
+  const rows = refs.map((ref: Obj) => {
+    const source = catalog.find((x: Obj) => sourceRefKey(x) === sourceRefKey(ref));
+    const title = source?.title || (ref.kind === "wiki_knowledge" ? "支撑这条判断的知识" : "查看来源");
+    return `<li><span class="reading-source-prefix">来源 · </span>${rawLink({ ...ref, title }, title)}${source?.version_changed ? '<span class="reading-meta">来源已更新</span>' : ""}</li>`;
+  }).join("");
+  if (!rows) return '<p class="reading-source-line reading-meta">由你记录，未关联资料</p>';
+  return refs.length > 1
+    ? `<details class="reading-section reading-sources"><summary>来源 · ${refs.length}</summary><ul>${rows}</ul></details>`
+    : `<section class="reading-section reading-sources"><ul>${rows}</ul></section>`;
+}
+function readingActions(item: Obj) {
+  return `<details class="reading-more"><summary>更多操作</summary><div class="reading-menu"><button data-d1-edit-wiki="${esc(item.id)}">编辑</button>${item.status === "current" ? `<button data-d1-retire-wiki="${esc(item.id)}">不再有效</button>` : `<button data-d1-revive-wiki="${esc(item.id)}">恢复为当前</button>`}</div></details>`;
+}
+function knowledgeReadingHTML(d: Obj, item: Obj, catalog: Obj[]) {
+  const tags = (item.tags || []).map((t: string) => esc(t.startsWith("#") ? t : "#" + t)).join("　");
+  const support = (item.supporting_experiences || []).map((x: Obj) => `<li><button class="text-btn" data-d4-open-experience-type="${esc(x.type)}" data-d4-open-experience-id="${esc(x.id)}">${esc(x.name)}</button></li>`).join("");
+  const sources = item.scope_type === "cognition" && (item.source_refs || []).some((r: Obj) => r.kind === "wiki_knowledge")
+    ? `<section class="reading-section"><h4>支持这个判断的经历</h4>${support ? `<ul>${support}</ul>` : ""}<button class="reading-source-link" data-d4-open-source-tree="${esc(item.id)}">查看支撑知识 →</button></section>`
+    : readingSources(item, catalog);
+  const owner = labelFor(d, item.scope_type, item.scope_id);
+  return `<article class="reading-detail"><p class="reading-owner">${esc(owner)}</p><div class="reading-body preserve reading-detail-content">${esc(item.content)}</div>${sources}<div class="reading-kind">${esc(knowledgeTypeLabel(item.knowledge_type))}${item.status === "retired" ? '<span class="reading-retired">不再有效</span>' : ""}</div>${tags ? `<p class="reading-meta reading-tags">${tags}</p>` : ""}<footer class="reading-footer">${readingActions(item)}<button class="reading-history-link" data-d1-wiki-history="${esc(item.id)}">历史</button></footer></article>`;
+}
+function readingRows(d: Obj, items: Obj[], showOwner = true) {
+  const catalog = (d.wikiSemantic?.raw || []).concat(d.wikiSemantic?.sourceCatalog || []);
+  return `<div class="reading-list">${items.map(item => {
+    const refs = item.source_refs || [];
+    const source = refs.length === 1 ? catalog.find((x: Obj) => sourceRefKey(x) === sourceRefKey(refs[0]))?.title : "";
+    const meta = `${esc(readingObjectKind(item))} · ${esc(wikiReadingDay(item.updated_at || item.created_at || ""))}`;
+    const owner = showOwner && item.scope_type !== "cognition" ? `<strong>${esc(readingObjectName(d, item))}</strong>` : "";
+    return `<button class="reading-row" data-d1-select-wiki="${esc(item.id)}"><span class="reading-excerpt">${esc(item.content)}</span>${owner}<span class="reading-row-meta">${meta}</span>${source ? `<span class="reading-row-source">来源 · ${esc(sourceDisplayTitle(source))}</span>` : refs.length > 1 ? `<span class="reading-row-source">${refs.length} 条来源</span>` : ""}</button>`;
+  }).join("")}</div>`;
+}
+function readingFilter() {
+  return `<details class="reading-filter"><summary>筛选</summary><label>显示<select aria-label="知识状态" id="d1-wiki-status"><option value="current" ${semanticWikiUI.status === "current" ? "selected" : ""}>有效信息</option><option value="retired" ${semanticWikiUI.status === "retired" ? "selected" : ""}>不再有效</option><option value="all" ${semanticWikiUI.status === "all" ? "selected" : ""}>全部</option></select></label></details>`;
+}
+export function wikiHistoryHTML(revisions: Obj[], catalog: Obj[]) {
+  const ordered = [...revisions].sort((a, b) => Number(b.revision) - Number(a.revision));
+  if (!ordered.length) return '<div class="reading-surface reading-history"><p class="reading-empty">暂无历史。</p></div>';
+  const sourceLine = (item: Obj) => {
+    const refs = item.source_refs || [];
+    const links = refs.map((ref: Obj) => {
+      const source = catalog.find((x: Obj) => sourceRefKey(x) === sourceRefKey(ref));
+      const title = sourceDisplayTitle(source?.title || (ref.kind === "wiki_knowledge" ? "支撑这条判断的知识" : "原始资料"));
+      return rawLink({ ...ref, title }, `${title} →`);
+    }).join("、");
+    if (!refs.length) return "";
+    return `<p class="reading-history-source">${links}</p>`;
+  };
+  const current = ordered[0];
+  const currentLabel = wikiHistoryStatusLabel(current, revisions);
+  const currentHTML = `<section class="reading-history-current"><header><strong>${esc(currentLabel)}</strong><time class="reading-meta">${esc(wikiHistoryTime(current.updated_at || current.created_at || ""))}</time></header><p class="reading-body preserve">${esc(current.content)}</p>${sourceLine(current)}</section>`;
+  const previous = ordered.slice(1);
+  const previousHTML = previous.length
+    ? `<section class="reading-history-previous"><h2>之前的变化</h2>${previous.map(item => `<article class="reading-history-item"><time class="reading-meta">${esc(wikiHistoryTime(item.updated_at || item.created_at || ""))}${Number(item.revision) === 1 ? " · 首次记录" : ""}</time><p class="reading-body preserve">${esc(item.content)}</p>${sourceLine(item)}</article>`).join("")}</section>`
+    : "";
+  return `<div class="reading-surface reading-history">${currentHTML}${previousHTML}</div>`;
+}
+
 export function wikiSemanticView(d: Obj) {
   const data = d.wikiSemantic || { items: [], raw: [] };
-  if (semanticWikiUI.scope === "cognition") {
-    return cognitionWikiHTML(data.cognition || { knowledge: [], retired: [], proposals: [] }, semanticWikiUI.status, semanticWikiUI.selected);
+  const cognition = semanticWikiUI.scope === "cognition";
+  const scoped = !["all", "cognition"].includes(semanticWikiUI.scope);
+  const all = cognition && data.cognition ? [...(data.cognition.knowledge || []), ...(data.cognition.retired || [])] : data.items || [];
+  const items = recentWikiKnowledge(all.filter((item: Obj) =>
+    (item.scope_type !== "opportunity" || semanticWikiUI.scope === `opportunity:${item.scope_id}`)
+    && (semanticWikiUI.status === "all" || item.status === semanticWikiUI.status)
+    && (!scoped || scopeKey(item.scope_type, item.scope_id) === semanticWikiUI.scope),
+  ));
+  const selected = items.find((x: Obj) => x.id === semanticWikiUI.selected);
+  const catalog = [...(data.raw || []), ...(data.sourceCatalog || [])];
+  const activeTab = cognition ? "cognition" : scoped && ["project", "employment", "person"].includes(semanticWikiUI.scope.split(":")[0]) ? semanticWikiUI.scope.split(":")[0] : semanticWikiUI.browse;
+  const tabs = semanticWikiUI.historyId ? "" : `<nav class="reading-tabs" aria-label="Wiki 浏览">${readingTabs.map(([key, label]) => `<button data-wiki-browse="${key}" aria-current="${key === activeTab ? "page" : "false"}">${label}</button>`).join("")}</nav>`;
+  const more = `<details class="reading-more"><summary>更多</summary><div class="reading-menu"><button data-wiki-personal>个人职业资料</button><button data-open-legacy-wiki>历史 / 旧资料</button>${scoped ? '<button data-d1-add-wiki>手工记一条</button>' : ""}</div></details>`;
+  const title = scoped ? readingObjectName(d, { scope_type: semanticWikiUI.scope.split(":")[0], scope_id: semanticWikiUI.scope.slice(semanticWikiUI.scope.indexOf(":") + 1) }) : cognition ? "长期认知" : (readingTabs.find(([key]) => key === activeTab)?.[1] || "最近更新");
+  let content: string;
+  if (semanticWikiUI.historyId) {
+    content = `<button class="reading-back" data-wiki-history-back>← 返回条目</button>${wikiHistoryHTML(data.history_revisions || [], [...(data.raw || []), ...(data.history_catalog || [])])}`;
+  } else if (selected) {
+    content = `<button class="reading-back" data-wiki-back>← 返回${esc(title)}</button>${knowledgeReadingHTML(d, selected, catalog)}`;
+  } else {
+    const pending = cognition ? (data.cognition?.proposals || []).filter((x: Obj) => x.status === "pending") : [];
+    const notices = pending.map((x: Obj) => `<div class="reading-pending"><span>有长期认知建议待处理</span><button class="text-btn" data-d4-resume-proposal="${esc(x.id)}">继续</button></div>`).join("");
+    const heading = `<header class="reading-section-heading"><h2>${esc(title)}</h2>${cognition ? '<button class="secondary" data-d4-start>选择经历整理</button>' : readingFilter()}</header>`;
+    if (!scoped && ["project", "employment", "person"].includes(activeTab)) {
+      const seen = new Set<string>();
+      const representatives = items.filter((item: Obj) => { if (item.scope_type !== activeTab || seen.has(item.scope_id)) return false; seen.add(item.scope_id); return true; });
+      content = heading + (representatives.length ? `<div class="reading-list">${representatives.map((item: Obj) => `<button class="reading-row" data-wiki-object="${esc(scopeKey(item.scope_type, item.scope_id))}"><strong>${esc(readingObjectName(d, item))}</strong><span class="reading-excerpt">${esc(item.content)}</span></button>`).join("")}</div>` : '<p class="reading-empty">还没有整理过的信息。</p>');
+    } else {
+      content = heading + notices + (items.length ? readingRows(d, items, !scoped && !cognition) : `<p class="reading-empty">${cognition ? "当前没有长期认知。" : "还没有整理过的信息。"}</p>`);
+      if (cognition) content += readingFilter();
+    }
   }
-  const items = data.items || [];
-  const selected = items.find((x: Obj) => x.id === semanticWikiUI.selected) || items[0];
-  if (selected && !items.some((x: Obj) => x.id === semanticWikiUI.selected)) semanticWikiUI.selected = selected.id;
-  const chosen = semanticWikiUI.scope !== "all";
-  const rawItems = data.raw || [];
-  const sourceCatalog = [...rawItems, ...(data.sourceCatalog || [])];
-  return `<section class="materials d1-wiki"><div class="pane-heading"><div><h2>Wiki</h2><p class="muted">这里放当前值得记住的已确认事实、观察和待验证判断。</p></div><div class="actions"><button class="text-btn" data-open-legacy-wiki>原求职资料</button></div></div><div class="pane-heading"><div class="actions"><select aria-label="Wiki 范围" id="d1-wiki-scope"><option value="all" ${semanticWikiUI.scope === "all" ? "selected" : ""}>全部知识</option>${scopeOptions(d)}</select><select aria-label="知识状态" id="d1-wiki-status"><option value="current" ${semanticWikiUI.status === "current" ? "selected" : ""}>当前</option><option value="retired" ${semanticWikiUI.status === "retired" ? "selected" : ""}>不再有效</option><option value="all" ${semanticWikiUI.status === "all" ? "selected" : ""}>全部</option></select></div><div class="actions"><button class="secondary" data-d1-add-raw ${chosen ? "" : "disabled"}>添加原始资料</button><button class="primary" data-d1-add-wiki ${chosen ? "" : "disabled"}>写入 Wiki</button></div></div><div class="split"><section class="entity-rail"><h3>知识</h3><div class="scroll rail-list">${items.map((item: Obj) => `<button class="entity-row ${selected?.id === item.id ? "selected" : ""}" data-d1-select-wiki="${esc(item.id)}"><b>${esc(knowledgeTypeLabel(item.knowledge_type))}</b><small>${esc(item.content)}</small><span>${esc(labelFor(d, item.scope_type, item.scope_id))} · ${item.status === "retired" ? "不再有效" : "当前"}</span></button>`).join("") || '<div class="empty">这个范围还没有 Wiki 知识。</div>'}</div></section><section class="detail-pane scroll">${selected ? `<div class="pane-heading"><div><small>${esc(labelFor(d, selected.scope_type, selected.scope_id))}</small><h3>${esc(knowledgeTypeLabel(selected.knowledge_type))}</h3><p class="muted">${selected.status === "retired" ? "不再有效" : "当前"}</p></div><div class="actions"><button class="secondary" data-d1-edit-wiki="${esc(selected.id)}">编辑</button>${selected.status === "current" ? `<button class="quiet" data-d1-retire-wiki="${esc(selected.id)}">标记不再有效</button>` : `<button class="quiet" data-d1-revive-wiki="${esc(selected.id)}">恢复为当前</button>`}<button class="text-btn" data-d1-wiki-history="${esc(selected.id)}">历史</button></div></div><p class="preserve">${esc(selected.content)}</p><div class="actions project-tags">${(selected.tags || []).map((tag: string) => `<span class="pill">${esc(tag.startsWith("#") ? tag : "#" + tag)}</span>`).join("") || '<span class="muted">无 Tags</span>'}</div><section><h4>来源</h4>${selected.source_refs?.length ? selected.source_refs.map((ref: Obj) => { const raw = sourceCatalog.find((x: Obj) => sourceRefKey(x) === sourceRefKey(ref)); return rawLink(raw || { ...ref, title: sourceNames[ref.kind] || "查看来源" }, raw ? `${raw.title} · ${sourceLabel(raw)}${raw.version_changed ? "（来源版本已变化）" : ""}` : `${sourceNames[ref.kind] || "来源"}（来源暂不可用）`); }).join("") : '<p class="muted">这是用户手工写入的知识，没有伪造原文来源。</p>'}</section>` : '<div class="empty">先选一个范围，再写入一条知识。</div>'}</section></div>${chosen ? `<section class="work-domain-card"><div class="pane-heading"><h3>这个范围的原始资料</h3><small>${rawItems.length} 条</small></div>${rawItems.map((item: Obj) => `<div class="setting-row"><span>${esc(item.title)} <small>${esc(sourceLabel(item))}</small>${Number(item.pending_patch_count || 0) > 0 ? `<small>${esc(item.pending_patch_count)} 条建议待处理</small>` : ""}</span><div class="actions">${rawLink(item, "打开原文 →")}${wikiCompilerAction(item)}</div></div>`).join("") || '<p class="muted">还没有原始资料。添加后可以在写 Wiki 时选择它。</p>'}</section>` : ""}</section>`;
+  return `<section class="reading-page d1-wiki career-visual"><div class="reading-surface"><header class="reading-page-heading"><div><h1>Wiki</h1>${semanticWikiUI.historyId ? "" : "<p>Career 最近记住了什么重要信息</p>"}</div></header>${tabs}${semanticWikiUI.status === "retired" && !selected && !semanticWikiUI.historyId ? '<p class="reading-meta">正在查看不再有效的信息</p>' : ""}${content}${semanticWikiUI.historyId ? "" : `<footer class="reading-home-footer">${more}</footer>`}</div></section>`;
 }
 
 export function projectWikiHTML(project: Obj, data: Obj = {}) {
