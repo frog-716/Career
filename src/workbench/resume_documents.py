@@ -17,6 +17,7 @@ from . import resume_artifacts as files
 from .model_gateway import ModelGateway
 from .resume_pdf import render_pdf
 from . import outbound_policy as outbound
+from .resume_ai_context import resume_document_context, research_context
 
 
 def strict(body, fields):
@@ -133,12 +134,12 @@ def _resume_ai_packet(store, c, d, instruction):
         {"id": opportunity["id"], "revision": opportunity["revision"], "purpose": "opportunity", "selected_content": {
             "company": opportunity["company"], "title": opportunity["title"], "jd": opportunity.get("jd", ""),
         }},
-        {"id": d["id"], "revision": d["revision"], "purpose": "current_resume_document", "selected_content": d["document"]},
+        {"id": d["id"], "revision": d["revision"], "purpose": "current_resume_document", "selected_content": resume_document_context(d["document"])},
     ]
     company, company_exists = rs.lookup(store, c, "company_research", opportunity["company_id"])
     research, research_exists = rs.lookup(store, c, "opportunity_research", opportunity["id"])
-    if company["items"]: sources.append({"id": company["id"], "revision": company["revision"], "purpose": "company_research", "selected_content": company["items"]})
-    if research["items"]: sources.append({"id": research["id"], "revision": research["revision"], "purpose": "opportunity_research", "selected_content": research["items"]})
+    if company["items"]: sources.append({"id": company["id"], "revision": company["revision"], "purpose": "company_research", "selected_content": research_context(company["items"])})
+    if research["items"]: sources.append({"id": research["id"], "revision": research["revision"], "purpose": "opportunity_research", "selected_content": research_context(research["items"])})
     dependencies = [
         cm.dependency("opportunity", opportunity["id"], opportunity["revision"],
                       cm.selected_opportunity(opportunity), "current_jd"),

@@ -20,7 +20,7 @@
 | UX-3 | 项目 / 任职 / 人物工作区 | COMPLETE / PASS；Phase 1 Runtime Update 已加载 |
 | Resume 入口收口 | 四一级导航，机会打开原简历与返回 | COMPLETE / PASS；Git 与受控 Runtime 已核验，不等于整个 F 完成 |
 | UX-4 | 简历保存回读、投递、沟通、面试与准备连续路径 | COMPLETE / PASS；已提交推送并完成 Runtime 核验 |
-| Resume AI Privacy Gate | 从空 DTO 构造允许字段，捕获请求做对抗验证 | UX-4 后执行；任何真实 Resume AI outbound 前必须通过 |
+| Resume AI Privacy Gate | 从空 DTO 构造允许字段，捕获请求做对抗验证 | DTO 与实际请求对抗测试通过，独立验收及收口中；尚未调用真实 Provider |
 | UX-5 | 全新虚构库独立盲审完整核心链 | Privacy Gate 后执行；通过后才可恢复 D4 真实 smoke Preview |
 | E | 分类旧数据并退役 T14、ResumeUse 与重复业务对象 | 尚未开始；目标模型优先，分类后可清理明确测试对象 |
 | F | 从机会进入简历、创建/复制与版本流程 | 尚未开始 |

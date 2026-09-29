@@ -233,3 +233,7 @@ F runtime 只接受 schema v6。v5→v6 迁移只写一条 hash-bound migration 
 ### UX-4 投递回读与后续沟通
 
 `GET /api/state?view=opportunity&job_id=...` 接受 canonical Opportunity ID 或旧 alias，只返回所属机会的冻结投递材料；当前工作稿继续由既有 `/opportunities/{id}/resume` 读取。普通沟通允许 active submitted/interview/offer，谈薪与 ended 的限制不变。验证：`.venv/bin/python -m pytest -q tests/test_ux4_opportunity_readback.py tests/test_ux4_interview_communication.py`。
+
+### Resume AI 专用隐私 DTO
+
+`resume_ai_context.py` 从空对象构造 Profile 存在状态/固定字段名及允许的分区表达和 Research 字段；`resume_documents._resume_ai_packet` 在构造时调用它，`outbound_policy` 在每次 Preview/dispatch 前严格校验，不用联系人正则过滤整稿。所有权、当前版本检查与逐条建议沿用既有合同。测试：`.venv/bin/python -m pytest -q tests/test_resume_ai_context_contract.py tests/test_resume_ai_privacy_dto.py tests/test_t08_resume_suggestions.py tests/test_outbound_policy.py`；实际捕获测试 Provider 和真实适配器的最终请求，网络被拦截。

@@ -8,7 +8,6 @@ content is persisted in the preparation/audit records.
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import json
-import re
 
 from .core import Conflict, Invalid, Missing, digest, now, uid
 
@@ -64,25 +63,8 @@ TASK_POLICIES = {
 }
 
 
-_SENSITIVE_CONTACT = re.compile(r"(?:电话|手机|邮箱|电子邮件|地址|email|phone|mobile|address)", re.I)
-
-
 def _json_bytes(value):
     return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
-
-
-def _redact_resume_contacts(value):
-    if not isinstance(value, dict):
-        return value
-    result = deepcopy(value)
-    profile = result.get("profile")
-    if isinstance(profile, dict) and isinstance(profile.get("contacts"), list):
-        profile["contacts"] = [
-            contact for contact in profile["contacts"]
-            if not isinstance(contact, dict)
-            or not _SENSITIVE_CONTACT.search(str(contact.get("content", "")))
-        ]
-    return result
 
 
 def sanitize_packet(task_type, packet):
@@ -96,7 +78,11 @@ def sanitize_packet(task_type, packet):
     policy = TASK_POLICIES.get(task_type)
     if not policy:
         raise Invalid("AI 任务策略不存在")
-    result = deepcopy(packet)
+    if task_type == "resume_optimization":
+        from .resume_ai_context import validate_packet
+        result = validate_packet(packet)
+    else:
+        result = deepcopy(packet)
     sources = result.get("sources")
     if not isinstance(sources, list) or len(sources) > SOURCE_LIMIT:
         raise Invalid("资料来源超过预算，请缩小材料范围")
@@ -114,8 +100,6 @@ def sanitize_packet(task_type, packet):
             raise Invalid("forbidden_context: 当前任务未声明该资料来源")
         purposes.add(purpose)
         clean = {key: value for key, value in source.items() if key != "content"}
-        if task_type == "resume_optimization" and purpose == "current_resume_document":
-            clean["selected_content"] = _redact_resume_contacts(clean.get("selected_content"))
         clean_sources.append(clean)
     missing = policy["required"] - purposes
     if missing:

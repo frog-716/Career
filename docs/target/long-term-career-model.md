@@ -174,6 +174,11 @@ Project 页面先显示当前理解，再显示轻量资料列表；Employment �
 
 Resume AI 使用专门的最小 DTO，不直接发送数据库 ResumeDocument。默认 DTO 只告知 Profile 区是否存在，以及其中有哪些字段存在；不发送姓名、电话、微信、邮箱等真实字段值，ResumeDocument中Profile区的实际内容也必须从默认请求中剔除。其他任务未来若确需处理 Profile 内容，必须另定该任务的最小发送范围，不能扩大这个默认 DTO。
 
+默认 Resume DTO 从空对象逐层构造。简历部分只含 schemaVersion、Profile 存在状态/固定枚举字段名、各已知分区及其允许的表达字段；不复制原 Profile、formatting、meta、provenance 或未知键。Profile 字段名只来自 name、contacts、phone、email、wechat、address、github、links 的固定集合，不把任意用户键名带入请求。已知分区只保留其类型、标题、稳定 ID 与对应条目字段/要点；Research 只保留当前任务所属条目的 id、category、classification、content、evidence_status、status，不透传未知嵌套元信息。发送边界对该 DTO 再做严格校验，不能回退为先复制整份文档再用联系人正则过滤。
+
+验证须捕获实际 Provider-ready 请求，核对其与 Preview 一致，覆盖中文/英文姓名、带标签或裸联系人值、链接、未知嵌套字段、恶意字段名及其它机会。该合同排除默认 Profile 内容和未知字段，不声称能自动识别用户主动写入允许的经历正文或本轮指令中的任意个人信息。
+
+
 Resume AI 只看当前 Opportunity、JD、当前 Opportunity Research、当前稿、相关 Wiki/Project Knowledge/Cognition；不读其他 Opportunity，也不一次性塞入全部 Raw。建议只用 `rewrite`、`add`、`delete`，逐条显示并由用户审批；不提供批量接受。表达可以重写，不能编造项目、数字、职责、结果或本人贡献。
 
 Submission 表示用户确认现实中已经发送。它冻结实际发送的 Resume、PDF、Greeting 和日期。之后修改当前简历或 Profile 不得改变历史投递材料。面试 Simulation Context Pack 继续使用实际投递时冻结的 Resume；本周期先回归现有链路，不提前改成复杂 Agent。
