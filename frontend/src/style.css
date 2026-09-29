@@ -1944,3 +1944,317 @@ blockquote {
   .d1-wiki .reading-history-item > .reading-body,
   .d1-wiki .reading-history-item > .reading-history-source { grid-column: 1; grid-row: auto; }
 }
+
+/* UX-3 visual layer — Career UX Pack V4 */
+.ux3-split {
+  --ux3-bg: #f5f7f5;
+  --ux3-white: #fff;
+  --ux3-soft: #eaf3ed;
+  --ux3-neutral: #eef1ef;
+  --ux3-line: #e3e8e4;
+  --ux3-ink: #17201b;
+  --ux3-muted: #68736c;
+  --ux3-accent: #17533b;
+  border-top: 0;
+  color: var(--ux3-ink);
+  background: var(--ux3-bg);
+}
+.ux3-split .entity-rail {
+  background: var(--ux3-neutral);
+  border-right: 0;
+}
+.ux3-split .rail-heading { padding: 24px 20px 12px; }
+.ux3-split .rail-heading h2 { color: var(--ux3-muted); font-size: 13px; font-weight: 650; }
+.ux3-split .rail-list { padding: 8px 12px 24px; }
+.ux3-split .entity-row {
+  margin: 2px 0 5px;
+  padding: 13px 12px;
+  border-radius: 11px;
+  transition: background 130ms ease-out;
+}
+.ux3-split .entity-row.selected,
+.ux3-split .entity-row:hover { background: var(--ux3-white); }
+.ux3-split .entity-row b { color: var(--ux3-ink); font-size: 15px; font-weight: 650; line-height: 1.45; }
+.ux3-split .entity-row span { margin: 5px 0 7px; color: var(--ux3-muted); font-size: 13px; }
+.ux3-split .entity-row small { color: var(--ux3-muted); font-size: 13px; }
+.ux3-split .detail-pane,
+.ux3-split .detail-pane > .scroll,
+.ux3-split .detail-pane > .scroll > .scroll { background: var(--ux3-bg); }
+.ux3-workspace-surface {
+  --ux3-bg: #f5f7f5;
+  --ux3-white: #fff;
+  --ux3-soft: #eaf3ed;
+  --ux3-neutral: #eef1ef;
+  --ux3-line: #e3e8e4;
+  --ux3-ink: #17201b;
+  --ux3-muted: #68736c;
+  --ux3-accent: #17533b;
+  width: 100%;
+  min-height: 100%;
+  padding: 34px clamp(26px, 3.2vw, 52px) 56px;
+  color: var(--ux3-ink);
+  background: var(--ux3-bg);
+  animation: ux3-context-enter 140ms ease-out both;
+}
+@keyframes ux3-context-enter {
+  from { opacity: .82; }
+  to { opacity: 1; }
+}
+.ux3-object-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 0 0 13px;
+}
+.ux3-object-heading > div:first-child { min-width: 0; }
+.ux3-object-heading > div:first-child > small {
+  color: var(--ux3-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.ux3-object-heading h2 {
+  margin: 7px 0 0;
+  color: var(--ux3-ink);
+  font-size: 38px;
+  line-height: 1.12;
+  font-weight: 720;
+  letter-spacing: -.025em;
+  overflow-wrap: anywhere;
+}
+.ux3-object-heading p {
+  margin: 10px 0 0;
+  max-width: 760px;
+  color: var(--ux3-muted);
+  font-size: 16px;
+  line-height: 1.6;
+}
+.ux3-heading-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: 0 0 auto; }
+.ux3-heading-actions .secondary {
+  min-height: 38px;
+  padding: 8px 13px;
+  color: var(--ux3-ink);
+  background: var(--ux3-white);
+  border: 1px solid var(--ux3-line);
+  border-radius: 11px;
+  font-size: 14px;
+  font-weight: 550;
+}
+.ux3-object-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px 14px;
+  min-height: 24px;
+  margin: 12px 0 3px;
+  color: var(--ux3-muted);
+  font-size: 14px;
+}
+.ux3-status { color: var(--ux3-accent); font-weight: 700; }
+.ux3-tag, .ux3-status-note, .ux3-object-relation { color: var(--ux3-muted); }
+.ux3-object-relation { margin: 5px 0 2px; font-size: 14px; }
+.ux3-role-subtitle { color: var(--ux3-muted) !important; font-size: 16px !important; }
+.ux3-employment-dates { margin-top: 8px; color: var(--ux3-muted); font-size: 14px; }
+.ux3-relation-link, .ux3-project-link, .ux3-person-link, .ux3-source-link, .ux3-history-link, .ux3-back-link {
+  padding: 0;
+  color: var(--ux3-accent);
+  background: transparent;
+  text-align: left;
+}
+.ux3-relation-link, .ux3-project-link, .ux3-source-link { font-size: 14px; text-decoration: none; }
+.ux3-relation-link:hover, .ux3-project-link:hover, .ux3-source-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.ux3-person-link { font-size: 16px; font-weight: 650; }
+.ux3-back-link { display: block; margin: 0 0 26px; color: var(--ux3-muted); font-size: 14px; }
+.ux3-focus-wrap { position: relative; }
+.ux3-current-focus {
+  margin: 29px 0 34px;
+  padding: 25px 28px 27px;
+  background: var(--ux3-soft);
+  border: 0;
+  border-radius: 18px;
+}
+.ux3-current-focus .ux3-section-heading { margin: 0 0 11px; }
+.ux3-current-focus .ux3-section-heading h3 {
+  color: var(--ux3-accent);
+  font-size: 13px;
+  line-height: 1.35;
+  font-weight: 800;
+  letter-spacing: .01em;
+}
+.ux3-focus-body {
+  max-width: 1100px;
+  margin: 0;
+  color: var(--ux3-ink);
+  font-size: 28px;
+  line-height: 1.38;
+  font-weight: 720;
+  letter-spacing: -.015em;
+  overflow-wrap: anywhere;
+}
+.ux3-focus-wrap > .ux3-history-link { top: auto; right: 20px; bottom: 13px; color: var(--ux3-muted); font-size: 13px; }
+.ux3-section { margin: 34px 0; padding: 0; border: 0; }
+.ux3-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 13px; }
+.ux3-section-heading h3,
+.ux3-person-context h3 {
+  margin: 0;
+  color: var(--ux3-ink);
+  font-size: 20px;
+  line-height: 1.35;
+  font-weight: 680;
+}
+.ux3-section-heading .secondary,
+.ux3-section-heading .quiet,
+.ux3-inline-actions .quiet,
+.ux3-inline-actions .secondary,
+.ux3-heading-actions .quiet {
+  min-height: 0;
+  padding: 2px 0;
+  color: var(--ux3-accent);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.ux3-inline-actions { display: flex; align-items: center; gap: 15px; }
+.ux3-empty { margin: 0; color: var(--ux3-muted); font-size: 15px; line-height: 1.65; }
+.ux3-recent-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 62px;
+  padding: 13px 18px;
+  background: var(--ux3-white);
+}
+.ux3-recent-row + .ux3-recent-row { border-top: 1px solid var(--ux3-line); }
+.ux3-recent-row:first-of-type { border-radius: 14px 14px 0 0; }
+.ux3-recent-row:last-of-type { border-radius: 0 0 14px 14px; }
+.ux3-recent-row:first-of-type:last-of-type { border-radius: 14px; }
+.ux3-recent-row > span { min-width: 0; color: var(--ux3-ink); font-size: 16px; }
+.ux3-recent-row > span .ux3-source-link { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ux3-recent-row > small { flex: 0 0 auto; color: var(--ux3-muted); font-size: 13px; }
+.ux3-knowledge-row { position: relative; max-width: 1120px; padding: 9px 42px 12px 0; }
+.ux3-knowledge-row + .ux3-knowledge-row { margin-top: 12px; }
+.ux3-knowledge-row p { margin: 4px 0 0; color: var(--ux3-ink); font-size: 18px; line-height: 1.65; overflow-wrap: anywhere; }
+.ux3-knowledge-type { color: var(--ux3-muted); font-size: 13px; }
+.ux3-tags { display: block; margin-top: 7px; color: var(--ux3-muted); font-size: 13px; }
+.ux3-source-links { display: inline-flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 7px; }
+.ux3-source-links .ux3-source-link { color: var(--ux3-muted); font-size: 14px; }
+.ux3-history-link { position: absolute; top: 9px; right: 0; color: var(--ux3-muted); font-size: 13px; }
+.ux3-material-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 68px;
+  padding: 12px 18px;
+  background: var(--ux3-white);
+}
+.ux3-material-row + .ux3-material-row { border-top: 1px solid var(--ux3-line); }
+.ux3-material-row:first-of-type { border-radius: 14px 14px 0 0; }
+.ux3-material-row:last-of-type { border-radius: 0 0 14px 14px; }
+.ux3-material-row:first-of-type:last-of-type { border-radius: 14px; }
+.ux3-material-main { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 4px; }
+.ux3-material-main .ux3-source-link { max-width: 100%; overflow: hidden; color: var(--ux3-ink); font-size: 16px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.ux3-material-main small { color: var(--ux3-muted); font-size: 13px; }
+.ux3-material-actions { display: flex; flex: 0 0 auto; gap: 8px; opacity: 0; pointer-events: none; transition: opacity 130ms ease-out; }
+.ux3-material-row:hover .ux3-material-actions,
+.ux3-material-row:focus-within .ux3-material-actions { opacity: 1; pointer-events: auto; }
+.ux3-material-actions .secondary { padding: 6px 10px; color: var(--ux3-accent); background: transparent; border: 0; font-size: 14px; }
+.ux3-person-row, .ux3-employment-person {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(170px, 1fr) minmax(150px, 1fr);
+  align-items: baseline;
+  gap: 12px 20px;
+  min-height: 58px;
+  padding: 16px 18px;
+  background: var(--ux3-white);
+}
+.ux3-person-row + .ux3-person-row,
+.ux3-employment-person + .ux3-employment-person { border-top: 1px solid var(--ux3-line); }
+.ux3-person-row:first-of-type, .ux3-employment-person:first-of-type { border-radius: 14px 14px 0 0; }
+.ux3-person-row:last-of-type, .ux3-employment-person:last-of-type { border-radius: 0 0 14px 14px; }
+.ux3-person-row:first-of-type:last-of-type, .ux3-employment-person:first-of-type:last-of-type { border-radius: 14px; }
+.ux3-role-primary, .ux3-person-row small, .ux3-employment-person > span:last-child { color: #465149; font-size: 15px; }
+.ux3-person-row small { color: var(--ux3-muted); font-size: 14px; }
+.ux3-inline-actions { display: flex; align-items: center; gap: 8px; }
+.ux3-related-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 66px;
+  padding: 14px 18px;
+  background: var(--ux3-white);
+  text-align: left;
+  transition: background 130ms ease-out;
+}
+.ux3-related-row + .ux3-related-row { border-top: 1px solid var(--ux3-line); }
+.ux3-related-row:first-of-type { border-radius: 14px 14px 0 0; }
+.ux3-related-row:last-of-type { border-radius: 0 0 14px 14px; }
+.ux3-related-row:first-of-type:last-of-type { border-radius: 14px; }
+.ux3-related-row:hover { background: #fbfcfb; }
+.ux3-related-row > span:first-child { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
+.ux3-related-row b { color: var(--ux3-ink); font-size: 16px; font-weight: 650; }
+.ux3-related-row small { color: var(--ux3-muted); font-size: 13px; }
+.ux3-related-row > span:last-child { color: var(--ux3-muted); }
+.ux3-more { margin: 30px 0 6px; padding: 0; color: var(--ux3-muted); border: 0; }
+.ux3-more > summary { cursor: pointer; list-style: none; color: var(--ux3-muted); font-size: 14px; }
+.ux3-more > summary::-webkit-details-marker { display: none; }
+.ux3-more > summary::after { content: none; }
+.ux3-more > summary:hover { color: var(--ux3-accent); }
+.ux3-more[open] > summary { margin-bottom: 15px; }
+.ux3-more[open] > :not(summary) { animation: ux3-expand 180ms ease-out both; }
+@keyframes ux3-expand { from { opacity: .75; } to { opacity: 1; } }
+.ux3-unresolved-people { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--ux3-line); }
+.ux3-unresolved-people h3 { margin: 0 0 10px; color: var(--ux3-muted); font-size: 14px; }
+.ux3-unresolved-people .ux3-employment-person { grid-template-columns: minmax(0, 1fr) auto; }
+.ux3-person-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(270px, 330px); align-items: start; gap: clamp(36px, 5vw, 54px); }
+.ux3-person-main { min-width: 0; }
+.ux3-person-main .ux3-object-heading { align-items: flex-start; margin-bottom: 18px; }
+.ux3-person-context { margin-top: 3px; padding: 24px; background: var(--ux3-neutral); border-radius: 16px; }
+.ux3-person-context-section + .ux3-person-context-section { margin-top: 28px; }
+.ux3-person-context h3 { margin-bottom: 11px; color: var(--ux3-muted); font-size: 13px; font-weight: 650; }
+.ux3-person-context .ux3-person-project { padding: 0 0 17px; }
+.ux3-person-project .ux3-project-link { display: block; color: var(--ux3-ink); font-size: 16px; font-weight: 650; text-decoration: none; }
+.ux3-person-project small { display: block; margin-top: 5px; color: var(--ux3-muted); font-size: 14px; }
+.ux3-person-context .ux3-empty { font-size: 14px; }
+.ux3-important-info { margin-top: 24px; }
+.ux3-important-knowledge .ux3-knowledge-type { display: none; }
+.ux3-important-knowledge:first-of-type p { margin-top: 10px; color: var(--ux3-ink); font-size: 28px; line-height: 1.45; font-weight: 720; letter-spacing: -.015em; }
+.ux3-important-knowledge ~ .ux3-important-knowledge p { font-size: 18px; font-weight: 500; }
+.ux3-person-page .ux3-materials { margin-top: 34px; }
+.ux3-empty-project { min-height: 260px; display: grid; align-content: center; justify-items: start; gap: 12px; }
+.ux3-empty-project h2 { margin: 0; font-size: 38px; }
+.ux3-empty-project p { margin: 0; color: var(--ux3-muted); font-size: 16px; }
+@media (max-width: 900px) {
+  .ux3-person-layout { grid-template-columns: minmax(0, 1fr) minmax(230px, 290px); gap: 28px; }
+  .ux3-workspace-surface { padding-right: 28px; padding-left: 28px; }
+}
+@media (max-width: 700px) {
+  .ux3-split { grid-template-columns: 148px minmax(0, 1fr); }
+  .ux3-split .rail-heading { padding: 18px 13px 10px; }
+  .ux3-split .rail-list { padding: 6px; }
+  .ux3-split .entity-row { padding: 11px 9px; }
+  .ux3-split .entity-row b { font-size: 13px; }
+  .ux3-workspace-surface { padding: 23px 17px 36px; }
+  .ux3-object-heading { flex-direction: column; gap: 13px; }
+  .ux3-object-heading h2 { font-size: 32px; }
+  .ux3-heading-actions { justify-content: flex-start; }
+  .ux3-focus-body { font-size: 22px; }
+  .ux3-current-focus { padding: 21px; border-radius: 15px; }
+  .ux3-recent-row { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .ux3-person-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .ux3-person-row small { grid-column: 1 / -1; }
+  .ux3-person-layout { display: flex; flex-direction: column; gap: 22px; }
+  .ux3-person-context { width: 100%; padding: 20px; }
+  .ux3-material-row { align-items: flex-start; }
+  .ux3-material-actions { opacity: 1; pointer-events: auto; flex-direction: column; }
+  .ux3-important-knowledge:first-of-type p { font-size: 23px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ux3-workspace-surface, .ux3-more[open] > :not(summary) { animation: none; }
+  .ux3-split .entity-row, .ux3-related-row, .ux3-material-actions { transition: none; }
+}

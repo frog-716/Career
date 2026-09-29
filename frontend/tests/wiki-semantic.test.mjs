@@ -5,6 +5,7 @@ import { cognitionExperiencePickerHTML, cognitionOutputErrorHTML, cognitionPrevi
 const bindings = readFileSync(new URL("../src/wiki-semantic-bindings.ts", import.meta.url), "utf8");
 const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
 const workspace = readFileSync(new URL("../src/workspace.ts", import.meta.url), "utf8");
+const ux3Workspace = readFileSync(new URL("../src/ux3-workspaces.ts", import.meta.url), "utf8");
 const ui = readFileSync(new URL("../src/wiki-semantic-ui.ts", import.meta.url), "utf8");
 const raw = {
   id: "raw-fixture", kind: "raw_material", source_kind: "manual_text",
@@ -389,8 +390,10 @@ assert.match(bindings, /selected\.length > 20[\s\S]*最多选择20段不同的�
   "经历选择超过后端支持上限时会在本地给出明确反馈");
 assert.match(ui, /从这个项目整理长期认知/,
   "项目完成或取消后提供显式复盘入口，不自动调用 Provider");
-assert.match(workspace, /selected\.end_date[\s\S]*从这段任职整理长期认知/,
+assert.match(workspace, /selected\.end_date[\s\S]*data-d4-prefill-type="employment"[\s\S]*整理长期认知/,
   "任职结束后提供显式复盘入口，不自动调用 Provider");
+assert.match(ux3Workspace, /<details class="ux3-more"[\s\S]*input\.actionsHTML/,
+  "任职复盘入口保留在默认折叠的次级区域");
 const cognitionStartFlow = bindings.split('on("[data-d4-start]"')[1].split("function sourceChoices")[0];
 assert.match(cognitionStartFlow, /data-d4-prepare[\s\S]*?void startCognitionCompiler\(selected\)/,
   "用户明确选择经历后才准备 Preview");
