@@ -311,6 +311,14 @@ assert.doesNotMatch(emptyCognitionPreview, /已有长期认知（0）|目前还�
   "没有已有 Cognition 时不占据 Preview 空间");
 assert.match(emptyCognitionPreview, /查看发送详情/);
 
+// The real prepare response supplies model and names, but no summary wiki_count.
+for (const details of [{ model: "DeepSeek" }, { model: "DeepSeek", wiki_count: 99 }]) {
+  const preview = cognitionPreviewHTML({
+    selected_experiences: [cognitionExperienceA, cognitionExperienceB], existing_cognition: [],
+  }, details);
+  assert.match(preview, /当前 Wiki：2 条/, "发送详情必须按实际 DTO 的当前 Wiki 计数");
+}
+
 const cognitionProposalHTML = wikiCompilerPatchHTML({
   operation: "add", knowledge_type: "observation", content: "在多个虚构项目中先明确边界再开始实现。",
   reason: "两个独立项目的当前 Wiki 都描述了这一顺序。",

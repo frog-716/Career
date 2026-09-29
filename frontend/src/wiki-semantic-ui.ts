@@ -204,6 +204,9 @@ export function cognitionExperiencePickerHTML(experiences: Obj[], preselected: O
 }
 
 export function cognitionPreviewHTML(context: Obj, details: Obj = {}) {
+  const wikiCount = (context.selected_experiences || []).reduce(
+    (total: number, experience: Obj) => total + (experience.current_knowledge || []).length, 0,
+  );
   const experiences = (context.selected_experiences || []).map((experience: Obj) => {
     const knowledge = (experience.current_knowledge || []).map((item: Obj) => {
       const tags = (item.tags || []).map((tag: string) => esc(String(tag).replace(/^#+/, ""))).filter(Boolean).join("、");
@@ -219,7 +222,7 @@ export function cognitionPreviewHTML(context: Obj, details: Obj = {}) {
     ? `<details class="d2-preview-details d4-existing-cognition"><summary>已有长期认知（${existingItems.length}）</summary>${existing}</details>`
     : "";
   const names = (details.experiences || []).map((value: string) => esc(value)).join("、");
-  return `<h3>整理长期认知</h3><p class="d2-preview-summary">AI 将比较 ${Number((context.selected_experiences || []).length)} 段经历</p>${experiences || '<p class="muted">没有可读取的 Wiki 信息。</p>'}${existingSection}<p class="d2-preview-boundary">不会读取原始资料。</p><details class="d2-preview-details"><summary>查看发送详情</summary><ul><li>模型：${esc(details.model || "当前配置")}</li><li>所选经历：${names || Number(details.experience_count || 0)}</li><li>当前 Wiki：${esc(details.wiki_count ?? 0)} 条</li>${existingItems.length ? `<li>已有长期认知：${existingItems.length} 条</li>` : ""}</ul></details><button type="button" class="primary full" data-d4-confirm>让 AI 整理</button><button type="button" class="text-btn full" data-d4-cancel>取消</button>`;
+  return `<h3>整理长期认知</h3><p class="d2-preview-summary">AI 将比较 ${Number((context.selected_experiences || []).length)} 段经历</p>${experiences || '<p class="muted">没有可读取的 Wiki 信息。</p>'}${existingSection}<p class="d2-preview-boundary">不会读取原始资料。</p><details class="d2-preview-details"><summary>查看发送详情</summary><ul><li>模型：${esc(details.model || "当前配置")}</li><li>所选经历：${names || Number(details.experience_count || 0)}</li><li>当前 Wiki：${wikiCount} 条</li>${existingItems.length ? `<li>已有长期认知：${existingItems.length} 条</li>` : ""}</ul></details><button type="button" class="primary full" data-d4-confirm>让 AI 整理</button><button type="button" class="text-btn full" data-d4-cancel>取消</button>`;
 }
 
 export function cognitionOutputErrorHTML() {
