@@ -1,3 +1,4 @@
+import {loadOpportunityReadback} from './opportunity-scope';
 import { createAIActivityUI } from "./ai-activity";
 import { opportunityHTML, bindOpportunity } from "./opportunity-ui";
 import "./style.css";
@@ -62,6 +63,8 @@ let opportunityCommunications: Obj[] = [];
 let opportunityTimeline: Obj = { items: [], unknown_date_items: [] };
 let opportunityInterviews: Obj[] = [];
 let opportunityOffer: Obj | null = null;
+let opportunityResume: Obj | null = null;
+let opportunityScopeOwner = "";
 let opportunityResearch: Obj = {company: {items: []}, opportunity: {items: [], revision: 0}};
 let opportunityLoadToken = 0;
 const planBuffers = new Map<string, Obj>();
@@ -204,6 +207,7 @@ function bindProtectedDownloads(): void {
 }
 async function load() {
   const targetPage = page;
+  if (targetPage === "jobs" || targetPage === "progress") opportunityScopeOwner = "";
   const request = ++pageRequestSequence[targetPage];
   const current = () => page === targetPage && pageRequestSequence[targetPage] === request;
   pageLoads[targetPage] = {phase: "loading"};
@@ -270,17 +274,13 @@ async function load() {
   };
   try {
     if (targetPage === "jobs" || targetPage === "progress") {
-      const [journeyResult, domainResult, opportunityState] = await Promise.all([
+      const [journeyResult, domainResult] = await Promise.all([
         api("/journey?summary=true"),
         api("/domain?summary=true"),
-        ui.jobTab === "analysis" || ui.jobTab === "resume"
-          ? api("/state?view=opportunity&job_id=" + encodeURIComponent(jobId))
-          : Promise.resolve(null),
       ]);
       if (!current()) return;
       journey = journeyResult;
       domain = domainResult;
-      if (opportunityState) state = {...state, ...opportunityState};
       await loadOpportunityScope(jobId);
     } else if (targetPage === "work") {
       const [journeyResult, workResult] = await Promise.all([
@@ -388,27 +388,27 @@ async function load() {
 }
 async function loadOpportunityScope(id: string) {
   const token = ++opportunityLoadToken;
-  if (!(page === "jobs" || page === "progress") || !id) {
-    opportunityCommunications = [];
-    opportunityTimeline = { items: [], unknown_date_items: [] };
-    opportunityInterviews = [];
-    opportunityOffer = null;
-    opportunityResearch = {company: {items: []}, opportunity: {items: [], revision: 0}};
-    return;
-  }
-  const result = await Promise.all([
-    api<Obj[]>("/opportunities/" + encodeURIComponent(id) + "/communications"),
-    api<Obj>("/opportunities/" + encodeURIComponent(id) + "/timeline"),
-    api<Obj[]>("/opportunities/" + encodeURIComponent(id) + "/interviews"),
-    api<Obj | null>("/opportunities/" + encodeURIComponent(id) + "/offer"),
-    api<Obj>("/opportunities/" + encodeURIComponent(id) + "/research-overview"),
-  ]);
+  opportunityScopeOwner = "";
+  opportunityCommunications = [];
+  opportunityTimeline = { items: [], unknown_date_items: [] };
+  opportunityInterviews = [];
+  opportunityOffer = null;
+  opportunityResume = null;
+  opportunityResearch = {company: {items: []}, opportunity: {items: [], revision: 0}};
+  if (!(page === "jobs" || page === "progress") || !id) return;
+  const result = await loadOpportunityReadback(id, api);
   if (token !== opportunityLoadToken || id !== jobId || !(page === "jobs" || page === "progress")) return;
-  opportunityCommunications = result[0];
-  opportunityTimeline = result[1];
-  opportunityInterviews = parseInterviewSessions(result[2]) as unknown as Obj[];
-  opportunityOffer = result[3];
-  opportunityResearch = parseResearchView(result[4]) as unknown as Obj;
+  // Parse the entire read before publishing any owner-bound detail.
+  const interviews = parseInterviewSessions(result.interviews) as unknown as Obj[];
+  const research = parseResearchView(result.research) as unknown as Obj;
+  state = {...state, ...result.state};
+  opportunityResume = result.resume;
+  opportunityCommunications = result.communications;
+  opportunityTimeline = result.timeline;
+  opportunityInterviews = interviews;
+  opportunityOffer = result.offer;
+  opportunityResearch = research;
+  opportunityScopeOwner = id;
 }
 function inform(text: string) {
   notice = text;
@@ -645,7 +645,7 @@ function pageStatusHTML() {
 }
 function render() {
   if (page === 'jobs' || page === 'progress') {
-    const ctx = {state,domain,journey,id:jobId,filter:opportunityView,anchor:opportunityAnchor,communications:opportunityCommunications,timeline:opportunityTimeline,interviews:opportunityInterviews,offer:opportunityOffer,research:opportunityResearch};
+    const ctx = {state,domain,journey,id:jobId,filter:opportunityView,anchor:opportunityAnchor,communications:opportunityCommunications,timeline:opportunityTimeline,interviews:opportunityInterviews,offer:opportunityOffer,research:opportunityResearch,resume:opportunityResume,scopeReady:!jobId||opportunityScopeOwner===jobId};
     root.innerHTML=shell('jobs',pageStatusHTML()+opportunityHTML(ctx),notice,state.diagnostics?.provider?.mode==='test');
     history.replaceState(null,'','#opportunities'+(jobId?'/'+encodeURIComponent(jobId):'')+'?view='+opportunityView+(opportunityAnchor?'&tab='+encodeURIComponent(opportunityAnchor):''));
     bind();

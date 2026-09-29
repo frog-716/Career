@@ -229,3 +229,7 @@ F runtime 只接受 schema v6。v5→v6 迁移只写一条 hash-bound migration 
 - `POST /api/wiki/cognition/compiler/prepare` 只生成预览，不调用 Provider；请求为 `selected_experiences: [{type,id}]` 与 `idempotency_key`。用户明确确认后调用 `POST /api/wiki/cognition/compiler/execute`，携带 prepare 返回的 `prepared_id` / `payload_hash` 及 `confirm_outbound: true`。使用共享 AI operation、dispatch、幂等和 Patch 单条审批链。
 - Context DTO 只含所选经历身份、所选经历的当前 Wiki Knowledge 和当前 Cognition；不发送 Raw 正文、其它业务 scope、完整历史或 Secret。add / rewrite 必须由两个不同所选经历支撑；retire 至少引用一条所选经历知识；本地校验拒绝人格化标签、心理分析和伪精确评分。无 Patch 是正常成功。
 - 复用 Wiki `cognition` scope 与 schema v6 的 current / revisions、typed `source_refs`、Proposal 与逐条 Patch 审批，不新增数据库实体或 migration。聚焦测试：`PYTHONPATH=src .venv/bin/python -B -m pytest -q tests/test_wiki_d4.py tests/test_wiki_d1.py tests/test_wiki_d2.py tests/test_wiki_d3.py`；前端：`npm --prefix frontend run test:wiki-semantic && npm --prefix frontend run test:wiki-d3`。
+
+### UX-4 投递回读与后续沟通
+
+`GET /api/state?view=opportunity&job_id=...` 接受 canonical Opportunity ID 或旧 alias，只返回所属机会的冻结投递材料；当前工作稿继续由既有 `/opportunities/{id}/resume` 读取。普通沟通允许 active submitted/interview/offer，谈薪与 ended 的限制不变。验证：`.venv/bin/python -m pytest -q tests/test_ux4_opportunity_readback.py tests/test_ux4_interview_communication.py`。

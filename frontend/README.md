@@ -98,3 +98,7 @@ legacy typed Offer 显示“历史 Offer · 待核对”，旧 status/terms/日�
 ## Resume 导航收口
 
 `src/resume-navigation.ts` 统一机会与编辑器链接和已有稿/合法创建/不可创建分流。打开时读取当前机会的 Resume API；编辑器显示所属机会并返回同一机会简历区域。旧 `#resume`、`editor.html` 和 `job_id` 链接保留兼容；导航偏好剔除旧 Resume 一级项并保留其余项的相对顺序。验证：`npm --prefix frontend run test:resume-navigation`、`test:navigation`，以及 `tests/test_resume_workspace_single_page.py`、`tests/test_t15_navigation.py`。
+
+### UX-4 机会回读与面试衔接
+
+`src/opportunity-scope.ts` 按当前机会读取工作稿、冻结投递、沟通、面试、Offer 与研究；`interview-ui.ts` 从机会级研究建议中筛选当前轮次。阶段变化后保留沟通和面试历史，已结束仍只允许既有资料更正。验证使用 `npm run test:ux4-opportunity`、`npm run test:ux4-interview`，实际浏览器证据使用隔离虚构库。

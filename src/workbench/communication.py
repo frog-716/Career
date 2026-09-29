@@ -145,8 +145,8 @@ def create_communication(store, opportunity_id, body):
             return dto(store, c, _raw(store, c, replay["id"]))
         if opportunity["result"] != "active":
             raise Conflict("opportunity_ended: 机会已结束")
-        if purpose == "general" and opportunity["phase"] != "submitted":
-            raise Conflict("communication_requires_submitted: 只有已投递机会可以新增普通招聘沟通")
+        if purpose == "general" and opportunity["phase"] not in {"submitted", "interview", "offer"}:
+            raise Conflict("communication_requires_submitted: 投递后仍在推进的机会可以新增普通招聘沟通")
         if purpose == "negotiation":
             if opportunity["phase"] != "offer":
                 raise Conflict("negotiation_requires_offer: 只有Offer阶段可以新增谈薪沟通")
