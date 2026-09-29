@@ -1,13 +1,12 @@
 # 当前状态
 
-## 2026-09-29：Target Mode Phase 5 — HARD GATE 2 / FINAL PREVIEW READY
+## 2026-09-29：Target Mode Phase 5 — ONE REAL SMOKE COMPLETE / REMOVE
 
-- 完成条件：仅沿用能确认的既有选择，核对 2–20 段 Project/Employment 的当前 Wiki 和实际 Preview；不读 Raw、不扩选全 Career、不处理旧待审 Proposal；准备真实调用后停在 Hard Gate 2，等待用户明确确认。本阶段真实价值仍 NOT YET PASSED；只有真实 smoke 后才能判断 GO / SHRINK / REMOVE。
-- Preview 现场发现正文两条当前 Wiki，但发送详情误报 0 条；真实请求尚未发送。修复验收：计数直接从实际发送的 DTO 计算，不依赖遗漏或不一致的摘要计数；先复现，再验证真实 Preview 与 DTO 均为两条。
-- 计数错误已先以缺失摘要字段用例复现，再改为实际 DTO 求和；缺失及错误摘要数值两例均通过。独立代码审查 PASS，隔离 UI Fresh Check 实际正文和详情均为 2 条且未发送（`/tmp/career-target-phase5/fresh/`）。全量 525 passed、14 组 frontend tests、typecheck、临时 build、secret scan、Markdown links、diff check 通过。正式 A/B smoke 旧 Proposal 保持 pending；准备预览只新增本地 preparation metadata，没有 Provider dispatch。
-- 计数修复 Git `83eb60d` 已 push main，正式 Runtime 已更新 PID 6293，AI_ENABLED、仅 127.0.0.1:8765；更新前后 schema/data identity/operation metadata 不变，临时/正式/HTTP 静态 hash 一致（`.career-runtime/target-phase5.json`）。正式 Chrome 最终 Preview 复验显示 DeepSeek `deepseek-flash`、原选定 A/B 两段虚构 smoke 经历、当前 Wiki 2 条；不含 Raw 或未选经历，已有 Cognition 0，未点击发送。
-- 本阶段因发现并修复显示错误共准备两次，正式库只新增 2 条 `ai_preparation` metadata（records 217→219）；current 44、revisions 203、schema v6、数据实例、25 operations/22 dispatched 与旧 pending Proposal 不变。DeepSeek/Tavily 本轮增量仍 0/0。最终本机证据 `/tmp/career-target-phase5/final-preview.png`、`final-preview-metadata.json`。
-- 按用户明确 Gate 2 暂停，等待授权本次真实调用；Phase 1–4 COMPLETE / PASS，D4 仍 REAL SMOKE PAUSED / NOT YET PASSED，Phase 6–10 未开始。确认后先检查 Preview 是否过期及范围/模型是否变化，再仅执行本次 smoke 并给出 GO / SHRINK / REMOVE；不自动接受任何 Proposal。
+- 最新用户仅批准 A/B 两个虚构 Project 的当前 Wiki 进行一次 DeepSeek outbound，禁止 Raw、其它 Career 范围、Tavily、第二次请求、重试及正式资料自动修改。旧 Preview 已过期，因此新建本地 preparation；新 DTO 严格为 A/B 各 1 条当前 Wiki、已有 Cognition 0，内容和最终发送 payload hash `a3e7cc08…` 与已批准的预览完全一致，模型仍为 `deepseek-flash`。唯一一次执行成功返回 1 条待审建议，没有接受或应用。
+- 建议核心：把两项虚构项目共同的“实现前先梳理边界与状态，再拆任务”合并为一句长期认知。两条 source_refs 均可追，但“数据归属”只见 A，“再拆分实现任务”只见 B；建议把这些单边细节写成双方共同做法，并以“都倾向于”概括行为倾向。没有人格诊断或无来源收益数字，然而没有新增适用条件、效果、例外或可复用决策线索，主要是原 Wiki 的改写。
+- 价值判断 **REMOVE**：针对 D4 自动跨经历提炼，不继续扩建或默认保存这条建议；单次虚构样本不能证明所有跨经历分析都无价值，但本次实测没有支撑 GO，也没有展示值得为现有宽范围继续维护的具体高价值用途。已有 Cognition 手工 Wiki 语义与原提案审计仍按原合同保留；新旧两条建议均 pending，不自动接受、拒绝或删除。独立第二意见同判 REMOVE。
+- 本批仅增加 1 个 DeepSeek dispatched/succeeded operation，Tavily 0；执行脚本为不可重复的单次哨兵，不执行 retry。正式 current 44、revisions 203、schema v6、数据实例及源码/静态文件 hash 不变；records 增加本地准备和操作/审计/提案记录，不新增 Cognition 当前知识。证据 `/tmp/career-target-phase5/smoke-approved/`。Phase 1–5 已完成价值判定，继续 Phase 6。
+- 预览 UI 计数修复已独立于本次调用先红后绿、独立审查及虚构浏览器复验通过，Git `83eb60d` 已 push main、正式 Runtime PID 6293 已核验；旧 Gate 2 等待状态在本次用户授权后解除。用户另反馈字号变化，正在查原因并等待明确选择；确认前不改样式。
 
 ## 2026-09-29：Target Mode Phase 4 — UX-5 COMPLETE / PASS
 
