@@ -2,8 +2,9 @@ from batch_b_helpers import save_job
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from workbench.core import Conflict, Invalid, Missing, Store
+from workbench.core import Conflict, Invalid, Missing, Store, digest
 from workbench.journey import journey_router
+from workbench.knowledge import knowledge_router
 from workbench.providers import TestProvider
 
 
@@ -16,6 +17,7 @@ def client_for(tmp_path):
             return JSONResponse({"detail": str(exc)}, status_code=status)
         app.add_exception_handler(cls, handle)
     app.include_router(journey_router(store))
+    app.include_router(knowledge_router(store))
     return TestClient(app), store
 
 
@@ -55,7 +57,7 @@ def test_correction_is_revisioned_and_original_note_immutable(tmp_path):
     }).status_code == 409
 
 
-def test_candidate_uses_selected_correction_and_origin_without_context_visibility(tmp_path):
+def test_historical_candidate_keeps_selected_correction_and_origin(tmp_path):
     c, store = client_for(tmp_path)
     job = make_job(store)
     n = note(c, job, content="整份私聊：不要复制")
@@ -63,52 +65,82 @@ def test_candidate_uses_selected_correction_and_origin_without_context_visibilit
         "expected_revision": 0, "title": "结论", "content": "只保留这一段",
         "idempotency_key": "corr-1",
     })
+    origin = {
+        "kind": "journey_note", "id": n["id"], "revision": 1,
+        "hash": digest({"title": "结论", "content": "只保留这一段"}),
+        "scope_type": "job", "scope_id": job["id"],
+    }
+    with store.connect() as db:
+        source = {
+            "id": "historical-selected-source", "title": "能力结论", "content": "用户整理后的选段",
+            "source_type": "text", "locator": n["id"], "scope_type": "job",
+            "scope_id": job["id"], "origin": origin,
+        }
+        store._record(db, "knowledge_source", source)
+        candidate = store._save(db, "knowledge_candidate", {
+            "id": "historical-selected-candidate", "status": "pending", "entry_id": None,
+            "source_ids": [source["id"]], "entry_type": "experience",
+            "title": "能力结论", "content": "用户整理后的选段",
+            "scope_type": "job", "scope_id": job["id"], "origin": origin,
+            "submission_id": None,
+        }, 0)
     body = {
         "expected_revision": 1, "title": "能力结论", "content": "用户整理后的选段",
         "entry_type": "experience", "scope_type": "job", "scope_id": job["id"],
         "promote_to_personal": False, "idempotency_key": "candidate-1",
     }
     created = c.post(f"/api/journey/notes/{n['id']}/candidate", json=body)
-    assert created.status_code == 200, created.text
-    candidate = created.json()
+    assert created.status_code == 409, created.text
     assert candidate["status"] == "pending"
-    state = store
-    with state.connect(False) as db:
-        source = state._get(db, candidate["source_ids"][0], "knowledge_source", True)
+    old_knowledge = c.get("/api/knowledge").json()
+    assert source in old_knowledge["sources"] and candidate in old_knowledge["candidates"]
     assert source["content"] == "用户整理后的选段"
     assert "整份私聊" not in source["content"]
     assert source["origin"]["kind"] == "journey_note"
     assert source["origin"]["id"] == n["id"] and source["origin"]["revision"] == 1
-    assert c.post(f"/api/journey/notes/{n['id']}/candidate", json=body).json() == candidate
     c.post(f"/api/journey/notes/{n['id']}/correct", json={
         "expected_revision": 1, "title": "再次更正", "content": "后来更正",
         "idempotency_key": "corr-2",
     })
-    assert c.post(f"/api/journey/notes/{n['id']}/candidate", json=body).json() == candidate
+    assert c.post(f"/api/journey/notes/{n['id']}/candidate", json=body).status_code == 409
+    assert c.get("/api/knowledge").json() == old_knowledge
 
 
-def test_candidate_requires_explicit_personal_promotion_and_submission_matches_job(tmp_path):
+def test_historical_promoted_candidate_keeps_scope_and_submission(tmp_path):
     c, store = client_for(tmp_path)
     job = make_job(store)
-    other = make_job(store)
     with store.connect() as db:
         db.execute("INSERT INTO records VALUES(?,?,?)", ("v", "version", '{"id":"v"}'))
         db.execute("INSERT INTO records VALUES(?,?,?)", ("a", "artifact", '{"id":"a"}'))
         from batch_c_helpers import insert_legacy_application
         insert_legacy_application(db, ("sub-1", job["id"], "v", "a", "k", '{"id":"sub-1","job_id":"'+job["id"]+'"}'))
     n = note(c, job, submission_id="sub-1")
+    with store.connect() as db:
+        source = {
+            "id": "historical-promoted-source", "title": "结论", "content": "选段",
+            "source_type": "text", "locator": n["id"],
+            "scope_type": "personal", "scope_id": "",
+            "origin": {"kind": "journey_note", "id": n["id"], "revision": 0,
+                       "scope_type": "job", "scope_id": job["id"]},
+        }
+        store._record(db, "knowledge_source", source)
+        candidate = store._save(db, "knowledge_candidate", {
+            "id": "historical-promoted-candidate", "status": "pending", "entry_id": None,
+            "source_ids": [source["id"]], "entry_type": "experience",
+            "title": "结论", "content": "选段", "scope_type": "personal",
+            "scope_id": "", "origin": source["origin"], "submission_id": "sub-1",
+        }, 0)
+    assert candidate in c.get("/api/knowledge").json()["candidates"]
+    assert candidate["scope_type"] == "personal" and candidate["submission_id"] == "sub-1"
     common = {"expected_revision": 0, "title": "结论", "content": "选段",
               "entry_type": "experience", "scope_type": "personal", "scope_id": "",
               "promote_to_personal": False, "idempotency_key": "bad-cross"}
-    assert c.post(f"/api/journey/notes/{n['id']}/candidate", json=common).status_code == 422
+    assert c.post(f"/api/journey/notes/{n['id']}/candidate", json=common).status_code == 409
     promoted = dict(common, promote_to_personal=True, idempotency_key="good-cross")
-    assert c.post(f"/api/journey/notes/{n['id']}/candidate", json=promoted).status_code == 200
-    bad = dict(promoted, idempotency_key="bad-job", scope_type="job", scope_id=other["id"], promote_to_personal=False)
-    assert c.post(f"/api/journey/notes/{n['id']}/candidate", json=bad).status_code == 422
-    linked = dict(promoted, idempotency_key="linked")
-    assert c.post(f"/api/journey/notes/{n['id']}/candidate", json=linked).status_code == 200
+    assert c.post(f"/api/journey/notes/{n['id']}/candidate", json=promoted).status_code == 409
     wrong = dict(promoted, idempotency_key="wrong-link", submission_id="missing")
     assert c.post(f"/api/journey/notes/{n['id']}/candidate", json=wrong).status_code == 409
+    assert c.get("/api/knowledge").json()["candidates"] == [candidate]
 
 
 def test_episode_export_has_consistent_full_correction_snapshot(tmp_path):

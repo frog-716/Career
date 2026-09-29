@@ -277,11 +277,11 @@ def test_multiple_raw_refs_are_reusable_and_unknown_or_stale_refs_fail_closed(tm
 def test_existing_evidence_is_referenced_without_copy_and_ai_review_is_not_raw(tmp_path):
     client, store = make_client(tmp_path)
     project = make_project(client)
-    evidence = client.post("/api/work/evidence", json={
-        "scope_type": "project", "scope_id": project["id"],
-        "title": "虛构验收证据", "source_type": "document",
-        "content": "现有证据原文", "idempotency_key": "evidence-1",
-    }).json()
+    evidence = {"id": "historical-evidence", "scope_type": "project", "scope_id": project["id"],
+                "title": "虛构验收证据", "source_type": "document",
+                "content": "现有证据原文", "created_at": "2026-01-01T00:00:00Z"}
+    with store.connect() as c:
+        store._record(c, "work_evidence", evidence)
     resolved = client.get(f"/api/raw/work_evidence/{evidence['id']}")
     assert resolved.status_code == 200
     assert resolved.json()["content"] == evidence["content"]
@@ -310,20 +310,21 @@ def test_legacy_raw_sources_keep_their_original_ids_and_derived_objects_are_excl
         "idempotency_key": "legacy-raw-opportunity",
     })
 
-    knowledge_source = client.post("/api/knowledge/sources", json={
-        "scope_type": "personal", "scope_id": "", "title": "旧资料原文",
-        "content": "用户输入的旧原文", "source_type": "text",
-        "idempotency_key": "legacy-knowledge-source",
-    }).json()
+    knowledge_source = {"id": "historical-knowledge-source", "scope_type": "personal",
+                        "scope_id": "", "title": "旧资料原文", "content": "用户输入的旧原文",
+                        "source_type": "text", "locator": "", "created_at": "2026-01-01T00:00:00Z"}
+    with store.connect() as c:
+        store._record(c, "knowledge_source", knowledge_source)
     project_source = client.post("/api/work/sources", json={
         "scope_type": "personal", "scope_id": "", "project_id": project["id"],
         "title": "项目资料原文", "content": "项目用户原文", "semantics": "虚构记录",
         "idempotency_key": "legacy-project-source",
     }).json()
-    event = client.post("/api/work/events", json={
-        "project_id": project["id"], "title": "工作事件", "content": "事件原文",
-        "kind": "delivery", "idempotency_key": "legacy-event",
-    }).json()
+    event = {"id": "historical-event", "target_type": "project", "target_id": project["id"],
+             "title": "工作事件", "content": "事件原文", "kind": "delivery",
+             "created_at": "2026-01-01T00:00:00Z"}
+    with store.connect() as c:
+        store._record(c, "work_event", event)
     note = client.post("/api/journey/notes", json={
         "scope_type": "episode", "scope_id": episode["id"], "kind": "reflection",
         "title": "任职原话", "content": "当时的原话",
@@ -414,10 +415,11 @@ def test_legacy_raw_sources_keep_their_original_ids_and_derived_objects_are_excl
     assert retired.status_code == 200 and retired.json()["status"] == "retired"
     assert retired.json()["source_refs"] == transcript_knowledge["source_refs"]
 
-    achievement = client.post("/api/work/achievements", json={
-        "project_id": project["id"], "title": "不是 Raw 的成果实体",
-        "content": "应该由后续知识表达", "idempotency_key": "legacy-achievement",
-    }).json()
+    with store.connect() as c:
+        achievement = store._save(c, "work_achievement", {
+            "id": "historical-achievement", "project_id": project["id"],
+            "title": "不是 Raw 的成果实体", "content": "应该由后续知识表达",
+            "created_at": "2026-01-01T00:00:00Z"}, 0)
     assert client.get(f"/api/raw/work_achievement/{achievement['id']}").status_code == 404
 
 

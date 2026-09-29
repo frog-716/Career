@@ -66,17 +66,16 @@ def test_opportunity_cursor_is_stable_and_bound_to_view(tmp_path):
 
 
 def test_knowledge_cursor_is_stable_and_bound_to_scope(tmp_path):
-    client = client_for(tmp_path)
+    store = Store(tmp_path / "data", TestProvider())
+    client = TestClient(create_app(store))
     for index in range(4):
-        response = post(client, "/api/knowledge/sources", {
-            "title": f"分页资料 {index}",
-            "content": f"虚构资料 {index}",
-            "source_type": "text",
-            "scope_type": "personal",
-            "scope_id": "",
-            "idempotency_key": f"page-source-{index}",
-        })
-        assert response.status_code == 200, response.text
+        with store.connect() as connection:
+            store._record(connection, "knowledge_source", {
+                "id": f"legacy-page-source-{index}", "title": f"分页资料 {index}",
+                "content": f"虚构资料 {index}", "source_type": "text",
+                "scope_type": "personal", "scope_id": "", "locator": "",
+                "created_at": f"2026-01-0{index + 1}T00:00:00Z",
+            })
     first = client.get("/api/knowledge?scope=personal&tab=sources&limit=2")
     assert first.status_code == 200
     page = first.json()

@@ -2016,9 +2016,9 @@ blockquote {
 .ux3-object-heading h2 {
   margin: 7px 0 0;
   color: var(--ux3-ink);
-  font-size: 38px;
+  font-size: 20px;
   line-height: 1.12;
-  font-weight: 720;
+  font-weight: 600;
   letter-spacing: -.025em;
   overflow-wrap: anywhere;
 }
@@ -2078,16 +2078,16 @@ blockquote {
   color: var(--ux3-accent);
   font-size: 13px;
   line-height: 1.35;
-  font-weight: 800;
+  font-weight: 600;
   letter-spacing: .01em;
 }
 .ux3-focus-body {
   max-width: 1100px;
   margin: 0;
   color: var(--ux3-ink);
-  font-size: 28px;
+  font-size: 13px;
   line-height: 1.38;
-  font-weight: 720;
+  font-weight: 400;
   letter-spacing: -.015em;
   overflow-wrap: anywhere;
 }
@@ -2098,9 +2098,9 @@ blockquote {
 .ux3-person-context h3 {
   margin: 0;
   color: var(--ux3-ink);
-  font-size: 20px;
+  font-size: 14px;
   line-height: 1.35;
-  font-weight: 680;
+  font-weight: 600;
 }
 .ux3-section-heading .secondary,
 .ux3-section-heading .quiet,
@@ -2136,7 +2136,7 @@ blockquote {
 .ux3-recent-row > small { flex: 0 0 auto; color: var(--ux3-muted); font-size: 13px; }
 .ux3-knowledge-row { position: relative; max-width: 1120px; padding: 9px 42px 12px 0; }
 .ux3-knowledge-row + .ux3-knowledge-row { margin-top: 12px; }
-.ux3-knowledge-row p { margin: 4px 0 0; color: var(--ux3-ink); font-size: 18px; line-height: 1.65; overflow-wrap: anywhere; }
+.ux3-knowledge-row p { margin: 4px 0 0; color: var(--ux3-ink); font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
 .ux3-knowledge-type { color: var(--ux3-muted); font-size: 13px; }
 .ux3-tags { display: block; margin-top: 7px; color: var(--ux3-muted); font-size: 13px; }
 .ux3-source-links { display: inline-flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 7px; }
@@ -2223,11 +2223,11 @@ blockquote {
 .ux3-person-context .ux3-empty { font-size: 14px; }
 .ux3-important-info { margin-top: 24px; }
 .ux3-important-knowledge .ux3-knowledge-type { display: none; }
-.ux3-important-knowledge:first-of-type p { margin-top: 10px; color: var(--ux3-ink); font-size: 28px; line-height: 1.45; font-weight: 720; letter-spacing: -.015em; }
-.ux3-important-knowledge ~ .ux3-important-knowledge p { font-size: 18px; font-weight: 500; }
+.ux3-important-knowledge:first-of-type p { margin-top: 10px; color: var(--ux3-ink); font-size: 14px; line-height: 1.45; font-weight: 400; letter-spacing: -.015em; }
+.ux3-important-knowledge ~ .ux3-important-knowledge p { font-size: 14px; font-weight: 400; }
 .ux3-person-page .ux3-materials { margin-top: 34px; }
 .ux3-empty-project { min-height: 260px; display: grid; align-content: center; justify-items: start; gap: 12px; }
-.ux3-empty-project h2 { margin: 0; font-size: 38px; }
+.ux3-empty-project h2 { margin: 0; font-size: 20px; }
 .ux3-empty-project p { margin: 0; color: var(--ux3-muted); font-size: 16px; }
 @media (max-width: 900px) {
   .ux3-person-layout { grid-template-columns: minmax(0, 1fr) minmax(230px, 290px); gap: 28px; }
@@ -2241,9 +2241,7 @@ blockquote {
   .ux3-split .entity-row b { font-size: 13px; }
   .ux3-workspace-surface { padding: 23px 17px 36px; }
   .ux3-object-heading { flex-direction: column; gap: 13px; }
-  .ux3-object-heading h2 { font-size: 32px; }
   .ux3-heading-actions { justify-content: flex-start; }
-  .ux3-focus-body { font-size: 22px; }
   .ux3-current-focus { padding: 21px; border-radius: 15px; }
   .ux3-recent-row { align-items: flex-start; flex-direction: column; gap: 4px; }
   .ux3-person-row { grid-template-columns: minmax(0, 1fr) auto; }
@@ -2252,7 +2250,6 @@ blockquote {
   .ux3-person-context { width: 100%; padding: 20px; }
   .ux3-material-row { align-items: flex-start; }
   .ux3-material-actions { opacity: 1; pointer-events: auto; flex-direction: column; }
-  .ux3-important-knowledge:first-of-type p { font-size: 23px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ux3-workspace-surface, .ux3-more[open] > :not(summary) { animation: none; }

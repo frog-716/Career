@@ -9,34 +9,32 @@ def post(c,path,b):
  if path=='/jobs':b=dict(b,idempotency_key=b.get('idempotency_key','fixture-job'))
  return c.post(c.editor_path+path[len('/editor'):] if path.startswith('/editor') else '/api'+path,json=b,headers=H)
 
-def test_explicit_organization_archives_old_text_and_pending_is_not_context(tmp_path):
+def test_explicit_organization_archives_old_text_without_legacy_candidate_in_context(tmp_path):
  store=Store(tmp_path,TestProvider());c=editor_client(store)
  calls=[];original=store.provider.complete
  store.provider.complete=lambda payload:(calls.append(payload) or original(payload))
  old=post(c,'/profile',dict(content='旧混合文本：林澄；接受出差；审批经历',expected_revision=0)).json()
  basics=dict(name='林澄',email='test@example.invalid',phone='')
  assert post(c,'/profile/basics',dict(basics=basics,expected_revision=old['revision'])).status_code==409
- b=dict(expected_revision=old['revision'],basics=basics,confirmed=True,idempotency_key='organize',entries=[dict(title='出差限制',content='不接受出差哨兵',entry_type='constraint')])
+ b=dict(expected_revision=old['revision'],basics=basics,confirmed=True,idempotency_key='organize',entries=[])
  assert post(c,'/profile/organize',dict(b,confirmed=False)).status_code==422
+ assert post(c,'/profile/organize',dict(b,entries=[dict(title='出差限制',content='不接受出差哨兵',entry_type='constraint')])).status_code==409
  r=post(c,'/profile/organize',b);assert r.status_code==200,r.text
  assert post(c,'/profile/organize',b).json()==r.json()
  p=c.get('/api/state').json()['profile']
  assert p['mode']=='structured' and p['basics']==basics
  assert '接受出差' not in p['content']
  knowledge=c.get('/api/knowledge').json()
- assert knowledge['sources'][0]['content']==old['content']
- assert knowledge['sources'][0]['origin']['revision']==old['revision']
- candidate=knowledge['candidates'][0];assert candidate['status']=='pending'
+ assert knowledge['sources']==[] and knowledge['candidates']==[]
+ with store.connect(False) as db:
+  raw=store._records(db,'raw_material')
+ assert len(raw)==1 and raw[0]['content']==old['content']
+ assert raw[0]['provenance']['origin']['revision']==old['revision']
  j=post(c,'/jobs',dict(company='虚构甲',title='产品',jd='JD',idempotency_key='profile-fixture-job')).json()
  before_seed=dict(job_id=j['id'],kind='job',idempotency_key='before')
  before_info=post(c,'/analysis',before_seed).json()
  before=post(c,'/analysis',dict(before_seed,prepared_id=before_info['prepared_id'],payload_hash=before_info['payload_hash'],confirm_outbound=True)).json()
  assert '不接受出差哨兵' not in str(calls[-1]) and '旧混合文本' not in str(calls[-1])
- post(c,'/knowledge/candidates/'+candidate['id']+'/resolve',dict(decision='confirm',expected_revision=candidate['revision'],idempotency_key='confirm'))
- after_seed=dict(job_id=j['id'],kind='job',idempotency_key='after')
- after_info=post(c,'/analysis',after_seed).json()
- after=post(c,'/analysis',dict(after_seed,prepared_id=after_info['prepared_id'],payload_hash=after_info['payload_hash'],confirm_outbound=True)).json()
- assert '不接受出差哨兵' in str(calls[-1]) and '旧混合文本' not in str(calls[-1])
  assert post(c,'/profile',dict(content='重新混入目标',expected_revision=p['revision'])).status_code==422
  assert post(c,'/profile/basics',dict(basics=basics,expected_revision=0)).status_code==409
 

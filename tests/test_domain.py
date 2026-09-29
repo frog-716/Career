@@ -49,9 +49,10 @@ def test_resume_reference_is_frozen_and_not_submission(tmp_path):
     with s.connect() as db:
         s._record(db,'editor_version',{'id':'v1','name':'虚构简历','artifact_id':'pdf1','createdAt':'2026-01-01'})
         s._record(db,'artifact',{'id':'pdf1','sha256':'synthetic','version_id':'v1'})
-    body={'version_id':'v1','scope_type':'role','scope_id':role['id'],'idempotency_key':'use1'}
-    r=post(c,'/resume-uses',body);assert r.status_code==200,r.text
-    first=r.json();assert post(c,'/resume-uses',body).json()==first
-    assert post(c,'/resume-uses',{**body,'version_id':'v2'}).status_code==409
+        # A pre-retirement reference is seeded in the isolated test store.
+        first={'id':'historical-use','scope_type':'role','scope_id':role['id'],'target_name':role['name'],
+               'version_id':'v1','version_name':'虚构简历','artifact_id':'pdf1','artifact_hash':'synthetic'}
+        s._record(db,'resume_use',first)
+    assert c.get('/api/domain').json()['resume_uses']==[first]
     assert first['artifact_id']=='pdf1' and first['scope_id']==role['id']
     assert c.get('/api/state').json()['applications']==[]

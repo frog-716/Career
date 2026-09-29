@@ -603,7 +603,7 @@ function applicationsHtml(id: string) {
     const v = a.resume_snapshot;
     const name = v.document ? v.name : `早期文字稿 · 工作稿版本 ${v.draft_revision}`;
     return `<article class="application-row"><b>${esc(a.job_snapshot.company)} · ${esc(a.job_snapshot.title)}</b><p>${date(a.applied_at)} · ${esc(a.channel || "渠道未记录")}</p><p>投递版本：${esc(name)}</p><button type="button" data-protected-artifact="${a.artifact_id}" data-protected-mode="preview" class="text-btn">预览实际投递 PDF</button> <button type="button" data-protected-artifact="${a.artifact_id}" data-protected-mode="download" data-filename="submitted-resume.pdf" class="text-btn">下载实际投递 PDF</button><p>历史投递状态只读；当前阶段请查看机会。</p><details><summary>当时的简历正文</summary><pre>${esc(frozenResumeText(v))}</pre></details><details><summary>当时的岗位条件</summary><pre>${esc(a.job_snapshot.jd)}</pre></details></article>`;
-  }).join("") || '<p class="muted">暂无实际投递。从已关联的版本登记已经发生的投递；关联版本不会自动创建投递。</p>';
+  }).join("") || '<p class="muted">暂无实际投递。从所属机会打开简历并记录实际投递。</p>';
 }
 
 function renderResult(result: Obj, sources: Obj[] = []) {

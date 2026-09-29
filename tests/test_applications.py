@@ -31,8 +31,17 @@ def setup(tmp_path):
 
 
 def associate(c, j, v, key='use'):
-    r = post(c, '/domain/resume-uses', dict(scope_type='job', scope_id=j['id'], version_id=v['id'], idempotency_key=key))
-    assert r.status_code == 200, r.text
+    # A pre-retirement reference is needed to exercise historical readers.
+    s = c.app.state.store
+    with s.connect() as db:
+        opportunity_id = s.job_view(db, j['id'])['opportunity_id']
+        artifact = s._get(db, v['artifact_id'], 'artifact', True)
+        s._record(db, 'resume_use', dict(
+            id=key, scope_type='opportunity', scope_id=opportunity_id,
+            target_name=j['company']+' · '+j['title'], version_id=v['id'],
+            version_name=v['name'], artifact_id=v['artifact_id'],
+            artifact_hash=artifact['sha256'], created_at='2026-01-01T00:00:00+00:00',
+        ))
 
 
 def test_structured_submission_freezes_version_job_pdf_restart_and_context(tmp_path):

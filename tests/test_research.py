@@ -411,23 +411,22 @@ def test_interview_patch_sources_stale_when_selected_communication_or_wiki_chang
         json={"content": "来源 stale 测试 Raw", "expected_revision": 0, "idempotency_key": "source-stale-raw"},
     )
     assert raw.status_code == 200
-    source = client.post("/api/knowledge/sources", json={
-        "title": "来源 stale Wiki 原文", "content": "初始 Wiki 内容", "source_type": "text",
-        "locator": "", "scope_type": "personal", "scope_id": "", "idempotency_key": "source-stale-wiki-source",
-    })
-    assert source.status_code == 200, source.text
-    candidate = client.post("/api/knowledge/candidates", json={
-        "source_ids": [source.json()["id"]], "entry_type": "project", "title": "来源 stale Wiki 条目",
-        "content": "初始 Wiki 内容", "scope_type": "personal", "scope_id": "",
-        "idempotency_key": "source-stale-wiki-candidate",
-    })
-    assert candidate.status_code == 200, candidate.text
-    resolved = client.post(f"/api/knowledge/candidates/{candidate.json()['id']}/resolve", json={
-        "decision": "confirm", "expected_revision": candidate.json()["revision"],
-        "idempotency_key": "source-stale-wiki-confirm",
-    })
-    assert resolved.status_code == 200, resolved.text
-    wiki_id = resolved.json()["entry_id"]
+    # Preserve a synthetic pre-D1 Wiki fact to exercise dependency staleness.
+    with store.connect() as connection:
+        store._record(connection, "knowledge_source", {
+            "id": "source-stale-wiki-source", "title": "来源 stale Wiki 原文",
+            "content": "初始 Wiki 内容", "source_type": "text", "locator": "",
+            "scope_type": "personal", "scope_id": "",
+            "created_at": "2026-01-01T00:00:00Z",
+        })
+        legacy_entry = store._save(connection, "wiki_entry", {
+            "id": "source-stale-wiki-entry", "source_ids": ["source-stale-wiki-source"],
+            "entry_type": "project", "title": "来源 stale Wiki 条目",
+            "content": "初始 Wiki 内容", "scope_type": "personal", "scope_id": "",
+            "status": "active", "verification": "user_asserted",
+            "created_at": "2026-01-01T00:00:00Z",
+        }, 0)
+    wiki_id = legacy_entry["id"]
     wiki = client.get("/api/knowledge").json()["entries"]
     wiki_entry = next(item for item in wiki if item["id"] == wiki_id)
 

@@ -91,23 +91,5 @@ def domain_router(store):
 
     @router.post('/resume-uses')
     def use(body:dict):
-        with store.connect() as c:
-            cached=replay(c,body.get('idempotency_key'),body)
-            if cached:return cached
-            scope=body.get('scope_type');scope_id=required(body.get('scope_id'),'引用目标',500)
-            if scope=='role':target=store._get(c,scope_id,'domain_target_role');name=target['name']
-            elif scope in {'job','opportunity'}:
-                if scope=='job':
-                    target=store.job_view(c,scope_id);scope_id=target['opportunity_id']
-                else:
-                    from .opportunity import resolve
-                    target=resolve(store,c,scope_id)
-                scope='opportunity';name=target['company']+' · '+target['title']
-            else:raise Invalid('简历用途只能是方向通用版或具体机会')
-            v=store._get(c,required(body.get('version_id'),'版本',500),'editor_version',True)
-            a=store._get(c,v['artifact_id'],'artifact',True)
-            obj=dict(id=uid(),scope_type=scope,scope_id=scope_id,target_name=name,version_id=v['id'],version_name=v['name'],
-                     artifact_id=v['artifact_id'],artifact_hash=a['sha256'],created_at=now())
-            store._record(c,'resume_use',obj)
-            return remember(c,body['idempotency_key'],body,obj)
+        raise Conflict('legacy_resume_use_retired: 旧简历用途不可新增，请从机会使用当前简历和投递记录')
     return router
