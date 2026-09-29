@@ -42,7 +42,7 @@ TASK_POLICIES = {
     },
     "resume_optimization": {
         "required": {"opportunity", "current_resume_document"},
-        "optional": {"company_research", "opportunity_research", "current_fact", "career_context"},
+        "optional": {"company_research", "opportunity_research", "current_fact", "career_context", "career_wiki", "career_project", "career_employment", "career_evidence"},
         "forbidden": {"phone", "email", "address", "feedback", "other_opportunities", "full_raw_archive", "authorization"},
     },
     "research_update": {

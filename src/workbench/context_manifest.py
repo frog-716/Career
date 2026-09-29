@@ -141,6 +141,26 @@ def _check_dependency(store, c, item):
         if row[0] != item.get("revision") or digest(value) != item.get("content_hash"):
             _fail("source_changed", "Wiki 来源已变化")
         return
+    if kind == "wiki_knowledge":
+        current = store._get(c, identifier, "wiki_knowledge")
+        if current.get("revision") != item.get("revision") or digest(current) != item.get("content_hash"):
+            _fail("source_changed", "Career Wiki 来源已变化")
+        return
+    if kind in {"work_project", "employment"}:
+        if kind == "employment":
+            from .work import _employment
+            current = _employment(store, c, identifier)
+        else:
+            current = store._get(c, identifier, kind)
+        if current.get("revision") != item.get("revision") or digest(current) != item.get("content_hash"):
+            _fail("source_changed", "Career 经历已变化")
+        return
+    if kind in {"raw_material", "work_evidence"}:
+        from .wiki import sources as wiki_sources
+        current = wiki_sources.resolve_source(store, c, kind, identifier)
+        if current['revision'] != item.get('revision') or current['hash'] != item.get('content_hash'):
+            _fail('source_changed', '指定 Raw 来源已变化')
+        return
     if kind == "web_source":
         return
     _fail("proposal_requires_regeneration", "manifest dependency 类型不受支持")

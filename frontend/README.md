@@ -70,6 +70,8 @@ PDF 由服务端从结构化简历生成受控 HTML，并使用锁定版本的�
 
 UI验收使用明确临时数据路径/独立端口/TestProvider，不连接真实AI；命令`npm --prefix frontend run build`含tsc。范围、浏览器证据和未验项统一见[Batch C](../docs/execution/OPPORTUNITY-BATCH-C.md)。进一步视觉优化在Roadmap的Resume Workspace Productization，不为不同机会创建独立编辑器实现。
 
+Resume AI 的职业资料检索使用分步对话框：先呈现本地候选及缺失证据说明，勾选少量 Wiki/Project/Employment 后展示第二次外发 Preview；只有模型明确请求核对已选 Wiki 的来源，才出现原文选择和第三次 Preview。逐条建议可在纸面编辑器中分别修改后接受或拒绝，刷新后仍能找回未处理计划和提案。界面不会替用户自动发送下一轮请求或批量接受新提案。对应服务端接口与测试见 [Phase G](../src/workbench/README.md#phase-gresume-ai-按需检索)；隔离浏览器验收只使用虚构资料和 TestProvider。
+
 ## Batch D Communication 与 Timeline
 
 Opportunity Workspace 在已投递且未结束时显示“添加线上沟通 / 记录电话沟通 / 添加其他沟通”。表单明确选择日期、保留未提交输入，并以服务端 revision 处理并发冲突；结束后的机会隐藏新建入口，但已有 Communication 仍可查看和更正。界面“删除”调用后端归档动作，成功后该项同时从 Communication 列表与 Timeline 消失。

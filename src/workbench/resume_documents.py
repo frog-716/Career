@@ -18,6 +18,8 @@ from .model_gateway import ModelGateway
 from .resume_pdf import render_pdf
 from . import outbound_policy as outbound
 from .resume_ai_context import resume_document_context, research_context
+from .resume_career_retrieval import read_selected_context, search_candidates
+from .wiki import sources as wiki_sources
 
 
 def strict(body, fields):
@@ -136,7 +138,7 @@ def owns_version(store,c,did,vid):
     return v
 
 
-def _resume_ai_packet(store, c, d, instruction):
+def _resume_ai_packet(store, c, d, instruction, selected_context=(), evidence_context=()):
     opportunity = op.resolve(store, c, d['opportunity_id'])
     sources = [
         {"id": opportunity["id"], "revision": opportunity["revision"], "purpose": "opportunity", "selected_content": {
@@ -163,13 +165,25 @@ def _resume_ai_packet(store, c, d, instruction):
             content_hash=rs.content_hash(document) if exists else None,
             expected_absent=not exists, owner_id=owner,
         ))
+    for item in selected_context:
+        sources.append({key: item[key] for key in ("id", "revision", "purpose", "selected_content")})
+        if item['kind'] == 'employment':
+            from .work import _employment
+            current = _employment(store, c, item['id'])
+        else:
+            current = store._get(c, item['id'], item['kind'])
+        dependencies.append(cm.dependency(item['kind'], item['id'], item['revision'], current, item['purpose']))
+    for item in evidence_context:
+        sources.append({key: item[key] for key in ('id', 'revision', 'purpose', 'selected_content')})
+        dependencies.append(cm.dependency(item['kind'], item['id'], item['revision'], None,
+                                          'career_evidence', content_hash=item['hash']))
     return {"schemaVersion": 1, "task_type": "resume_optimization", "instruction": instruction,
             "required_context": ["opportunity", "current_resume_document"],
-            "optional_context": ["company_research", "opportunity_research"],
+            "optional_context": ["company_research", "opportunity_research", "career_project", "career_employment", "career_wiki", "career_evidence"],
             "forbidden_context": ["other_opportunities", "other_resume_documents", "feedback", "full_raw_archive"],
             "target": {"opportunity_id": opportunity["id"], "resume_document_id": d["id"]},
             "sources": sources, "allowed_patch_targets": ["current_resume_document"],
-            "confirmation_required": True, "output_schema_version": 1,
+            "confirmation_required": True, "output_schema_version": 2,
             "manifest": cm.manifest(
                 "resume_optimization",
                 {"kind": "resume_document", "id": d["id"], "opportunity_id": opportunity["id"]},
@@ -180,7 +194,60 @@ def _resume_ai_packet(store, c, d, instruction):
 def _resume_prepare(store, document_id, body):
     with store.connect(False) as c:
         document = get_document(store, c, document_id)
-        packet = _resume_ai_packet(store, c, document, body.get('instruction', ''))
+        selected = []
+        evidence = []
+        plan_id = body.get('retrieval_plan_id')
+        evidence_plan_id = body.get('evidence_plan_id')
+        if plan_id is not None and evidence_plan_id is not None:
+            raise Invalid('一次只能继续一种检索计划')
+        if evidence_plan_id is not None:
+            if not isinstance(evidence_plan_id, str): raise Invalid('来源核验计划标识不合法')
+            evidence_plan = store._get(c, evidence_plan_id, 'resume_evidence_plan', True)
+            if evidence_plan.get('document_id') != document_id or evidence_plan.get('opportunity_id') != document['opportunity_id']:
+                raise Invalid('来源核验计划不属于当前简历')
+            if evidence_plan.get('status') != 'needs_evidence' or evidence_plan['expected_revision'] != document['revision']:
+                raise Conflict('来源核验计划已处理或工作稿已变化')
+            cm.validate(store, c, evidence_plan['manifest'])
+            ids = body.get('selected_evidence_ids')
+            available = {item['source_id']: item for item in evidence_plan['requests']}
+            if not isinstance(ids, list) or not 1 <= len(ids) <= 2 or any(not isinstance(identifier, str) for identifier in ids) or len(set(ids)) != len(ids) or any(identifier not in available for identifier in ids):
+                raise Invalid('只能选择本轮明确请求的来源')
+            origin = store._get(c, evidence_plan['retrieval_plan_id'], 'resume_retrieval_plan', True)
+            selected = read_selected_context(store, c, document['opportunity_id'], origin['candidates'],
+                                             evidence_plan['selected_candidate_ids'],
+                                             [item['query'] for item in origin['requests']])
+            for identifier in ids:
+                request = available[identifier]
+                ref = request['source_ref']
+                source = wiki_sources.resolve_source(store, c, ref['kind'], ref['id'])
+                if wiki_sources.source_ref(source) != ref:
+                    raise Conflict('Raw 来源已变化，请重新检索')
+                if len(source['content']) > 3000:
+                    raise Invalid('原文超过单条核验预算，请先在 Wiki 中整理具体摘录')
+                evidence.append({
+                    'kind': source['kind'], 'id': source['id'], 'revision': source['revision'],
+                    'hash': source['hash'], 'purpose': 'career_evidence',
+                    'selected_content': {'source_kind': source['source_kind'],
+                                         'title': source['title'][:200], 'content': source['content']},
+                })
+        elif plan_id is not None:
+            if not isinstance(plan_id, str): raise Invalid('检索计划标识不合法')
+            plan = store._get(c, plan_id, 'resume_retrieval_plan', True)
+            if plan.get('document_id') != document_id or plan.get('opportunity_id') != document['opportunity_id']:
+                raise Invalid('检索计划不属于当前简历')
+            if plan.get('status') != 'needs_retrieval':
+                raise Conflict('此检索计划已处理，请重新发起')
+            if plan.get('expected_revision') != document['revision']:
+                raise Conflict('检索计划已过期：当前工作稿已变化')
+            cm.validate(store, c, plan['manifest'])
+            ids = body.get('selected_candidate_ids')
+            if not isinstance(ids, list) or not ids:
+                raise Invalid('请明确选中本轮相关 Career 候选')
+            selected = read_selected_context(store, c, document['opportunity_id'], plan['candidates'], ids,
+                                             [item['query'] for item in plan['requests']])
+        elif 'selected_candidate_ids' in body or 'selected_evidence_ids' in body:
+            raise Invalid('选中 Career 候选必须带有本轮检索计划')
+        packet = _resume_ai_packet(store, c, document, body.get('instruction', ''), selected, evidence)
     return {"document": document, "packet": packet, "body": body,
             "request_fingerprint": digest(_resume_client_intent(document_id, body))}
 
@@ -191,6 +258,10 @@ def _resume_client_intent(document_id, body):
         "instruction": body.get("instruction", ""),
         "idempotency_key": body.get("idempotency_key"),
         "model_config_id": body.get("model_config_id"),
+        "retrieval_plan_id": body.get("retrieval_plan_id"),
+        "selected_candidate_ids": body.get("selected_candidate_ids"),
+        "evidence_plan_id": body.get("evidence_plan_id"),
+        "selected_evidence_ids": body.get("selected_evidence_ids"),
     }
 
 
@@ -208,11 +279,12 @@ def _resume_output_schema():
                     "type": "object",
                     "additionalProperties": False,
                     "required": [
-                        "change_id", "item_id", "field", "before_hash",
-                        "proposed_text", "source_refs", "reason", "requires_fact_check",
+                        "change_id", "source_refs", "reason", "requires_fact_check",
                     ],
                     "properties": {
                         "change_id": {"type": "string", "minLength": 1, "maxLength": 160},
+                        "operation": {"type": "string", "enum": ["rewrite", "add", "delete"]},
+                        "section_type": {"type": "string", "enum": ["skills", "experience", "projects", "education"]},
                         "item_id": {"type": "string", "minLength": 1, "maxLength": 160},
                         "field": {
                             "type": "string",
@@ -246,14 +318,38 @@ def _resume_output_schema():
             },
             "suggestions": {"type": "array", "items": {}},
             "claims": {"type": "array", "items": {}},
+            "retrieval_requests": {
+                "type": "array", "maxItems": 3,
+                "description": "现有材料不足时先说明缺失证据及本地 Career 检索词；有检索请求时 changes 必须为空。",
+                "items": {
+                    "type": "object", "additionalProperties": False,
+                    "required": ["need", "query"],
+                    "properties": {
+                        "need": {"type": "string", "minLength": 1, "maxLength": 300},
+                        "query": {"type": "string", "minLength": 1, "maxLength": 200},
+                    },
+                },
+            },
+            "evidence_requests": {
+                "type": "array", "maxItems": 2,
+                "description": "仅在已选 Wiki 的来源指针不足以核对具体事实时请求对应 Raw；不得请求其它原文。",
+                "items": {
+                    "type": "object", "additionalProperties": False,
+                    "required": ["source_kind", "source_id", "reason"],
+                    "properties": {
+                        "source_kind": {"type": "string", "enum": ["raw_material", "work_evidence"]},
+                        "source_id": {"type": "string", "minLength": 1},
+                        "reason": {"type": "string", "minLength": 1, "maxLength": 300},
+                    },
+                },
+            },
         },
         "description": (
-            "只允许修改当前简历的字段级表达：field 只能是 content 或 "
-            "bullets.<bullet_id>.content；不得返回整份 document、身份/组织/职位/日期、"
-            "数组结构或新增条目。"
+            "只允许 rewrite 已有技能/要点表述，或依据本轮 Career Wiki 来源 add 新技能/经历表达；"
+            "delete 只能指向已有条目。不得返回整份 document 或修改身份字段。"
         ),
         "example": {
-            "changes": [],
+            "changes": [], "retrieval_requests": [], "evidence_requests": [],
             "suggestions": ["虚构示例：把技能表述改得更清楚。"],
             "claims": [],
         },
@@ -319,17 +415,25 @@ def _allowed_source_refs(packet):
 def _normalize_resume_change(document, packet, value):
     if not isinstance(value, dict):
         raise ao.AIValidationError("unsupported_proposal_format: change 必须是对象")
-    allowed = {"change_id", "item_id", "field", "before_hash", "proposed_text", "source_refs", "reason", "requires_fact_check"}
+    allowed = {"change_id", "operation", "section_type", "item_id", "field", "before_hash", "proposed_text", "source_refs", "reason", "requires_fact_check"}
     if set(value) - allowed:
         raise ao.AIValidationError("unsupported_proposal_format: change 含有未支持字段")
-    for key in ("change_id", "item_id", "field", "before_hash", "proposed_text", "reason"):
+    operation = value.get('operation', 'rewrite')
+    if operation not in {'rewrite', 'add', 'delete'}:
+        raise ao.AIValidationError('change.operation 不合法')
+    required = {
+        'add': ('change_id', 'proposed_text', 'reason'),
+        'rewrite': ('change_id', 'item_id', 'field', 'before_hash', 'proposed_text', 'reason'),
+        'delete': ('change_id', 'item_id', 'before_hash', 'reason'),
+    }[operation]
+    for key in required:
         if not isinstance(value.get(key), str) or not value[key].strip():
             raise ao.AIValidationError(f"change.{key} 必须是非空字符串")
-    if len(value["change_id"]) > 160 or len(value["item_id"]) > 160 or len(value["field"]) > 240:
+    if len(value["change_id"]) > 160 or len(value.get("item_id", "")) > 160 or len(value.get("field", "")) > 240:
         raise ao.AIValidationError("change 标识或字段路径过长")
-    if len(value["reason"]) > 2000 or len(value["proposed_text"]) > _MAX_CHANGE_TEXT:
+    if len(value["reason"]) > 2000 or len(value.get("proposed_text", "")) > _MAX_CHANGE_TEXT:
         raise ao.AIValidationError("AI 建议文本或理由过长")
-    if not re.fullmatch(r"[0-9a-f]{64}", value["before_hash"]):
+    if operation != 'add' and not re.fullmatch(r"[0-9a-f]{64}", value["before_hash"]):
         raise ao.AIValidationError("before_hash 必须是当前字段的 sha256")
     if "requires_fact_check" in value and type(value["requires_fact_check"]) is not bool:
         raise ao.AIValidationError("requires_fact_check 必须是布尔值")
@@ -344,12 +448,40 @@ def _normalize_resume_change(document, packet, value):
         if (ref["id"], ref["revision"]) not in permitted:
             raise ao.AIValidationError("source_refs 不能引用本次 manifest 之外的资料")
         normalized_refs.append({"id": ref["id"], "revision": ref["revision"]})
+    requires_fact_check = bool(value.get("requires_fact_check", False)) or bool(_FACT_MARKERS.search(value.get("proposed_text", "")))
+    if operation == 'add':
+        if set(value) - {'change_id', 'operation', 'section_type', 'proposed_text', 'source_refs', 'reason', 'requires_fact_check'}:
+            raise ao.AIValidationError('add 不得指定已有条目或字段')
+        if value.get('section_type') not in {'skills', 'experience', 'projects', 'education'}:
+            raise ao.AIValidationError('add.section_type 不合法')
+        career_ids = {source['id'] for source in packet['sources'] if source.get('purpose') == 'career_wiki'}
+        if not normalized_refs or any(ref['id'] not in career_ids for ref in normalized_refs):
+            raise ao.AIValidationError('add 必须引用本轮选中的 Career Wiki')
+        return {
+            'change_id': value['change_id'], 'operation': 'add',
+            'section_type': value['section_type'], 'proposed_text': value['proposed_text'],
+            'source_refs': normalized_refs, 'reason': value['reason'],
+            'requires_fact_check': requires_fact_check,
+        }
+    if operation == 'delete':
+        if set(value) - {'change_id', 'operation', 'item_id', 'before_hash', 'source_refs', 'reason', 'requires_fact_check'}:
+            raise ao.AIValidationError('delete 只能指向已有完整条目')
+        section, item = _resume_item(document, value['item_id'])
+        if digest(item) != value['before_hash']:
+            raise ao.AIValidationError('delete.before_hash 与当前条目不一致')
+        return {
+            'change_id': value['change_id'], 'operation': 'delete',
+            'item_id': value['item_id'], 'section_type': section['type'],
+            'before_hash': value['before_hash'], 'before_text': json.dumps(item, ensure_ascii=False),
+            'source_refs': normalized_refs, 'reason': value['reason'],
+            'requires_fact_check': False,
+        }
     current = _change_target(document, value["item_id"], value["field"])
     if digest(current) != value["before_hash"]:
         raise ao.AIValidationError("AI 建议的 before_hash 与当前字段不一致")
-    requires_fact_check = bool(value.get("requires_fact_check", False)) or bool(_FACT_MARKERS.search(value["proposed_text"]))
     return {
-        "change_id": value["change_id"], "item_id": value["item_id"], "field": value["field"],
+        "change_id": value["change_id"], "operation": operation,
+        "item_id": value["item_id"], "field": value["field"],
         "before_hash": value["before_hash"], "before_text": current,
         "proposed_text": value["proposed_text"], "source_refs": normalized_refs,
         "reason": value["reason"], "requires_fact_check": requires_fact_check,
@@ -422,6 +554,83 @@ def _resume_dispatch(store, prepared, binder):
 
 def _resume_persist(store, prepared, result, diagnostics):
     document, body, packet = prepared["document"], prepared["body"], prepared["packet"]
+    evidence_requests = result.get('evidence_requests', []) if isinstance(result, dict) else []
+    if not isinstance(evidence_requests, list) or len(evidence_requests) > 2:
+        raise ao.AIValidationError('evidence_requests 数量不合法')
+    if evidence_requests:
+        if body.get('evidence_plan_id') or result.get('changes') or result.get('retrieval_requests'):
+            raise ao.AIValidationError('来源核验请求不能与建议或另一检索同时出现')
+        _normalize_resume_result(document['document'], packet, result)
+        available = {
+            (ref['kind'], ref['id']): ref
+            for source in packet['sources'] if source['purpose'] == 'career_wiki'
+            for ref in source['selected_content']['source_refs']
+            if ref['kind'] in {'raw_material', 'work_evidence'}
+        }
+        requests = []
+        seen = set()
+        for request in evidence_requests:
+            if not isinstance(request, dict) or set(request) != {'source_kind', 'source_id', 'reason'}:
+                raise ao.AIValidationError('来源核验请求结构不合法')
+            if not isinstance(request['source_kind'], str) or not isinstance(request['source_id'], str):
+                raise ao.AIValidationError('来源核验标识不合法')
+            key = (request['source_kind'], request['source_id'])
+            reason = request['reason']
+            if key in seen or key not in available or not isinstance(reason, str) or not reason.strip() or len(reason) > 300:
+                raise ao.AIValidationError('只能核对本轮所选 Wiki 的明确来源')
+            seen.add(key)
+            requests.append({'source_kind': key[0], 'source_id': key[1],
+                             'source_ref': available[key], 'reason': reason.strip()})
+        plan = {
+            'id': 'resume-evidence-plan:' + uid(), 'document_id': document['document_id'],
+            'opportunity_id': document['opportunity_id'], 'expected_revision': document['revision'],
+            'retrieval_plan_id': body['retrieval_plan_id'],
+            'selected_candidate_ids': body['selected_candidate_ids'],
+            'requests': requests, 'status': 'needs_evidence', 'created_at': now(),
+            'manifest': packet['manifest'],
+        }
+        with store.connect() as c:
+            store._record(c, 'resume_evidence_plan', plan)
+            origin = store._get(c, body['retrieval_plan_id'], 'resume_retrieval_plan', True)
+            origin['status'] = 'used'
+            origin['used_at'] = now()
+            store._record(c, 'resume_retrieval_plan', origin)
+        return plan
+    requests = result.get('retrieval_requests', []) if isinstance(result, dict) else []
+    if not isinstance(requests, list) or len(requests) > 3:
+        raise ao.AIValidationError('retrieval_requests 数量不合法')
+    if requests:
+        if result.get('changes'):
+            raise ao.AIValidationError('检索请求不能同时包含待应用建议')
+        normalized = []
+        for request in requests:
+            if not isinstance(request, dict) or set(request) != {'need', 'query'}:
+                raise ao.AIValidationError('检索请求结构不合法')
+            need, query = request['need'], request['query']
+            if not isinstance(need, str) or not need.strip() or len(need) > 300:
+                raise ao.AIValidationError('缺失证据说明不合法')
+            if not isinstance(query, str) or not query.strip() or len(query) > 200:
+                raise ao.AIValidationError('Career 检索词不合法')
+            normalized.append({'need': need.strip(), 'query': query.strip()})
+        _normalize_resume_result(document['document'], packet, result)
+        candidates = []
+        seen = set()
+        with store.connect(False) as c:
+            for request in normalized:
+                for item in search_candidates(store, c, document['opportunity_id'], request['query'], limit=8):
+                    if item['id'] not in seen and len(candidates) < 12:
+                        candidates.append(item)
+                        seen.add(item['id'])
+        plan = {
+            'id': 'resume-retrieval-plan:' + uid(), 'document_id': document['document_id'],
+            'opportunity_id': document['opportunity_id'], 'expected_revision': document['revision'],
+            'requests': normalized, 'candidates': candidates,
+            'status': 'needs_retrieval', 'created_at': now(),
+            'manifest': packet['manifest'],
+        }
+        with store.connect() as c:
+            store._record(c, 'resume_retrieval_plan', plan)
+        return plan
     changes, suggestions, claims = _normalize_resume_result(document["document"], packet, result)
     proposal = {'id': 'resume-ai-proposal:' + uid(), 'document_id': document['document_id'],
                 'opportunity_id': document['opportunity_id'], 'expected_revision': document['revision'],
@@ -431,13 +640,28 @@ def _resume_persist(store, prepared, result, diagnostics):
                 'manifest': packet['manifest'],
                 'context': {'policy_version': packet['output_schema_version'], 'source_ids': [x['id'] for x in packet['sources']]},
                 'model': diagnostics, 'created_at': now()}
+    if any('operation' in change for change in result.get('changes', [])):
+        proposal['resolution_mode'] = 'per_change'
+        for change in proposal['changes']:
+            change['status'] = 'pending'
     with store.connect() as c:
         store._record(c, 'resume_ai_proposal', proposal)
+        if body.get('retrieval_plan_id'):
+            plan = store._get(c, body['retrieval_plan_id'], 'resume_retrieval_plan', True)
+            plan['status'] = 'used'
+            plan['used_at'] = now()
+            store._record(c, 'resume_retrieval_plan', plan)
+        if body.get('evidence_plan_id'):
+            evidence_plan = store._get(c, body['evidence_plan_id'], 'resume_evidence_plan', True)
+            evidence_plan['status'] = 'used'
+            evidence_plan['used_at'] = now()
+            store._record(c, 'resume_evidence_plan', evidence_plan)
     return proposal
 
 
 def generate_ai_suggestion(store, document_id, body):
-    strict(body, {'instruction', 'idempotency_key', 'model_config_id', 'prepared_id', 'payload_hash', 'confirm_outbound'})
+    strict(body, {'instruction', 'idempotency_key', 'model_config_id', 'prepared_id', 'payload_hash', 'confirm_outbound',
+                  'retrieval_plan_id', 'selected_candidate_ids', 'evidence_plan_id', 'selected_evidence_ids'})
     instruction = body.get('instruction', '')
     if not isinstance(instruction, str) or len(instruction) > 10000: raise Invalid('AI 简历指令过长')
     key = body.get('idempotency_key')
@@ -469,6 +693,8 @@ def resolve_ai_suggestion(store, document_id, proposal_id, body):
         proposal = store._get(c, proposal_id, 'resume_ai_proposal', True)
         if proposal['document_id'] != document_id: raise Missing('AI 简历建议不存在')
         if proposal['status'] != 'pending': return proposal
+        if proposal.get('resolution_mode') == 'per_change' and body['decision'] == 'accept':
+            raise Conflict('此提案必须逐条处理，不能批量接受')
         if body['decision'] == 'reject':
             proposal.update(status='rejected', resolved_at=now())
             store._record(c, 'resume_ai_proposal', proposal)
@@ -516,6 +742,94 @@ def resolve_ai_suggestion(store, document_id, proposal_id, body):
         proposal['applied_revision'] = saved['revision']
         proposal['applied_change_ids'] = [change["change_id"] for change, _ in selected_changes]
         proposal.update(status='accepted', resolved_at=now())
+        store._record(c, 'resume_ai_proposal', proposal)
+        return {'proposal': proposal, 'document': saved}
+
+
+def resolve_ai_change(store, document_id, proposal_id, change_id, body):
+    strict(body, {'decision', 'proposed_text'})
+    decision = body.get('decision')
+    if decision not in {'accept', 'reject'}: raise Invalid('decision 只能是 accept 或 reject')
+    with store.connect() as c:
+        proposal = store._get(c, proposal_id, 'resume_ai_proposal', True)
+        if proposal.get('document_id') != document_id: raise Missing('AI 简历建议不存在')
+        if proposal.get('resolution_mode') != 'per_change':
+            raise Conflict('历史建议请使用原处理入口')
+        change = next((item for item in proposal['changes'] if item['change_id'] == change_id), None)
+        if change is None: raise Missing('AI 简历单条建议不存在')
+        if change.get('status') != 'pending' or proposal['status'] != 'pending':
+            return {'proposal': proposal, 'document': get_document(store, c, document_id)}
+        current = get_document(store, c, document_id)
+        if decision == 'accept':
+            cm.validate(store, c, proposal['manifest'])
+            if current['revision'] != proposal['expected_revision']:
+                raise Conflict('AI 建议已过期：工作稿已变化')
+            text = body.get('proposed_text', change.get('proposed_text'))
+            if change['operation'] != 'delete' and (not isinstance(text, str) or not text.strip() or len(text) > _MAX_CHANGE_TEXT):
+                raise Invalid('用户编辑后的建议文本不合法')
+            if change['operation'] == 'delete' and 'proposed_text' in body:
+                raise Invalid('删除建议不能提交新文本')
+            updated = deepcopy(current['document'])
+            applied_item_id = change.get('item_id')
+            if change['operation'] == 'add':
+                section_type = change['section_type']
+                section = next((item for item in updated['sections'] if item['type'] == section_type), None)
+                if section is None:
+                    section = {'id': 'section-' + section_type, 'type': section_type,
+                               'title': {'skills': '专业技能', 'experience': '工作经历',
+                                         'projects': '项目经历', 'education': '教育背景'}[section_type], 'items': []}
+                    updated['sections'].append(section)
+                item_id = uid()
+                applied_item_id = item_id
+                expression = html.escape(text).replace('\n', '<br>')
+                if section_type == 'skills':
+                    item = {'id': item_id, 'content': expression}
+                else:
+                    fields = {
+                        'experience': {'organization': '', 'role': '', 'date': ''},
+                        'projects': {'title': '', 'responsibility': '', 'date': ''},
+                        'education': {'school': '', 'major': '', 'date': ''},
+                    }[section_type]
+                    item = {'id': item_id, **fields, 'bullets': [{'id': uid(), 'content': expression}]}
+                section['items'].append(item)
+                refs = updated['meta'].setdefault('source_refs', [])
+                for ref in change['source_refs']:
+                    source = store._get(c, ref['id'], 'wiki_knowledge')
+                    if source['revision'] != ref['revision'] or source['status'] != 'current':
+                        raise Conflict('Career Wiki 来源已变化，请重新生成建议')
+                    refs.append({
+                        'item_id': item_id, 'source_kind': 'wiki_knowledge',
+                        'source_id': source['id'], 'revision': source['revision'],
+                        'hash': digest(source), 'title': source['content'][:100],
+                        'scope_type': source['scope_type'], 'scope_id': source['scope_id'],
+                    })
+            elif change['operation'] == 'rewrite':
+                if digest(_change_target(updated, change['item_id'], change['field'])) != change['before_hash']:
+                    raise Conflict('AI 建议的原文已变化，请重新生成')
+                _set_change_target(updated, change['item_id'], change['field'], text)
+            elif change['operation'] == 'delete':
+                section, item = _resume_item(updated, change['item_id'])
+                if digest(item) != change['before_hash']:
+                    raise Conflict('待删除条目已变化，请重新生成')
+                section['items'] = [candidate for candidate in section['items'] if candidate['id'] != item['id']]
+            else:
+                raise Conflict('AI 建议类型不合法')
+            saved = save_document(c, store, validate_document(updated), current['revision'], document_id)
+            proposal['expected_revision'] = saved['revision']
+            manifest = proposal['manifest']
+            manifest['target_revision'] = saved['revision']
+            for dependency in manifest['dependencies']:
+                if dependency['kind'] == 'resume_document' and dependency['id'] == document_id:
+                    dependency.update(revision=saved['revision'], content_hash=digest(saved['document']))
+            change['status'] = 'accepted'
+            change['applied_item_id'] = applied_item_id
+            if text is not None: change['accepted_text'] = text
+        else:
+            saved = current
+            change['status'] = 'rejected'
+        if all(item.get('status') != 'pending' for item in proposal['changes']):
+            proposal['status'] = 'accepted' if any(item['status'] == 'accepted' for item in proposal['changes']) else 'rejected'
+            proposal['resolved_at'] = now()
         store._record(c, 'resume_ai_proposal', proposal)
         return {'proposal': proposal, 'document': saved}
 
@@ -676,9 +990,79 @@ def router(store):
                         proposal.update(stale=True, stale_reason=str(exc))
                 result.append(proposal)
             return result
+    @router.get('/api/resume-documents/{document_id}/ai-retrieval-plans')
+    def ai_retrieval_plans(document_id: str):
+        with store.connect(False) as c:
+            get_document(store, c, document_id)
+            plans = []
+            for plan in store._records(c, 'resume_retrieval_plan'):
+                if plan.get('document_id') != document_id or plan.get('status') != 'needs_retrieval':
+                    continue
+                item = dict(plan)
+                try:
+                    cm.validate(store, c, plan.get('manifest'))
+                except Conflict as exc:
+                    item.update(stale=True, stale_reason=str(exc))
+                plans.append(item)
+            return plans
+    @router.get('/api/resume-documents/{document_id}/ai-retrieval-plans/{plan_id}/labels')
+    def ai_retrieval_labels(document_id: str, plan_id: str):
+        with store.connect(False) as c:
+            document = get_document(store, c, document_id)
+            plan = store._get(c, plan_id, 'resume_retrieval_plan', True)
+            if plan.get('document_id') != document_id or plan.get('opportunity_id') != document['opportunity_id']:
+                raise Missing('检索计划不存在')
+            labels = {}
+            for candidate in plan.get('candidates', []):
+                kind, identifier = candidate['kind'], candidate['id']
+                if kind == 'wiki_knowledge':
+                    item = store._get(c, identifier, kind)
+                    if item['revision'] == candidate['revision'] and item.get('status') == 'current':
+                        labels[identifier] = item['content'][:100]
+                elif kind == 'work_project':
+                    item = store._get(c, identifier, kind)
+                    if item['revision'] == candidate['revision']:
+                        labels[identifier] = item['name'][:100]
+                elif kind == 'employment':
+                    from .work import _employment
+                    item = _employment(store, c, identifier)
+                    if item['revision'] == candidate['revision']:
+                        labels[identifier] = (item['company'] + ' · ' + item['role'])[:100]
+            return {'labels': labels}
+    @router.get('/api/resume-documents/{document_id}/ai-evidence-plans')
+    def ai_evidence_plans(document_id: str):
+        with store.connect(False) as c:
+            get_document(store, c, document_id)
+            plans = []
+            for plan in store._records(c, 'resume_evidence_plan'):
+                if plan.get('document_id') != document_id or plan.get('status') != 'needs_evidence':
+                    continue
+                item = dict(plan)
+                try:
+                    cm.validate(store, c, plan.get('manifest'))
+                except Conflict as exc:
+                    item.update(stale=True, stale_reason=str(exc))
+                plans.append(item)
+            return plans
+    @router.get('/api/resume-documents/{document_id}/ai-evidence-plans/{plan_id}/labels')
+    def ai_evidence_labels(document_id: str, plan_id: str):
+        with store.connect(False) as c:
+            document = get_document(store, c, document_id)
+            plan = store._get(c, plan_id, 'resume_evidence_plan', True)
+            if plan.get('document_id') != document_id or plan.get('opportunity_id') != document['opportunity_id']:
+                raise Missing('来源核验计划不存在')
+            labels = {}
+            for request in plan['requests']:
+                source = wiki_sources.resolve_source(store, c, request['source_kind'], request['source_id'])
+                if wiki_sources.source_ref(source) == request['source_ref']:
+                    labels[source['id']] = source['title'][:100]
+            return {'labels': labels}
     @router.post('/api/resume-documents/{document_id}/ai-proposals/{proposal_id}/resolve')
     def ai_resolve(document_id: str, proposal_id: str, body: dict):
         return resolve_ai_suggestion(store, document_id, proposal_id, body)
+    @router.post('/api/resume-documents/{document_id}/ai-proposals/{proposal_id}/changes/{change_id}/resolve')
+    def ai_resolve_change(document_id: str, proposal_id: str, change_id: str, body: dict):
+        return resolve_ai_change(store, document_id, proposal_id, change_id, body)
     @router.post('/api/resume-documents/{document_id}/versions')
     def save_version(document_id:str,body:dict):
         strict(body,{'name','expected_revision','idempotency_key'})
