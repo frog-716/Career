@@ -65,6 +65,7 @@ function entriesFor(d: Obj) {
 
 function rawsFor(d: Obj) {
   if (d.page === "projects") return d.projectWiki?.raw || [];
+  if (d.page === "person") return d.personWiki?.raw || [];
   if (d.page === "work") return [
     ...(d.employmentWiki?.raw || []), ...(d.personWiki?.raw || []),
   ];

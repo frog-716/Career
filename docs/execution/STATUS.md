@@ -1,5 +1,11 @@
 # 当前状态
 
+## 2026-09-29：UX-3 COMPLETE / PASS
+
+- 用户已通过 UX-3 V4 的 Project、Employment Active、Employment Ended、Person 四张隔离截图；随后确认 Project 最近 Wiki 只能标为“最近更新”，Employment 只能使用自身非空 focus。空 focus 显示“还没有填写当前重点”，Wiki 仍留在“当前理解”中。Person 与样式未修改；没有变更 Domain、API、schema 或对象关系。
+- UX-3 使用虚构隔离数据；前端 11 组测试、全量 pytest（509 passed）、typecheck、/tmp build 与 git diff --check 均通过。本轮真实 Provider 未调用，DeepSeek / Tavily outbound 增量为 0 / 0；没有正式 Runtime Cutover。
+- UX-3 COMPLETE / PASS。D4 继续 SYNTHETIC READY / REAL SMOKE PAUSED / NOT YET PASSED；UX-4 未开始。
+
 ## 2026-09-28：UX-2 COMPLETE / PASS
 
 - 保留现有页面结构，只做用户要求的减法。Opportunity 列表去掉每行重复的阶段日期；提醒日期使用“今天 / 明天 / 26年9月30日”等表达，今天和逾期才用克制强调；阶段以 6px 弱色点配可读文字，仍低于公司/岗位与“下一步”；空态“添加第一个机会”仍是已绑定打开新建表单的按钮，并以链接样式明确可点击。

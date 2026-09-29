@@ -27,11 +27,12 @@ type Page =
   | "diagnostics"
   | "progress"
   | "work"
+  | "person"
   | "projects"
   | "practice"
   | "footprint";
 const PAGE_IDS: Page[] = [
-  "wiki", "directory", "jobs", "progress", "work", "projects", "practice", "footprint",
+  "wiki", "directory", "jobs", "progress", "work", "person", "projects", "practice", "footprint",
   "resume", "profile", "feedback", "diagnostics",
 ];
 const isPage = (value: string): value is Page => PAGE_IDS.includes(value as Page);
@@ -289,31 +290,38 @@ async function load() {
       if (!current()) return;
       journey = journeyResult;
       workDomain = workResult;
-      const route = readRoute();
-      const selectedEpisodeId = ui.episodeId || (route.p === "work" ? route.id : "")
-        || journeyResult.episodes?.[0]?.id || "";
+      const selectedEpisodeId = ui.episodeId || journeyResult.episodes?.[0]?.id || "";
       ui.episodeId = selectedEpisodeId;
-      const selectedEpisode = journeyResult.episodes?.find((item: Obj) => item.id === selectedEpisodeId);
-      const selectedEmployment = selectedEpisode
-        ? workResult.employments?.find((item: Obj) => item.legacy_episode_id === selectedEpisode.id)
+      const selectedEmployment = journeyResult.episodes?.find((item: Obj) => item.id === selectedEpisodeId)
+        ? workResult.employments?.find((item: Obj) => item.legacy_episode_id === selectedEpisodeId)
         : null;
       const employmentId = selectedEmployment?.id || (selectedEpisodeId ? "employment:" + selectedEpisodeId : "");
-      const allowedPeople = (workResult.persons || []).filter((item: Obj) =>
-        item.employment_id === employmentId && item.identity_status === "confirmed",
-      );
-      if (!allowedPeople.some((item: Obj) => item.id === ui.personId)) ui.personId = "";
-      const selectedPerson = allowedPeople.find((item: Obj) => item.id === ui.personId);
-      const [employmentResult, personResult] = await Promise.all([
-        employmentId
-          ? api(`/wiki/workspace?scope_type=employment&scope_id=${encodeURIComponent(employmentId)}`)
-          : Promise.resolve({ knowledge: [], retired: [], raw: [] }),
-        selectedPerson
-          ? api(`/wiki/workspace?scope_type=person&scope_id=${encodeURIComponent(selectedPerson.id)}`)
-          : Promise.resolve({ knowledge: [], retired: [], raw: [] }),
-      ]);
+      const employmentResult = employmentId
+        ? await api(`/wiki/workspace?scope_type=employment&scope_id=${encodeURIComponent(employmentId)}`)
+        : { knowledge: [], retired: [], raw: [] };
       if (!current()) return;
       employmentWiki = employmentResult;
-      personWiki = personResult;
+      personWiki = { knowledge: [], retired: [], raw: [] };
+    } else if (targetPage === "person") {
+      const [journeyResult, workResult] = await Promise.all([
+        api("/journey"),
+        api("/work-domain"),
+      ]);
+      if (!current()) return;
+      journey = journeyResult;
+      workDomain = workResult;
+      const person = (workResult.persons || []).find((item: Obj) =>
+        item.id === ui.personId && item.identity_status === "confirmed",
+      );
+      const employment = person
+        ? (workResult.employments || []).find((item: Obj) => item.id === person.employment_id)
+        : null;
+      if (employment) ui.episodeId = employment.legacy_episode_id;
+      personWiki = person
+        ? await api(`/wiki/workspace?scope_type=person&scope_id=${encodeURIComponent(person.id)}`)
+        : { knowledge: [], retired: [], raw: [] };
+      if (!current()) return;
+      employmentWiki = { knowledge: [], retired: [], raw: [] };
     } else if (targetPage === "projects") {
       const workResult = await api("/work-domain");
       if (!current()) return;
@@ -680,6 +688,7 @@ function render() {
         domain,
         workDomain,
         projectId: ui.projectId,
+        personId: ui.personId,
         journey,
         jobId,
         editorVersions,
@@ -701,14 +710,15 @@ async function navigate(next: Page, id = jobId) {
   if (page === "resume" && resumeEditorController && !(await releaseResumeEditor(true))) return;
   const navigation = ++navigationSequence;
   page = next;
-  jobId = id;
+  if (page === "jobs" || page === "progress") jobId = id;
   if (page === "projects") ui.projectId = id || "";
-  if (page === "work" && id) ui.episodeId = id;
+  if (page === "work") { ui.episodeId = id || ui.episodeId; ui.personId = ""; }
+  if (page === "person") ui.personId = id || "";
   notice = "";
   if (page === "profile") knowledgeUI.tab = "profile";
   await load();
   if (page === "projects" && !ui.projectId) ui.projectId = workDomain.projects?.[0]?.id || "";
-  if (navigation !== navigationSequence || page !== next || jobId !== id) return;
+  if (navigation !== navigationSequence || page !== next || ((page === "jobs" || page === "progress") && jobId !== id)) return;
   history.replaceState(
     null,
     "",
@@ -720,6 +730,8 @@ async function navigate(next: Page, id = jobId) {
           ? "/" + encodeURIComponent(ui.projectId)
         : page === "work" && ui.episodeId
           ? "/" + encodeURIComponent(ui.episodeId)
+        : page === "person" && ui.personId
+          ? "/" + encodeURIComponent(ui.personId)
           : "") +
       (page === "wiki" && !semanticWikiUI.legacyView ? "?" + wikiReadingQuery() : page === "resume" && (resumeDocumentId || resumeLegacy)
         ? `?${resumeLegacy ? "legacy=1" : `document_id=${encodeURIComponent(resumeDocumentId)}`}`
@@ -1525,8 +1537,10 @@ function captureFeedback() {
       ? jobId
       : page === "work"
         ? ui.episodeId || journey.episodes[0]?.id || ""
-        : page === "projects"
+      : page === "projects"
           ? ui.projectId
+        : page === "person"
+          ? ui.personId
         : page === "wiki"
           ? knowledgeUI.selected ||
             (knowledgeUI.tab === "profile" ? "profile" : "")
@@ -1767,7 +1781,7 @@ function bind() {
       (el.onclick = () => {
         const destination = el.dataset.page as Page;
         const targetId = el.dataset.job || el.dataset.project ||
-          (destination === "jobs" ? "" : destination === "projects" ? ui.projectId : destination === "work" ? ui.episodeId : jobId);
+          (destination === "jobs" ? "" : destination === "projects" ? ui.projectId : destination === "work" ? ui.episodeId : destination === "person" ? ui.personId : jobId);
         void navigate(destination, targetId).catch(
           failure,
         );
@@ -1776,6 +1790,16 @@ function bind() {
   document.querySelectorAll<HTMLElement>("[data-open-project]").forEach(
     (el) => (el.onclick = () => { void navigate("projects", el.dataset.openProject || "").catch(failure); }),
   );
+  document.querySelectorAll<HTMLElement>("[data-open-person]").forEach((el) => (el.onclick = () => {
+    const person = workDomain.persons.find((item: Obj) =>
+      item.id === el.dataset.openPerson && item.identity_status === "confirmed",
+    );
+    if (!person) return;
+    const employment = workDomain.employments?.find((item: Obj) => item.id === person.employment_id);
+    if (!employment) return;
+    ui.episodeId = employment.legacy_episode_id;
+    void navigate("person", person.id).catch(failure);
+  }));
   document.querySelectorAll<HTMLElement>("[data-open-employment]").forEach(
     (el) => (el.onclick = () => {
       ui.episodeId = el.dataset.openEmployment || "";
@@ -1842,8 +1866,10 @@ function bind() {
       item.id === el.dataset.openEmploymentPerson && item.identity_status === "confirmed",
     );
     if (!person) return;
-    ui.personId = person.id;
-    void load().then(render).catch(failure);
+    const employment = workDomain.employments?.find((item: Obj) => item.id === person.employment_id);
+    if (!employment) return;
+    ui.episodeId = employment.legacy_episode_id;
+    void navigate("person", person.id).catch(failure);
   }));
   document.querySelectorAll<HTMLElement>("[data-close-employment-person]").forEach((el) => (el.onclick = () => {
     ui.personId = "";
@@ -1906,6 +1932,7 @@ function routeSelection(p: string, id: string, params: URLSearchParams) {
   if(p==='jobs'||p==='progress') {opportunityView=params.get('view')||opportunityView;opportunityAnchor=params.get('tab')||'';}
   if (p === "jobs" && ["jd","analysis","resume",...Object.keys(noteNames)].includes(params.get("tab") || "")) ui.jobTab = params.get("tab")!;
   if (p === "wiki") restoreWikiReadingRoute(params);
+  if (p === "person") ui.personId = id;
   if (p === "wiki" && id) {knowledgeUI.tab = "entries";knowledgeUI.scope = "all";knowledgeUI.category = "all";knowledgeUI.selected = id;}
   if (p === "resume") {
     resumeDocumentId = params.get("document_id") || "";
@@ -1921,6 +1948,7 @@ async function start() {
     if (isPage(initialPage)) page = initialPage;
     if ((p === "home" || !p) && isPage(initialPage)) history.replaceState(null, "", `#${initialPage}`);
     if (page === "jobs" || page === "progress") jobId = id;
+    if (page === "person") ui.personId = id;
     await load();
     if (page !== "jobs" && page !== "progress")
       jobId = state.jobs.some((j: Obj) => j.id === id) ? id : activeJobs()[0]?.id || "";
@@ -1963,6 +1991,8 @@ window.addEventListener("hashchange", () => {
               ? "/" + encodeURIComponent(ui.projectId)
             : page === "work" && ui.episodeId
               ? "/" + encodeURIComponent(ui.episodeId)
+            : page === "person" && ui.personId
+              ? "/" + encodeURIComponent(ui.personId)
               : "") +
           (page === "resume" && (resumeDocumentId || resumeLegacy)
             ? `?${resumeLegacy ? "legacy=1" : `document_id=${encodeURIComponent(resumeDocumentId)}`}`
@@ -1974,7 +2004,8 @@ window.addEventListener("hashchange", () => {
     routeSelection(requested,id,params);
     if (requested === "work") ui.episodeId = id || "";
     if (requested === "projects") ui.projectId = id || "";
-    const targetJob = (requested === 'jobs' || requested === 'progress' || requested === 'projects') ? id : jobId;
+    if (requested === "person") ui.personId = id || "";
+    const targetJob = (["jobs", "progress", "projects", "work", "person"] as string[]).includes(requested) ? id : jobId;
     if (requested === "jobs" || requested === "progress")
       ui.jobFilter =
         state.jobs.find((j: Obj) => j.id === targetJob)?.status === "active"
@@ -1990,6 +2021,7 @@ const aiActivity = createAIActivityUI({
   owner: () => {
     if (page === "projects") return { type: "project", id: ui.projectId };
     if (page === "jobs") return { type: "opportunity", id: jobId };
+    if (page === "person") return { type: "person", id: ui.personId };
     if (page === "work") {
       if (ui.personId) return { type: "person", id: ui.personId };
       const employment = workDomain.employments?.find((x: Obj) => x.legacy_episode_id === ui.episodeId || x.id === ui.episodeId);

@@ -103,16 +103,16 @@ assert.match(bindings, /await load\(\)/, "审批后必须重新读取业务页�
 assert.doesNotMatch(bindings + employmentView + main, /location\.reload\s*\(/);
 assert.equal((bindings.match(/\/wiki\/compiler\/prepare/g) || []).length, 1,
   "Project、Employment、Person 应复用唯一的 Compiler prepare 入口");
-const workBranch = employmentView.slice(employmentView.indexOf('if (page === "work")'), employmentView.indexOf('if (page === "resume")'));
-assert.match(workBranch, /wikiCurrentUnderstandingHTML\("employment", employmentId/);
-assert.match(workBranch, /wikiCurrentUnderstandingHTML\("person", selectedPerson\.id/);
-assert.match(workBranch, /scopeRawHTML\("employment", employmentId/);
-assert.match(workBranch, /scopeRawHTML\("person", selectedPerson\.id/);
-assert.ok(workBranch.indexOf("${employmentWikiView}") < workBranch.indexOf("${employmentRawView}"),
-  "Employment 页面应先显示当前理解，再显示任职资料");
-assert.match(main, /ui\.personId = person\.id[\s\S]*?void load\(\)\.then\(render\)/,
-  "打开 Person 详情时应读取该人物自己的 Wiki 并保留当前路由");
-assert.match(main, /ui\.personId = ""[\s\S]*?personWiki = \{ knowledge: \[\], retired: \[\], raw: \[\] \}/,
-  "收起 Person 详情后应清除选中人物的数据");
+const workBranch = employmentView.slice(employmentView.indexOf('if (page === "work")'), employmentView.indexOf('if (page === "person")'));
+const personBranch = employmentView.slice(employmentView.indexOf('if (page === "person")'), employmentView.indexOf('if (page === "resume")'));
+assert.match(workBranch, /employmentWorkspaceHTML/);
+assert.doesNotMatch(workBranch, /personWiki|personDetail|data-d3-person-detail/,
+  "任职页面不再内嵌完整 Person 详情");
+assert.match(personBranch, /personWorkspaceHTML/);
+assert.match(main, /targetPage === "person"[\s\S]*?scope_type=person/);
+assert.match(main, /\[data-open-person\][\s\S]*?navigate\("person",/,
+  "从任职、Project 进入人物都应打开同一 Person 页面");
+assert.match(main, /if \(page === "person"\) ui\.personId = id/,
+  "刷新后应根据稳定路由恢复同一个 Person 页面");
 
 console.log("wiki-d3-workspaces: ok");

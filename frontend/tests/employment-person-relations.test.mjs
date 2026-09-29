@@ -6,13 +6,13 @@ import {
   peopleForEmployment,
 } from "../src/person-relations.ts";
 
-const workspace = readFileSync(new URL("../src/workspace.ts", import.meta.url), "utf8");
 const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+const ux3Workspace = readFileSync(new URL("../src/ux3-workspaces.ts", import.meta.url), "utf8");
 
-assert.match(workspace, /data-add-employment-person/, "Employment 页面应提供添加人物入口");
-assert.match(workspace, /data-edit-employment-person/, "Employment 人物卡片应提供编辑入口");
-assert.doesNotMatch(workspace, /身份已确认/, "正常人物卡片不需要展示已确认状态标签");
-assert.match(workspace, /identity_status/, "底层人物身份状态应继续保留给待解决身份流程使用");
+assert.match(ux3Workspace, /data-add-employment-person/, "Employment 页面应提供添加人物入口");
+assert.match(ux3Workspace, /data-edit-employment-person/, "Employment 人物卡片应提供编辑入口");
+assert.doesNotMatch(ux3Workspace, /身份已确认/, "正常人物卡片不需要展示已确认状态标签");
+assert.match(main, /identity_status/, "底层人物身份状态应继续保留给待解决身份流程使用");
 assert.match(main, /\/work\/employments\/.*\/persons/, "手工新增人物必须落在指定 Employment");
 assert.match(main, /function editEmploymentPerson/, "编辑人物应使用轻量编辑框");
 assert.match(main, /expected_revision:\s*Number\(revision\)/, "人物编辑应使用 CAS revision");
