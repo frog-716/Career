@@ -650,6 +650,8 @@ function render() {
     history.replaceState(null,'','#opportunities'+(jobId?'/'+encodeURIComponent(jobId):'')+'?view='+opportunityView+(opportunityAnchor?'&tab='+encodeURIComponent(opportunityAnchor):''));
     bind();
     bindOpportunity(ctx,{api,refresh:load,go:(id,filter)=>{const changed=id!==jobId;jobId=id;if(filter)opportunityView=filter;opportunityAnchor='';if(changed)void load().then(()=>{if(jobId===id)render();}).catch(failure);else render();}});
+    if (opportunityAnchor === "resume")
+      document.querySelector<HTMLElement>("#op-resume-section")?.scrollIntoView({block: "start"});
     return;
   }
   const ep =

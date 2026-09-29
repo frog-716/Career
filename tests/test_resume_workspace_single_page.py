@@ -17,7 +17,8 @@ def test_resume_workspace_is_the_only_normal_editor_entry():
         if name != "editor/legacy-entry.ts"
     }
     assert all("/editor.html?" not in content for content in formal_sources.values())
-    assert "/#resume?document_id=" in sources["opportunity-ui.ts"]
+    assert "resumeEditorHref(target.documentId)" in sources["opportunity-ui.ts"]
+    assert "export function resumeEditorHref" in sources["resume-navigation.ts"]
     assert "data-resume-editor-host" in sources["resume-workspace.ts"]
     assert 'id="previewPdf"' in sources["resume-workspace.ts"]
     assert "pdf-preview-dialog" in sources["editor/legacy-app.js"]

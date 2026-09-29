@@ -1,6 +1,6 @@
 # 长期 Career 模型
 
-状态：已确认的目标规格；不表示已经实现。最后整理：2026-09-25。
+状态：已确认的目标规格；不表示已经实现。最后整理：2026-09-29。
 
 本文是 Career 跨模块长期模型的唯一规则正本。Opportunity 的阶段、招聘流程、轮次、投递和谈薪细节仍由 [Opportunity 四份目标规格](opportunity/opportunity-product-model.md)负责；两者冲突时，本文负责全局导航、长期对象边界、Wiki/Raw/Person、Resume AI 隐私及 Resume 入口，Opportunity 正本负责机会内领域动作。工程现状见 [Architecture](../03-architecture.md)，不能覆盖本文目标。`docs/audit/` 与 `docs/archive/` 仅保留历史原貌。
 
@@ -8,7 +8,9 @@
 
 一级导航固定为：**Wiki / 机会 / 项目 / 任职**。简历不是一级工作区。完整 Resume Editor 继续存在，从某个机会的“编辑简历”进入，并明确显示当前编辑的是哪个 Opportunity 的简历。
 
-Career 是 local-first 的个人长期职业工作台，仓库保持 Private，不公开发布。本模型不要求云部署、多端同步或通用 Agent 平台。
+Career 是 local-first 的个人长期职业工作台。GitHub 仓库保持 Public，包含代码及允许公开的开发资料；正式用户数据、Secret 和本地资料不得进入 Git。本模型不要求云部署、多端同步或通用 Agent 平台。
+
+本轮主线不开发 Feishu。未来仅允许 Feishu → Career 的单向读取，在本机已安装并授权的 lark-cli 上建立最薄的 Read Adapter；Career 永远不能上传、创建或回写飞书文档，不做双向同步，也不另建 OAuth、Token refresh、Keychain 或飞书账号配置。Feishu userID、名称和头像属于 Career 登录身份，与 Resume 真人姓名、电话、邮箱、微信完全隔离；Resume 不得继承 Feishu Identity。
 
 ## 对象总图
 

@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
     "test:navigation": "node --experimental-strip-types tests/sidebar-model.test.mjs",
+    "test:resume-navigation": "node tests/resume-navigation.test.mjs",
     "test:local-request": "node --experimental-strip-types tests/local-request.test.mjs",
     "test:employment-person-relations": "node --experimental-strip-types tests/employment-person-relations.test.mjs",
     "test:project-collaboration": "node --experimental-strip-types tests/project-collaboration.test.mjs",

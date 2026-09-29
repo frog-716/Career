@@ -17,6 +17,11 @@
 | D4 | Wiki Cognition | SYNTHETIC READY；基础实现与 UX-1 形成依赖完整的 Cognition/UX checkpoint；导航兼容测试单行修正已获授权。REAL SMOKE PAUSED / NOT YET PASSED：被 UX Reset 暂停，正式 Cognition 未完成真实验收，不是 COMPLETE |
 | UX-1 | AI 进度、对象归属及关闭/切页/刷新恢复 | COMPLETE / PASS：用户 UI、机器核验、TestProvider exactly once 与无重复 dispatch 均通过 |
 | UX-2 | Opportunity + Wiki + Shared Visual Foundation | COMPLETE / PASS：四张用户截图与 Shared Visual Foundation 验收通过，自动回归、Git 收口和正式 Runtime Update 均完成；UX-3 READY，不恢复 D4 smoke |
+| UX-3 | 项目 / 任职 / 人物工作区 | COMPLETE / PASS；正式加载随 Phase 1 Runtime Update 核验 |
+| Resume 入口收口 | 四一级导航，机会打开原简历与返回 | 自动、独立审查和隔离 Fresh-Eyes 通过；Git / Runtime 收口中，不等于整个 F 完成 |
+| UX-4 | 简历保存回读、投递、沟通、面试与准备连续路径 | 紧随入口收口执行 |
+| Resume AI Privacy Gate | 从空 DTO 构造允许字段，捕获请求做对抗验证 | UX-4 后执行；任何真实 Resume AI outbound 前必须通过 |
+| UX-5 | 全新虚构库独立盲审完整核心链 | Privacy Gate 后执行；通过后才可恢复 D4 真实 smoke Preview |
 | E | 分类旧数据并退役 T14、ResumeUse 与重复业务对象 | 尚未开始；目标模型优先，分类后可清理明确测试对象 |
 | F | 从机会进入简历、创建/复制与版本流程 | 尚未开始 |
 | G | Resume AI 最小 DTO 与逐条建议 | 尚未开始 |
