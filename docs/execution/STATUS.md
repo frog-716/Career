@@ -3,6 +3,8 @@
 ## 2026-09-29：Target Mode Phase 5 — D4 Preview IN PROGRESS
 
 - 完成条件：仅沿用能确认的既有选择，核对 2–20 段 Project/Employment 的当前 Wiki 和实际 Preview；不读 Raw、不扩选全 Career、不处理旧待审 Proposal；准备真实调用后停在 Hard Gate 2，等待用户明确确认。本阶段真实价值仍 NOT YET PASSED；只有真实 smoke 后才能判断 GO / SHRINK / REMOVE。
+- Preview 现场发现正文两条当前 Wiki，但发送详情误报 0 条；真实请求尚未发送。修复验收：计数直接从实际发送的 DTO 计算，不依赖遗漏或不一致的摘要计数；先复现，再验证真实 Preview 与 DTO 均为两条。
+- 计数错误已先以缺失摘要字段用例复现，再改为实际 DTO 求和；缺失及错误摘要数值两例均通过。独立代码审查 PASS，隔离 UI Fresh Check 实际正文和详情均为 2 条且未发送（`/tmp/career-target-phase5/fresh/`）。全量 525 passed、14 组 frontend tests、typecheck、临时 build、secret scan、Markdown links、diff check 通过。正式 A/B smoke 旧 Proposal 保持 pending；准备预览只新增本地 preparation metadata，没有 Provider dispatch。
 
 ## 2026-09-29：Target Mode Phase 4 — UX-5 COMPLETE / PASS
 
