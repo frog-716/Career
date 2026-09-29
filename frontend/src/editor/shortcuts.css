@@ -1,0 +1,56 @@
+.resume-find-panel {
+  position: fixed;
+  z-index: 120;
+  top: 230px;
+  right: 24px;
+  display: grid;
+  gap: 10px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 32px #1e293b26;
+  color: #17212d;
+}
+
+.resume-editor .toast {
+  top: auto;
+  left: auto;
+}
+
+.resume-find-head,
+.resume-find-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.resume-find-panel label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.resume-find-panel input {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font: inherit;
+}
+
+.resume-find-actions span {
+  font-size: 12px;
+  color: #526170;
+}
+
+@media (max-width: 640px) {
+  .resume-find-panel { top: 12px; right: 16px; }
+}
+
+@media (max-height: 680px) {
+  .resume-find-panel { top: 12px; }
+}

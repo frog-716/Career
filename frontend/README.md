@@ -72,6 +72,8 @@ UI验收使用明确临时数据路径/独立端口/TestProvider，不连接真�
 
 Resume AI 的职业资料检索使用分步对话框：先呈现本地候选及缺失证据说明，勾选少量 Wiki/Project/Employment 后展示第二次外发 Preview；只有模型明确请求核对已选 Wiki 的来源，才出现原文选择和第三次 Preview。逐条建议可在纸面编辑器中分别修改后接受或拒绝，刷新后仍能找回未处理计划和提案。界面不会替用户自动发送下一轮请求或批量接受新提案。对应服务端接口与测试见 [Phase G](../src/workbench/README.md#phase-gresume-ai-按需检索)；隔离浏览器验收只使用虚构资料和 TestProvider。
 
+编辑器 Mac 快捷键：`⌘S` 走“保存版本”的命名流程，`⌘F` 打开仅搜索当前简历可编辑文字的查找替换面板；“更多”菜单也能打开该面板。`⌘Z` / `⌘⇧Z` 使用当前稿撤销/重做，剪切/粘贴前会留下可撤销状态。`⌘B` 和 `⌘←/↓/→` 保留加粗、左/中/右对齐；`⌘A`、`⌘X/C/V` 和 `⌘⇧←/→` 由 macOS Chrome 在聚焦的编辑条目内处理，后者选到当前行边界。真实浏览器回归：`.venv/bin/python -m pytest -q tests/test_resume_shortcuts_browser.py`（需要已安装的 Chrome 和 frontend/node_modules）；前端检查：`npm --prefix frontend run typecheck && npm --prefix frontend run build`。
+
 ## Batch D Communication 与 Timeline
 
 Opportunity Workspace 在已投递且未结束时显示“添加线上沟通 / 记录电话沟通 / 添加其他沟通”。表单明确选择日期、保留未提交输入，并以服务端 revision 处理并发冲突；结束后的机会隐藏新建入口，但已有 Communication 仍可查看和更正。界面“删除”调用后端归档动作，成功后该项同时从 Communication 列表与 Timeline 消失。
