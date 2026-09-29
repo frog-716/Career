@@ -1830,7 +1830,7 @@ function bind() {
   );
   $("#capture-feedback")!.onclick = captureFeedback;
   $("#add-job")?.addEventListener("click", addJob);
-  $("#add-episode")?.addEventListener("click", addEpisode);
+  document.querySelectorAll<HTMLElement>("[data-add-episode]").forEach((el) => el.addEventListener("click", addEpisode));
   $("#load-demo")?.addEventListener("click", () => {
     void (async () => {
       await api("/demo/load", {});
@@ -1848,7 +1848,7 @@ function bind() {
       inform("全链路案例已删除，你的资料未改动。");
     })().catch(failure);
   });
-  $("#add-project")?.addEventListener("click", () => createWorkProject());
+  document.querySelectorAll<HTMLElement>("[data-add-project]").forEach((el) => el.addEventListener("click", () => createWorkProject()));
   document.querySelectorAll<HTMLElement>("[data-edit-project]").forEach((el) => (el.onclick = () => {
     const project = workDomain.projects.find((item: Obj) => item.id === el.dataset.editProject);
     if (project) editWorkProject(project);

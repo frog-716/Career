@@ -102,3 +102,7 @@ legacy typed Offer 显示“历史 Offer · 待核对”，旧 status/terms/日�
 ### UX-4 机会回读与面试衔接
 
 `src/opportunity-scope.ts` 按当前机会读取工作稿、冻结投递、沟通、面试、Offer 与研究；`interview-ui.ts` 从机会级研究建议中筛选当前轮次。阶段变化后保留沟通和面试历史，已结束仍只允许既有资料更正。验证使用 `npm run test:ux4-opportunity`、`npm run test:ux4-interview`，实际浏览器证据使用隔离虚构库。
+
+### UX-5 空态创建入口
+
+项目和任职的左侧加号、中央空态按钮共享相应创建动作，每个入口都绑定事件，DOM ID 不重复。真实 Chrome 回归：在仓库根目录执行 `.venv/bin/python -m pytest -q tests/test_ux5_project_empty_action.py`，核验两页的两个入口均打开表单且取消不写入。
