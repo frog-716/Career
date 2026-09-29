@@ -9,7 +9,8 @@ MAIN = (ROOT / "frontend" / "src" / "main.ts").read_text(encoding="utf-8")
 def test_t15_has_only_the_four_current_first_level_modules():
     assert '"wiki", "Wiki"' in WORKSPACE
     assert '"jobs", "机会"' in WORKSPACE
-    assert '"resume", "简历工作台"' in WORKSPACE
+    assert '"projects", "项目"' in WORKSPACE
+    assert '"resume", "简历工作台"' not in WORKSPACE
     assert '"work", "任职"' in WORKSPACE
     assert '"today"' not in WORKSPACE
     assert '"今天"' not in WORKSPACE

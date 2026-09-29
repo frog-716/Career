@@ -1,5 +1,15 @@
 # 当前状态
 
+## 2026-09-29：Target Mode Phase 1 — Resume 导航验收通过，Git / Runtime 收口中
+
+- 本轮真实 Provider 未调用；D4 继续 SYNTHETIC READY / REAL SMOKE PAUSED / NOT YET PASSED。最新用户授权按 Phase 1–10 连续推进；普通代码批次允许精确 commit/push main 与受控 Runtime Update，仅在 handoff 六类 Hard Gate 停止。旧 execution 中逐批另行授权的停止描述不覆盖本轮。
+- 完成条件：一级仅 Wiki / 机会 / 项目 / 任职；已有 ResumeDocument 在任何阶段从所属机会打开；无稿只沿用合法创建规则且不自动创建；原编辑器、版本、PDF、选材、AI Proposal、Submission 冻结与旧 deep links 保留；用户旧 hunks 可独立保留。Phase F 的创建简化/复制/命名版本完整目标未因此宣称完成。
+- 独立代码审查与 Fresh-Eyes 已完成。盲审实际走通已有稿编辑虚构技能、保存后刷新/后退回读、历史版本、返回所属机会、已投递稿、无简历分支；发现 shell 标题错误及 owner 独立网格行导致纸面遮盖，已先复现并修复，独立复验通过。修复只在 workspace/resume-workspace，不修改 protected legacy 编辑器。PDF 下载有 UI 成功提示；IAB PDF 预览空白，保留 NOT VERIFIED，不以下载提示冒称预览内容通过。
+- 验证：全量 pytest 509 passed；12 组前端测试、typecheck、临时 build、secret scan、Markdown links、git diff --check 通过。修复后导航测试再次通过；独立提交候选 checkout 全量 508 passed（未包含用户旧 Resume 额外测试），12 组前端测试与 typecheck/build 也通过；证据保存在 `/tmp/career-target-phase1/`。截图/盲审报告为本机虚构证据，不进入 Git。
+- Public 与 Feishu 最新覆盖已写回长期模型；正式用户数据、Secret、本地资料仍不得进入 Git。Feishu 本轮不开发，未来仅依现有 lark-cli 单向读取，登录身份与 Resume 联系人隔离。
+- 开工 Git 为 `1eda69ed46d839fbf1144ec0d6ed994ee328543f`，fetch 后 HEAD/main/origin/main 一致。正式服务 PID 43209；health/quick_check=ok，schema v6、data instance、44/217/203 行数及 ID manifest 与既有基线一致；25 operations，22 dispatched。正式服务尚未加载 UX-3 与本批导航；提交后的 Runtime 核验完成前不宣称加载。
+- 所有权：既有 protected 文件开工哈希一致；frontend README 只收本批导航文案与模块/测试说明，原 PDF/Profile 两段保持未暂存；其余早期 Resume 源码/测试、AGENTS 与本机 Agent/Skill 不纳入。本轮不修改正式 schema 或业务资料。
+
 ## 2026-09-29：UX-3 COMPLETE / PASS
 
 - 用户已通过 UX-3 V4 的 Project、Employment Active、Employment Ended、Person 四张隔离截图；随后确认 Project 最近 Wiki 只能标为“最近更新”，Employment 只能使用自身非空 focus。空 focus 显示“还没有填写当前重点”，Wiki 仍留在“当前理解”中。Person 与样式未修改；没有变更 Domain、API、schema 或对象关系。

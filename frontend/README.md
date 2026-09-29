@@ -60,7 +60,7 @@ PDF 由服务端从结构化简历生成受控 HTML，并使用锁定版本的�
 
 ## Batch C Resume Workspace
 
-左侧只有一个“简历工作台”，列出当前ResumeDocument与最近编辑时间；用户明确选择后，在当前`#resume?document_id=...`页面直接进入完整纸面编辑状态。机会中的“编辑简历”使用相同Workspace入口，后端由did核对owner，返回链接回所属Opportunity。无owner不自动选首稿；旧job_id链接先回对应机会，`editor.html`兼容链接薄跳转回Workspace，legacy=1仅供只读查看。
+一级导航仅 Wiki、机会、项目、任职；简历保留为机会内的编辑器，列出当前ResumeDocument与最近编辑时间；用户明确选择后，在当前`#resume?document_id=...`页面直接进入完整纸面编辑状态。机会中的“编辑简历”使用相同Workspace入口，后端由did核对owner，返回链接回所属Opportunity。无owner不自动选首稿；旧job_id链接先回对应机会，`editor.html`兼容链接薄跳转回Workspace，legacy=1仅供只读查看。
 
 沿用现有legacy-app纸面编辑、排版和PDF；autosave仅更新工作稿，导出不生成普通版本。普通版本由“保存版本”产生，RecordSubmitted产生带🔒、机会与日期的投递版本；版本管理只在工作台，机会材料面板展示已冻结实际投递。Profile刷新必须显式选入当前稿。请求固定幂等key；冲突保留输入并显示服务器值，响应未知时原请求重试。
 
@@ -90,6 +90,11 @@ legacy typed Offer 显示“历史 Offer · 待核对”，旧 status/terms/日�
 
 ## Opportunity MVP 产品入口
 
-主导航只保留一个“机会”和一个“简历工作台”。旧 Job/JourneyPlan、独立面试页和足迹页不再作为主流程入口，但旧深链接及历史资料仍可兼容读取。机会详情按“当前动作 → 岗位情报 → 投递材料 → Timeline”组织；阶段和结果只能由后端 Domain Action 改变，Timeline 只读取投影。
+主导航固定为 Wiki、机会、项目、任职。已有简历从所属机会的稳定入口打开，各阶段与结束状态均保留；无稿只沿用现有合法创建规则，不自动创建。旧 Job/JourneyPlan、独立面试页和足迹页不再作为主流程入口，但旧深链接及历史资料仍可兼容读取。机会详情按“当前动作 → 岗位情报 → 投递材料 → Timeline”组织；阶段和结果只能由后端 Domain Action 改变，Timeline 只读取投影。
 
 简历工作台进入时不会自动选择第一份文档。用户从目录明确选择，或从具体机会进入同一编辑器；编辑器用 `document_id` 核对所属机会并按来源返回。用户界面使用求职语言，schema、revision、RawSource、PatchProposal 等内部概念不作为日常操作入口。
+
+
+## Resume 导航收口
+
+`src/resume-navigation.ts` 统一机会与编辑器链接和已有稿/合法创建/不可创建分流。打开时读取当前机会的 Resume API；编辑器显示所属机会并返回同一机会简历区域。旧 `#resume`、`editor.html` 和 `job_id` 链接保留兼容；导航偏好剔除旧 Resume 一级项并保留其余项的相对顺序。验证：`npm --prefix frontend run test:resume-navigation`、`test:navigation`，以及 `tests/test_resume_workspace_single_page.py`、`tests/test_t15_navigation.py`。

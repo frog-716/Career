@@ -115,7 +115,7 @@ function legacyProjectHTML(project: Row, workDomain: Row): string {
 }
 export const SIDEBAR_MODULES: [string, string][] = [
   ["wiki", "Wiki"], ["jobs", "机会"],
-  ["projects", "项目"], ["resume", "简历工作台"], ["work", "任职"],
+  ["projects", "项目"], ["work", "任职"],
 ];
 const sidebarStorageKey = "career.sidebar.module-order.v1";
 const sidebarHomeStorageKey = "career.sidebar.home.v1";
@@ -411,7 +411,9 @@ export function shell(
   const items = sidebarOrder();
   const label =
     items.find(([id]) => id === active)?.[1] ||
-    (page === "feedback"
+    (page === "resume"
+      ? "简历"
+      : page === "feedback"
       ? "反馈记录"
       : page === "directory"
         ? "公司与方向"

@@ -1,5 +1,6 @@
 import "./editor/legacy.css";
 import { requestLocal } from "./local-request";
+import { opportunityResumeHref } from "./resume-navigation";
 
 type Row = Record<string, any>;
 
@@ -26,6 +27,9 @@ export function resumeWorkspaceHTML(
   relationHTML: string,
 ): string {
   const selected = documents.find((document) => document.document_id === selectedDocumentId);
+  const owner = selected?.opportunity_id
+    ? `<div class="resume-owner-context"><span>所属机会：${escape(selected.company)} · ${escape(selected.title)}</span><a class="text-btn" href="${escape(opportunityResumeHref(selected.opportunity_id))}">返回所属机会</a></div>`
+    : "";
   const options = documents
     .map(
       (document) =>
@@ -46,6 +50,7 @@ export function resumeWorkspaceHTML(
   return `<section class="resume-workspace-page">
     <div class="resume-editor" data-resume-editor-host>
       <header class="app-bar resume-workspace-controls">
+        ${owner}
         <div class="resume-context-row">
           <div class="resume-context-main">
             <label class="resume-document-selector">当前简历<select id="resumeDocumentSelector"><option value="legacy" ${legacy ? "selected" : ""}>历史全局稿（只读）</option>${options}</select></label>

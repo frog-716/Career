@@ -4,6 +4,7 @@ import { createServer } from 'vite';
 const vite = await createServer({
   configFile: false,
   root: new URL('..', import.meta.url).pathname,
+  optimizeDeps: { noDiscovery: true, include: [] },
   server: { middlewareMode: true },
   appType: 'custom',
 });
@@ -26,7 +27,7 @@ try {
   const journey = { plans: opportunities.map((item, index) => ({
     job_id: item.id.slice('opportunity:'.length),
     next_action: `虚构下一步${index + 1}`,
-    due_date: '2026-09-30',
+    due_date: '2026-10-07',
   })) };
   const list = opportunityHTML({ state: { opportunities }, journey, id: '', filter: 'all' });
 
@@ -34,7 +35,7 @@ try {
   assert.equal((list.match(/class="op-stage-dot"/g) || []).length, 4);
   for (const phase of phases) assert.match(list, new RegExp(`op-stage-${phase}`));
   assert.match(list, /虚构下一步1/);
-  assert.match(list, /26年9月30日/);
+  assert.ok(list.includes(opportunityReminderLabel('2026-10-07')));
   assert.doesNotMatch(list.replace(/datetime="[^"]+"/g, ''), /阶段日期|2026-09-28|2026-09-30/);
   assert.equal(opportunityReminderLabel('2026-09-28', new Date('2026-09-28T04:00:00Z')), '今天');
   console.log('opportunity-visual: ok');
