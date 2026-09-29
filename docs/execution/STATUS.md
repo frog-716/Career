@@ -1,5 +1,9 @@
 # 当前状态
 
+## 2026-09-29：Target Mode Phase 5 — D4 Preview IN PROGRESS
+
+- 完成条件：仅沿用能确认的既有选择，核对 2–20 段 Project/Employment 的当前 Wiki 和实际 Preview；不读 Raw、不扩选全 Career、不处理旧待审 Proposal；准备真实调用后停在 Hard Gate 2，等待用户明确确认。本阶段真实价值仍 NOT YET PASSED；只有真实 smoke 后才能判断 GO / SHRINK / REMOVE。
+
 ## 2026-09-29：Target Mode Phase 4 — UX-5 COMPLETE / PASS
 
 - 本轮真实 Provider 未调用；D4 仍 SYNTHETIC READY / REAL SMOKE PAUSED / NOT YET PASSED。Phase 1–3 已完成提交、推送与 Runtime 核验。
@@ -8,7 +12,7 @@
 - 首次入口版本不匹配来自隔离服务自定义 build_id，与产品代码无关；恢复为匹配前端的 build_id 后，空库实际页面握手通过。Fresh-Eyes 随后发现空项目页中央新建按钮无响应，左侧加号可用；同根因静读也见于任职空态。修复前验收条件：两页中央和左侧入口均打开相应表单，取消不创建资料；先以真实 Chrome 测试复现，再最小修复并请盲审复验。
 - 测试先行：真实 Chrome 四入口测试修复前 2 failed / 2 passed，修复后 4 passed；中央与列表入口共用显式动作绑定，取消不写入。独立代码审查 PASS；提交候选独立 checkout 的同四项亦通过。
 - 独立 Fresh-Eyes 完整盲审 PASS：自拟空库资料，经 Project/Raw/Wiki、任职/人物、机会/简历/命名版本、投递、沟通、面试准备，再找回原文/沟通/准备/Wiki 历史。中央项目与任职入口另在空库复验通过。中途隔离服务连接中断，恢复同一数据库后读回成功，不计为产品数据丢失。证据 `/tmp/career-ux5-blind/report.md` 及 16 张截图。冻结简历 JSON 与部分术语仅列非阻断阅读困难；PDF 内容、真实模型、模拟面试等未在该盲审验证，不扩大 PASS 范围。
-- 全量 525 passed；14 组 frontend tests、typecheck、临时 build、secret scan、Markdown links、diff check 通过。未调用真实 Provider；正式 Runtime 待本批精确提交、推送后受控更新并核验。UX-5 已满足恢复 D4 Preview 的前置条件，真实调用仍必须停在 Hard Gate 2。
+- 全量 525 passed；14 组 frontend tests、typecheck、临时 build、secret scan、Markdown links、diff check 通过。未调用真实 Provider；Git `304425a` 已 push main；正式 Runtime 已受控更新至 PID 5036、AI_ENABLED、仅 127.0.0.1:8765。schema/data identity/业务行数/全部 operation metadata 不变，验收构建、正式静态文件与 HTTP hash 一致，DeepSeek/Tavily 增量 0/0。源码包含该提交加保留的用户旧 Resume hunks；证据 `.career-runtime/target-phase4.json`。UX-5 已满足恢复 D4 Preview 的前置条件，真实调用仍必须停在 Hard Gate 2。
 
 ## 2026-09-29：Target Mode Phase 3 — Resume AI Privacy DTO COMPLETE / PASS
 
