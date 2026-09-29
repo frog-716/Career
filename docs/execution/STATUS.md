@@ -1,6 +1,6 @@
 # 当前状态
 
-## 2026-09-29：Target Mode Phase 1 — Resume 导航验收通过，Git / Runtime 收口中
+## 2026-09-29：Target Mode Phase 1 — COMPLETE / PASS
 
 - 本轮真实 Provider 未调用；D4 继续 SYNTHETIC READY / REAL SMOKE PAUSED / NOT YET PASSED。最新用户授权按 Phase 1–10 连续推进；普通代码批次允许精确 commit/push main 与受控 Runtime Update，仅在 handoff 六类 Hard Gate 停止。旧 execution 中逐批另行授权的停止描述不覆盖本轮。
 - 完成条件：一级仅 Wiki / 机会 / 项目 / 任职；已有 ResumeDocument 在任何阶段从所属机会打开；无稿只沿用合法创建规则且不自动创建；原编辑器、版本、PDF、选材、AI Proposal、Submission 冻结与旧 deep links 保留；用户旧 hunks 可独立保留。Phase F 的创建简化/复制/命名版本完整目标未因此宣称完成。
@@ -8,6 +8,7 @@
 - 验证：全量 pytest 509 passed；12 组前端测试、typecheck、临时 build、secret scan、Markdown links、git diff --check 通过。修复后导航测试再次通过；独立提交候选 checkout 全量 508 passed（未包含用户旧 Resume 额外测试），12 组前端测试与 typecheck/build 也通过；证据保存在 `/tmp/career-target-phase1/`。截图/盲审报告为本机虚构证据，不进入 Git。
 - Public 与 Feishu 最新覆盖已写回长期模型；正式用户数据、Secret、本地资料仍不得进入 Git。Feishu 本轮不开发，未来仅依现有 lark-cli 单向读取，登录身份与 Resume 联系人隔离。
 - 开工 Git 为 `1eda69ed46d839fbf1144ec0d6ed994ee328543f`，fetch 后 HEAD/main/origin/main 一致。正式服务 PID 43209；health/quick_check=ok，schema v6、data instance、44/217/203 行数及 ID manifest 与既有基线一致；25 operations，22 dispatched。正式服务尚未加载 UX-3 与本批导航；提交后的 Runtime 核验完成前不宣称加载。
+- Git `036f59c` 已精确提交并 push main。正式 Runtime 已受控更新至 PID 96335，AI_ENABLED，仅监听 127.0.0.1:8765；11 个正式静态文件与验收临时构建及 HTTP 实际返回逐字节一致。schema、数据实例、ID/revision manifest、业务行数和全部 operation metadata 与更新前相同；DeepSeek / Tavily 增量 0/0。Runtime 使用该提交加保留的用户 Resume 修改，不能等同纯 Git HEAD；本机逐文件证据 `.career-runtime/target-phase1.json`。UX-3 与导航本批已正式加载；UX-4 开始。
 - 所有权：既有 protected 文件开工哈希一致；frontend README 只收本批导航文案与模块/测试说明，原 PDF/Profile 两段保持未暂存；其余早期 Resume 源码/测试、AGENTS 与本机 Agent/Skill 不纳入。本轮不修改正式 schema 或业务资料。
 
 ## 2026-09-29：UX-3 COMPLETE / PASS
