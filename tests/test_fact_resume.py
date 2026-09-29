@@ -46,7 +46,7 @@ def test_selected_fact_provenance_freezes_through_version_and_submission(tmp_pat
  assert c.get(c.editor_path+'/sources').json()['sources'][0]['status']=='updated'
  assert c.get(c.editor_path+'/versions/'+v['id']).json()['document']==d['document']
  assert c.get('/api/state').json()['applications']==[a]
- edited=deepcopy(d['document']);edited['sections'][0]['items'][0]['title']='自由表达'
+ edited=deepcopy(d['document']);next(s for s in edited['sections'] if s['type']=='projects')['items'][0]['title']='自由表达'
  assert c.put(c.editor_path,json=dict(document=edited,expected_revision=d['revision']),headers=H).status_code==200
  forged=deepcopy(edited);forged['meta']['source_refs'][0]['revision']=999
  assert c.put(c.editor_path,json=dict(document=forged,expected_revision=d['revision']+1),headers=H).status_code==409
@@ -73,7 +73,7 @@ def test_removed_expression_can_be_reselected_without_rewriting_provenance(tmp_p
  e=wiki(c)
  body=dict(expected_revision=0,idempotency_key='first-selection',selections=[dict(id=e['id'],revision=1,section_type='projects')],include_profile=False)
  d=post(c,'/editor/select-facts',body).json()
- removed=deepcopy(d['document']);removed['sections'][0]['items']=[]
+ removed=deepcopy(d['document']);next(s for s in removed['sections'] if s['type']=='projects')['items']=[]
  saved=c.put(c.editor_path,json=dict(document=removed,expected_revision=d['revision']),headers=H).json()
  r=post(c,'/editor/select-facts',dict(body,expected_revision=saved['revision'],idempotency_key='reselect'))
  assert r.status_code==200,r.text

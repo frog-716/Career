@@ -27,7 +27,9 @@ def doc(label="A"):
 def test_structured_draft_conflict_and_blank_is_read_only(tmp_path):
     client, store = client_for(tmp_path)
     assert client.get(client.editor_path).json()['revision']==0
-    assert client.get(client.editor_path).json()['document']['sections']==[]
+    assert [section['type'] for section in client.get(client.editor_path).json()['document']['sections']] == [
+        'skills', 'experience', 'projects', 'education'
+    ]
     assert not (store.data_dir / "artifacts").exists()
     saved = client.put(client.editor_path, json={"document": doc(), "expected_revision": 0}).json()
     assert saved["revision"] == 1 and saved["document"]["sections"][0]["items"][0]["id"] == "item-1"

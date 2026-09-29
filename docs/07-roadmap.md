@@ -23,7 +23,7 @@
 | Resume AI Privacy Gate | 从空 DTO 构造允许字段，捕获请求做对抗验证 | COMPLETE / PASS；实际请求对抗与 Preview 通过，已更新 Runtime；无真实 Provider |
 | UX-5 | 全新虚构库独立盲审完整核心链 | COMPLETE / PASS；独立空库主链与修复入口复验通过；D4 可恢复至真实调用 Preview，发送仍需 Hard Gate 2 |
 | E | 分类旧数据并退役 T14、ResumeUse 与重复业务对象 | COMPLETE / PASS：旧新建链与 UI 入口停用、历史可读、正式 Runtime/回归通过；未知数据保留，旧 Context/Resume 的历史读取由 G 继续收敛 |
-| F | 从机会进入简历、创建/复制与版本流程 | 尚未开始 |
+| F | 从机会进入简历、创建/复制与版本流程 | COMPLETE / PASS：虚构隔离库实走两机会模板、复制、自动保存、命名版本、恢复、PDF、投递冻结；快捷键留待 H |
 | G | Resume AI 最小 DTO 与逐条建议 | 尚未开始 |
 | H | 快捷键审计、真实 macOS 行为核对和用户手工验收 | 尚未开始 |
 | I | 全链回归、迁移副本演练与文档收口 | 尚未开始 |

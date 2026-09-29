@@ -1,5 +1,14 @@
 # 当前状态
 
+## 2026-09-29：Target Mode Phase 7 — OPPORTUNITY-OWNED RESUME COMPLETE / PASS
+
+- 本批真实 Provider 未调用；仅使用虚构隔离资料和 TestProvider，不新增 DeepSeek/Tavily outbound。
+- 修改前完成条件：全新虚构库中，机会 A 无简历可创建当前工作稿，首次打开直接呈现 A4 基础结构（基础资料、专业技能、工作经历、项目经历、教育背景；第一版不预填 GitHub）；机会 B 可明确从 A 的命名版本复制当前内容，复制后归属和后续编辑完全独立。普通自动保存不生成版本；命名版本、历史恢复、PDF、返回所属机会及实际投递冻结均可从用户页面自然完成，刷新回读一致；ResumeUse 不进入正常新建路径。`⌘S` 等快捷键依 handoff 的 Phase H 最后单独验真，不把按钮可用冒称快捷键已完成。
+- 先复现服务端基础模板与页面文案是否符合正本，再只改缺口；存储/版本行为先红测试后实现。所有验收均用虚构隔离库，不读正式简历或扩大 AI 范围，不调用 DeepSeek/Tavily。
+- 原服务端空白建稿返回 `sections=[]`，新测试先失败；现在新建文档立即持有专业技能、工作经历、项目经历、教育背景四个可编辑分区，Profile 区沿用当前基础资料同步，未填写时不预填 GitHub。旧测试原先假定 `sections[0]` 必有选中内容，已改按类型寻找，不改变来源/投递语义。
+- 独立 macOS Chrome 用全新虚构 Store / TestProvider 实走机会 A 建稿、自动保存但无版本、命名版本；机会 B 从 A 的版本复制后独立编辑、保存版本、PDF 下载正文、恢复、PDF 预览、记录已投递、刷新找回以及投递后改稿不覆盖冻结快照。返回机会可用，正常入口没有 ResumeUse 新建。详情与截图、PDF 在 `/tmp/career-target-phase7/fresh-eyes.md`；未做 PDF 每页像素排版或快捷键验收。
+- 当前工作区全量 **539 passed**；前端 15 组测试与 typecheck 通过。仅本批暂存文件的独立检出先有 532 passed、2 failed、4 errors，均因临时检出缺少 `frontend/node_modules` 使浏览器测试无法启动 Vite；补齐本机依赖链接后，受影响文件 **10 passed**。这不代表任何正式数据或真实 Provider 已参与测试。
+
 ## 2026-09-29：Target Mode Phase 6 — LEGACY RETIREMENT COMPLETE / PASS
 
 - 修改前完成条件：仅在可证明归属的范围分类 REAL/TEST/UNKNOWN，不删真实/未知或任何正式业务行；旧 Project Event/Achievement/Evidence/T14 的新增写入口和可见按钮退出，新 Raw+Wiki 可写/可读、旧历史/来源/PDF/冻结投递仍可读；旧 Wiki/ResumeUse 后续停写需先查全调用链和受保护文件边界。先红测试，再实现与回归；不做 schema migration 或未知归属清理。

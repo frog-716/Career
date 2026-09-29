@@ -54,7 +54,15 @@ def copy_source(store,c,source):
     if not isinstance(source,dict):raise Invalid('请明确选择简历来源')
     kind=source.get('kind')
     if kind=='blank':
-        strict(source,{'kind'});return blank_document(),dict(kind='blank')
+        strict(source,{'kind'})
+        document=blank_document()
+        document['sections']=[
+            dict(id='section-skills',type='skills',title='专业技能',items=[]),
+            dict(id='section-experience',type='experience',title='工作经历',items=[]),
+            dict(id='section-projects',type='projects',title='项目经历',items=[]),
+            dict(id='section-education',type='education',title='教育背景',items=[]),
+        ]
+        return document,dict(kind='blank')
     if kind=='legacy_draft':
         strict(source,{'kind','source_revision','source_hash'})
         row=c.execute("SELECT revision,body FROM current WHERE id='editor-main' AND kind='editor_draft'").fetchone()

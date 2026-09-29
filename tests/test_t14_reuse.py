@@ -327,7 +327,7 @@ def test_editing_approved_resume_expression_never_writes_back_to_work_source(tmp
     _, document = resume_fixture(store, client)
     selected = select_material(client, document, entry)
     edited = json.loads(json.dumps(selected["document"]))
-    edited["sections"][0]["items"][0]["bullets"][0]["content"] = "用户在简历中的另一种表达"
+    next(section for section in edited["sections"] if section["type"] == "projects")["items"][0]["bullets"][0]["content"] = "用户在简历中的另一种表达"
     saved = client.put(
         f"/api/resume-documents/{document['document_id']}",
         json={"document": edited, "expected_revision": selected["revision"]},
