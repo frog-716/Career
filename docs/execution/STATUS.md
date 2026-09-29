@@ -1,5 +1,21 @@
 # 当前状态
 
+## 2026-09-29：Target Mode Phase 10 — FINAL CHAIN ACCEPTANCE COMPLETE / PASS
+
+- 本阶段真实 Provider 未再次调用：此前唯一获准的 DeepSeek outbound 已用于 D4 价值验收；本阶段只用虚构隔离资料和 TestProvider，Tavily 调用为零。
+- 修改前完成条件：对最终提交与正式 Runtime 跑全量后端、全部前端测试、typecheck/build、依赖、Secret、文档链接和 diff 检查；虚构隔离资料实走机会→简历→版本/PDF→投递冻结、Resume AI 隐私/按需来源和 Mac 编辑路径。核对正式 schema/data identity、备份到新目录并恢复核验、AI operation/Provider 零新增及正式 HTTP 静态文件。最后对齐 Git、Runtime、STATUS、Roadmap、Authority/Target；任何手工 Mac 项须等用户验收，不把自动浏览器结果当用户验收。
+- 最终工作区全量 **544 passed**；其中投递版本/PDF 冻结及 Interview Simulation Context Pack 读取冻结简历的回归通过。仅已提交 Phase H 文件的独立检出全量 **543 passed**；前端 15 组测试、typecheck/build、`pip check`、npm 依赖检查、Secret scan、文档链接和 diff 检查通过。受保护的用户未提交改动仍在工作区，独立检出结果不冒称覆盖这些改动。
+- 隔离虚构资料浏览器重走机会 A 建稿/自动保存/命名版本、机会 B 从 A 复制后独立编辑/恢复/PDF/实际投递及投递后冻结不变，结果 `PASS ALL`；另以 TestProvider 重走 Resume AI 三次独立 Preview、按需 Raw、刷新找回、逐条接受，真实 Provider 0 次。脚本、日志和截图见 `/tmp/career-target-phase10/`。
+- 正式服务仍为 PID **44363**、`/healthz=ok`、仅本机 `127.0.0.1:8765`；正式 11 个静态文件与验收构建、HTTP 响应逐文件相同。用户在 Mac 正式页面手工确认 `⌘⇧←/→` 只选光标所在行、`⌘S` 打开版本命名框、`⌘F` 打开简历内查找框，三项均符合预期。正式库 schema v6、instance `42ff565e28a08e31414442521540ac3e`、`quick_check=ok`，AI operations 仍为 26，未新增 DeepSeek/Tavily 调用。
+- 手工验收后，正式库相对 Phase H 切换基线多 1 个 `resume_document` 当前对象及 4 个历史记录（`editor_version` 1、`artifact` 1、`opportunity_command` 2）；这是用户手工操作期间的变化，未读取正文或自行清理。当前正式库重新备份到 `/tmp/career-target-phase10/final-recovery/backups/post-mac-acceptance`，清单 `complete`、`healthy/recoverable`，恢复到新的隔离目录后 schema、完整性、表计数及记录身份一致：current 45 / records 233 / revisions 203 / AI operations 26。正式数据、Secret 和备份均未进入 Git。
+- 代码提交 `260511c` 已推送 main；Phase H 正式 Runtime 含该提交及保留的用户 Resume/Profile/PDF 工作区改动，不等同纯 Git 提交。D4 实测产品判断仍为 **REMOVE**；真实 Resume AI 建议质量因本次仅允许一回 DeepSeek outbound 而保持 **NOT VERIFIED**，不以 TestProvider 证明语义质量。
+
+## 2026-09-29：Target Mode Phase 9 — MAC SHORTCUTS COMPLETE / PASS
+
+- 修改前完成条件：在虚构隔离 Resume 编辑器实测 `⌘S` 阻止浏览器保存网页并进入现有命名版本流程；`⌘F` 阻止浏览器页面查找，打开当前简历内查找/替换并能作用到所选编辑正文；`⌘Z/⌘⇧Z`、`⌘B`、对齐、复制/剪切/粘贴/全选在焦点正确时只作用于当前编辑上下文，留有真实浏览器证据。`⌘⇧←/→` 先观察 macOS/Chrome 的原生选区，再按用户明确确认的范围实现或保持，不凭文字猜算法；最后请用户在 Mac 上短验。
+- 现状复现：旧 document keydown 只自定义 `⌘B`、`⌘←/↓/→` 对齐与 `⌘Z/⌘⇧Z`，没有 `⌘S` 或 `⌘F` 拦截。隔离 macOS Chrome 的实际 `.editable` 中，单行从光标 `⌘⇧←/→` 选至该行首/行尾；在同一条目中按 Return 换行后也只选光标所在行。用户确认保持这一原生选区。
+- Git `260511c` 已精确提交并推送 main。`⌘S` 进入现有命名版本流程；`⌘F` 打开当前简历内查找/替换；剪切/粘贴可随编辑撤销，对齐/粗体在搜索框有焦点时不误改简历。隔离 macOS Chrome 的按键、焦点、选区、查找替换和版本浏览器回归通过，截图见 `/tmp/career-target-phase9/find-panel.png`；独立暂存检出全量 543 passed，前端 15 组测试、typecheck/build 通过。正式 Runtime 更新至 PID **44363**，当时 schema v6、current 44 / records 229 / revisions 203、AI operations 26 未变，静态文件/HTTP 11 项一致，DeepSeek/Tavily 增量 0/0；切换证据 `/tmp/career-target-phase9/runtime-result.json`。其后用户在正式 Mac 页面完成三项手工验收，详情见 Phase 10。
+
 ## 2026-09-29：Target Mode Phase 8 — RESUME AI RETRIEVAL COMPLETE / SYNTHETIC PASS
 
 - 修改前完成条件：虚构机会的 AI 先依据本机会/JD/Research/当前稿指出缺失证据，再经受控 Career 检索只返回 Wiki/Project/Employment 候选 ID，回正本读取少量相关当前知识；仅在明确缺少事实细节时读取所指 Raw/Evidence。每次外发都可预览实际 DTO，Profile 只含存在状态和固定字段名，不含真实值；不得读其它机会、Person 私聊、Feedback、整库 Raw/Wiki 或旧历史。建议限 `rewrite/add/delete`，每条带来源、单独编辑/接受/拒绝、过期保护，不批量接受、不自动写事实；无相关证据时明确缺口并允许 0 建议。用隔离 TestProvider 验收及捕获实际请求，不进行第二次真实 DeepSeek 或 Tavily 调用。
