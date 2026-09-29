@@ -14,7 +14,7 @@
 | D1 | Raw + Wiki Semantic Foundation | COMPLETE / PASS：自动验证、Runtime、两段用户 UI 验收、清理及 Git 收口均通过 |
 | D2 | Wiki Compiler | COMPLETE / PASS：真实 DeepSeek smoke、逐条编辑后接受、Wiki rewrite/history/source_refs、测试数据清理及 Git 收口均通过 |
 | D3 | Project / Employment / Person 工作区接入 Raw + Wiki Compiler | COMPLETE / PASS：两轮用户 UI 验收、D3.5 Fresh-Eyes UX 修复与隔离回归通过 |
-| D4 | Wiki Cognition | SYNTHETIC READY；基础实现与 UX-1 形成依赖完整的 Cognition/UX checkpoint；导航兼容测试单行修正已获授权。REAL SMOKE PAUSED / NOT YET PASSED：被 UX Reset 暂停，正式 Cognition 未完成真实验收，不是 COMPLETE |
+| D4 | Wiki Cognition | SYNTHETIC READY；UX-5 PASS，最终真实 Preview 已就绪；按用户 Hard Gate 2 暂停，等待确认后再调用；REAL NOT YET PASSED |
 | UX-1 | AI 进度、对象归属及关闭/切页/刷新恢复 | COMPLETE / PASS：用户 UI、机器核验、TestProvider exactly once 与无重复 dispatch 均通过 |
 | UX-2 | Opportunity + Wiki + Shared Visual Foundation | COMPLETE / PASS：四张用户截图与 Shared Visual Foundation 验收通过，自动回归、Git 收口和正式 Runtime Update 均完成；UX-3 READY，不恢复 D4 smoke |
 | UX-3 | 项目 / 任职 / 人物工作区 | COMPLETE / PASS；Phase 1 Runtime Update 已加载 |
