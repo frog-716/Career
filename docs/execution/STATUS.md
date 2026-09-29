@@ -1,10 +1,14 @@
 # 当前状态
 
-## 2026-09-29：Target Mode Phase 6 — LEGACY RETIREMENT IN PROGRESS
+## 2026-09-29：Target Mode Phase 6 — LEGACY RETIREMENT COMPLETE / PASS
 
 - 修改前完成条件：仅在可证明归属的范围分类 REAL/TEST/UNKNOWN，不删真实/未知或任何正式业务行；旧 Project Event/Achievement/Evidence/T14 的新增写入口和可见按钮退出，新 Raw+Wiki 可写/可读、旧历史/来源/PDF/冻结投递仍可读；旧 Wiki/ResumeUse 后续停写需先查全调用链和受保护文件边界。先红测试，再实现与回归；不做 schema migration 或未知归属清理。
 - 正式库只读 metadata 盘点见 `/tmp/career-target-phase6/inventory.md`：旧 work_achievement/event/evidence/link、wiki_entry、knowledge_candidate/source 有 demo 标记与 manifest 双重归属，可判 TEST；resume_use 2 条中 1 TEST、1 UNKNOWN。UNKNOWN 保留，不能因引用演示 PDF 猜测可删。当前没有必要 Gate 3/4。
-- D4 的 REMOVE 判定只停止新自动跨经历提炼；现有 pending 建议、审计及手工 Wiki 范围可读。用户已确认恢复本轮才在正式页生效的 Project/Employment/Person 显眼字号与字重；该样式修改独立执行，不动布局/功能及其他页面。
+- 旧 Project Event/Achievement/Evidence 与 T14 新复用、旧 ResumeUse、旧 Wiki Source/Candidate 新建/确认、旧 Note→Candidate 全部停止新写；旧 Profile 整理只归档原文为 personal Raw，再保存基础字段。旧来源、条目历史、待审候选拒绝、已有复用撤销、PDF 与冻结 Submission 保持可读。旧 Context / Resume 中的历史 `wiki_entry` 只作兼容读取，后续 Phase G 会收敛新 AI 检索，不把旧容器扩成新知识入口。D4 REMOVE 后新 prepare/execute 也返回 409，已有 pending Proposal/审计和手工 Cognition Wiki 保留；正式接口已实际验证两条 POST 均为 409 且零写入。
+- 用户已确认仅恢复 Project/Employment/Person 的显眼字号与字重。查因结果是上轮 UX-3 的大字样式随 Phase 1 Runtime 更新首次在正式页加载，全局基础字号仍为 14px；本批将对象标题 38→20px、重点 28→13px 等局部样式恢复，不改布局/功能和其它页面。隔离真实 Chrome 的 4 个页面/视口截图及宽度检查见 `/tmp/career-font-diagnosis/`；正式静态文件与验收构建逐字节一致。
+- 测试先红后绿：退休保护测试覆盖旧入口 409/事务零写、原有资料读取/撤销；当前工作区全量 **538 passed**、15 组 frontend tests、typecheck、临时 build、pip check、secret scan、Markdown links、diff check 通过；npm 依赖检查退出 0，仍有已知本机 extraneous 包。仅暂存提交文件的独立 checkout 在 D4 关闭前全量 **536 passed**，D4 关闭后 28 项聚焦回归与前端构建通过，未夹带用户旧 Resume/Profile/PDF hunks。
+- Git `989221a` 已精确提交并 push main。正式 Runtime 从 PID 6293 受控更新到 PID 19114，`AI_ENABLED`、仅监听 `127.0.0.1:8765`，服务静态响应与正式 dist/验收构建 hash 一致。前后 schema v6、data instance `42ff565e28a08e31414442521540ac3e`、current 44 / records 229 / revisions 203、ID manifest、全部 26 条 operation metadata 与 23 次 dispatched 均不变；本批 DeepSeek/Tavily 增量 0/0。证据 `/tmp/career-target-phase6/`。正式 Runtime 源码仍包含保留的用户旧 Resume hunks，不等同纯 Git HEAD。
+- 本批未删除任何正式业务行或未知归属的 ResumeUse；不做 schema migration。Phase F 开始，Resume 归属与首次创建/复制、版本、PDF、返回机会和 Submission 需按目标整体核对，不能因早期导航验收就提前称 F 完成。
 
 ## 2026-09-29：Target Mode Phase 5 — ONE REAL SMOKE COMPLETE / REMOVE
 
@@ -12,7 +16,7 @@
 - 建议核心：把两项虚构项目共同的“实现前先梳理边界与状态，再拆任务”合并为一句长期认知。两条 source_refs 均可追，但“数据归属”只见 A，“再拆分实现任务”只见 B；建议把这些单边细节写成双方共同做法，并以“都倾向于”概括行为倾向。没有人格诊断或无来源收益数字，然而没有新增适用条件、效果、例外或可复用决策线索，主要是原 Wiki 的改写。
 - 价值判断 **REMOVE**：针对 D4 自动跨经历提炼，不继续扩建或默认保存这条建议；单次虚构样本不能证明所有跨经历分析都无价值，但本次实测没有支撑 GO，也没有展示值得为现有宽范围继续维护的具体高价值用途。已有 Cognition 手工 Wiki 语义与原提案审计仍按原合同保留；新旧两条建议均 pending，不自动接受、拒绝或删除。独立第二意见同判 REMOVE。
 - 本批仅增加 1 个 DeepSeek dispatched/succeeded operation，Tavily 0；执行脚本为不可重复的单次哨兵，不执行 retry。正式 current 44、revisions 203、schema v6、数据实例及源码/静态文件 hash 不变；records 增加本地准备和操作/审计/提案记录，不新增 Cognition 当前知识。证据 `/tmp/career-target-phase5/smoke-approved/`。Phase 1–5 已完成价值判定，继续 Phase 6。
-- 预览 UI 计数修复已独立于本次调用先红后绿、独立审查及虚构浏览器复验通过，Git `83eb60d` 已 push main、正式 Runtime PID 6293 已核验；旧 Gate 2 等待状态在本次用户授权后解除。用户另反馈字号变化，正在查原因并等待明确选择；确认前不改样式。
+- 预览 UI 计数修复已独立于本次调用先红后绿、独立审查及虚构浏览器复验通过，Git `83eb60d` 已 push main、当时正式 Runtime PID 6293 已核验；旧 Gate 2 等待状态在本次用户授权后解除。随后字号问题已按用户确认在 Phase 6 恢复。
 
 ## 2026-09-29：Target Mode Phase 4 — UX-5 COMPLETE / PASS
 
