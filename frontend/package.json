@@ -18,7 +18,9 @@
     "test:wiki-d3": "node --experimental-strip-types tests/wiki-d3-workspaces.test.mjs",
     "test:wiki-reading": "node --experimental-strip-types tests/wiki-reading.test.mjs",
     "test:opportunity-visual": "node tests/opportunity-visual.test.mjs",
-    "test:ux3-workspaces": "node --experimental-strip-types tests/ux3-workspaces.test.mjs"
+    "test:ux3-workspaces": "node --experimental-strip-types tests/ux3-workspaces.test.mjs",
+    "test:ux4-opportunity": "node tests/ux4-opportunity.test.mjs",
+    "test:ux4-interview": "node tests/ux4-interview.test.mjs"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

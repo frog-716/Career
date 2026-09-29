@@ -273,9 +273,12 @@ class Store:
                             resumes=[], versions=[], artifacts=[], applications=[], feedback=self._records(c, 'feedback'), runs=[],
                             ai=ai_settings(self, c), search_provider=search_provider_settings(self, c), diagnostics=diagnostics)
             if view == "opportunity":
-                runs = [run for run in self._records(c, 'run') if not job_id or run.get('job_id') == job_id]
+                selected = next((item for item in opportunities if item['id'] == (job_id if job_id.startswith('opportunity:') else 'opportunity:' + job_id)), None) if job_id else None
+                alias = (selected.get('legacy_job_id') or selected['id'].split(':', 1)[1]) if selected else job_id
+                owner = selected['id'] if selected else job_id
+                runs = [run for run in self._records(c, 'run') if not job_id or run.get('job_id') == alias]
                 applications = [json.loads(r[0]) for r in c.execute('SELECT body FROM applications ORDER BY rowid DESC')]
-                applications = [item for item in applications if not job_id or item.get('job_id') == job_id]
+                applications = [item for item in applications if not job_id or item.get('opportunity_id') == owner or (not item.get('opportunity_id') and item.get('job_id') == alias)]
                 return dict(profile=dict(profile, content=""), jobs=jobs, opportunities=opportunities,
                             resumes=[], versions=[], artifacts=[], applications=applications, feedback=[], runs=runs,
                             ai=ai_settings(self, c), search_provider=search_provider_settings(self, c), diagnostics=diagnostics)

@@ -19,7 +19,7 @@
 | UX-2 | Opportunity + Wiki + Shared Visual Foundation | COMPLETE / PASS：四张用户截图与 Shared Visual Foundation 验收通过，自动回归、Git 收口和正式 Runtime Update 均完成；UX-3 READY，不恢复 D4 smoke |
 | UX-3 | 项目 / 任职 / 人物工作区 | COMPLETE / PASS；Phase 1 Runtime Update 已加载 |
 | Resume 入口收口 | 四一级导航，机会打开原简历与返回 | COMPLETE / PASS；Git 与受控 Runtime 已核验，不等于整个 F 完成 |
-| UX-4 | 简历保存回读、投递、沟通、面试与准备连续路径 | 紧随入口收口执行 |
+| UX-4 | 简历保存回读、投递、沟通、面试与准备连续路径 | 功能与独立盲审 PASS，Git / Runtime 收口中 |
 | Resume AI Privacy Gate | 从空 DTO 构造允许字段，捕获请求做对抗验证 | UX-4 后执行；任何真实 Resume AI outbound 前必须通过 |
 | UX-5 | 全新虚构库独立盲审完整核心链 | Privacy Gate 后执行；通过后才可恢复 D4 真实 smoke Preview |
 | E | 分类旧数据并退役 T14、ResumeUse 与重复业务对象 | 尚未开始；目标模型优先，分类后可清理明确测试对象 |
