@@ -153,7 +153,7 @@
 
 可能文件：frontend/src/workspace.ts、resume-workspace.ts、opportunity-ui.ts、editor/legacy-app.js、resume_documents.py、contracts 和 Resume 测试。
 
-结果：删除简历工作台一级导航；机会 → 编辑简历直接打开该机会的简历。首次建简历使用指定基础模板；已有版本时复制所选版本当前内容并立即进入编辑。移除 ResumeUse 和不必要的保存/导出 UI；⌘S 保存命名版本。
+结果：删除简历工作台一级导航；机会 → 编辑简历直接打开该机会的简历。首次建简历使用指定基础模板；已有版本时复制所选版本当前内容并立即进入编辑。移除 ResumeUse 和不必要的保存/导出 UI；⌘S 留给 Phase H 按真实 Mac 行为验收。
 
 验收：每个 Opportunity 仍只有自己的 ResumeDocument；复制后互相独立；自动保存与命名版本行为不同；Submission 快照保持冻结。
 
@@ -161,9 +161,11 @@
 
 可能文件：resume_documents.py、context.py、Opportunity/Context 合同、编辑器界面、Provider 输入测试与 Resume AI 测试。
 
-结果：只发送当前 Opportunity、JD、对应 Research、当前简历表达，以及相关 Wiki/Project/Cognition。Profile DTO 默认只说明 Profile 区存在及有哪些字段，并剔除Profile区内容，不带姓名、电话、微信或邮箱的值。建议以 rewrite/add/delete 在原文旁显示；策略便签只保存在当前 AI 会话。
+结果：首轮只发送当前 Opportunity、JD、对应 Research 和当前简历表达；模型说明缺少何种经历后，本地检索才返回 Wiki/Project/Employment 候选 ID。用户选中后第二轮发送少量相关当前知识；模型明确要求核对已选 Wiki 的来源、且用户选中后，第三轮才发送对应 Raw/Evidence 原文。每轮均给准确 Preview 并单独确认。Profile DTO 只说明 Profile 区存在及有哪些固定字段，不带字段值。建议以 rewrite/add/delete 逐条呈现和审批。
 
 验收：输入不含其他 Opportunity 和整库 Raw，也不含 Profile 真实字段值；每条建议单独接受、编辑接受或拒绝；不应用未确认事实。未来若某任务确需 Profile 内容，另行规定该任务最小发送范围。
+
+执行状态：Phase G 已提交并装载正式 Runtime，隔离 TestProvider 与 Chrome 路径通过；真实 Resume AI 建议质量未验，本轮没有第二次真实 Provider 请求。证据与限制见 [STATUS](STATUS.md) 的 Phase 8。
 
 ### Phase H：快捷键
 
