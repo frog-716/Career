@@ -1,10 +1,10 @@
 # 当前状态
 
-## 2026-09-29：Target Mode Phase 3 — Resume AI Privacy DTO IN PROGRESS
+## 2026-09-29：Target Mode Phase 3 — Resume AI Privacy DTO COMPLETE / PASS
 
 - 本轮真实 Provider 未调用。完成条件：从空 DTO 逐层添加白名单字段；Profile 仅区存在与固定字段名，不含真实值；未知键、未知嵌套值与其它机会资料不得进入 Provider-ready payload；实际捕获 Preview 与发送请求，覆盖姓名/电话/邮箱/微信/地址、裸值、恶意字段名；保留正常字段建议、逐条确认和过期保护。本批不扩大职业资料检索范围，不执行真实 Provider。
 - 用户旧 Resume hunks 保持；本批在独立构造模块、出站校验、当前 AI 包构造函数的非重叠位置实施，精确检查与暂存。涉及默认 Profile 的保证不等同于自动识别用户主动写入经历正文的任意个人信息，不能以正则扩展这项承诺。
-- 测试先行：包构造测试先证明 Profile 原值已进入 packet；中文/英文 × TestProvider/真实适配器捕获的 4 例先在实际发送边界检出姓名，再全部通过。Preview 与捕获请求相等，未触网；正常字段表达与来源 ID 保留。独立代码审查 PASS。全量 521 passed，14 组前端测试、typecheck、临时 build、secret scan、Markdown links 与 diff check 通过；独立提交候选聚焦 30 passed。浏览器 Preview Fresh Check PASS：实际弹窗不含原稿姓名/电话/邮箱/微信值，技能与当前机会资料保留，关闭后原稿未变；没有确认发送。最初 LOCAL_ONLY 阻止准备属隔离环境配置，改为注入 TestProvider 的 AI_ENABLED 并继续阻断真实发送/外网后通过。证据 `/tmp/career-privacy-fresh/`。正式 Runtime 尚未加载本批。
+- 测试先行：包构造测试先证明 Profile 原值已进入 packet；中文/英文 × TestProvider/真实适配器捕获的 4 例先在实际发送边界检出姓名，再全部通过。Preview 与捕获请求相等，未触网；正常字段表达与来源 ID 保留。独立代码审查 PASS。全量 521 passed，14 组前端测试、typecheck、临时 build、secret scan、Markdown links 与 diff check 通过；独立提交候选聚焦 30 passed。浏览器 Preview Fresh Check PASS：实际弹窗不含原稿姓名/电话/邮箱/微信值，技能与当前机会资料保留，关闭后原稿未变；没有确认发送。最初 LOCAL_ONLY 阻止准备属隔离环境配置，改为注入 TestProvider 的 AI_ENABLED 并继续阻断真实发送/外网后通过。证据 `/tmp/career-privacy-fresh/`。Git `f9b4315` 已 push main；正式 Runtime 已受控更新至 PID 2470、AI_ENABLED、仅 127.0.0.1:8765。静态文件与验收临时构建/HTTP hash 一致，schema/data identity/业务行数/operation metadata 不变，DeepSeek/Tavily 增量 0/0。源码为该提交加保留的用户旧 Resume hunks；证据 `.career-runtime/target-phase3.json`。
 
 ## 2026-09-29：Target Mode Phase 2 — UX-4 COMPLETE / PASS
 
