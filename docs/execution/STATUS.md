@@ -1,13 +1,13 @@
 # 当前状态
 
-## 2026-09-29：Target Mode Phase 2 — UX-4 验收通过，Git / Runtime 收口中
+## 2026-09-29：Target Mode Phase 2 — UX-4 COMPLETE / PASS
 
 - 本轮真实 Provider 未调用；D4 仍 SYNTHETIC READY / REAL SMOKE PAUSED / NOT YET PASSED。
 - 完成条件：Opportunity→Resume 保存→返回识别同一工作稿→Submission→Communication→Interview→Preparation 连续可用；阶段变化后沟通/面试历史可达；已结束不恢复新建/推进；刷新回读冻结投递且后改工作稿不覆盖它；完整浏览器链、独立审查、Fresh-Eyes 与全量回归通过后精确提交并更新 Runtime。
 - 已复现：轮次级 research-patches 404；面试/Offer 的普通沟通被阶段拦住；canonical 机会 ID 读取 state 丢失投递材料。新增测试先失败再实现修复。研究建议改从既有机会接口读取并限定本轮，无新增领域实体或 schema。
 - 当前实现从所属机会接口读取保存状态；详情读取包含冻结投递材料；普通沟通支持 active submitted/interview/offer，ended 仍拒绝新增。独立审查发现切机会读取失败时会将上一机会资料显示在新标题下，已用真实 Chrome 先红后绿修复：成功 owner 匹配且全部结构校验通过后才发布详情，失败只显示当前标题与重试。
 - 完整真实 Chrome UI 链和独立 Fresh-Eyes 主链均 PASS：创建/保存稿、命名版本、投递、沟通、面试准备、刷新找回；后改草稿的冻结 Submission JSON 与 PDF 字节不变，隔离库 AI operations=0。盲审仅记录冻结简历当前以 JSON 展开不够直观，未阻断找回，本批不顺带改排版。证据 `/tmp/career-ux4-full-chain/`、`/tmp/career-ux4-fresh/`。
-- 当前工作区全量 516 passed；14 组 frontend tests、typecheck、临时 build、pip check、npm dependency check（既有 extraneous）、secret scan、Markdown links、diff check 通过。独立审查复核 PASS；独立提交候选全量 515 passed（不含用户旧额外测试），14 组前端测试及 typecheck 同样通过。用户旧源码/测试/AGENTS 哈希不变，README 仅本批新增段纳入。正式 Runtime 仍为 Phase 1，完成受控更新前不宣称本批加载。
+- 当前工作区全量 516 passed；14 组 frontend tests、typecheck、临时 build、pip check、npm dependency check（既有 extraneous）、secret scan、Markdown links、diff check 通过。独立审查复核 PASS；独立提交候选全量 515 passed（不含用户旧额外测试），14 组前端测试及 typecheck 同样通过。用户旧源码/测试/AGENTS 哈希不变，README 仅本批新增段纳入。Git `3d02af1` 已 push main；正式 Runtime 已受控更新至 PID 556、AI_ENABLED、仅 127.0.0.1:8765。11 个 dist 文件与临时构建和服务实际响应 hash 一致；schema v6、data identity、ID/revision manifest、44/217/203 行数和全部 operation metadata 不变；DeepSeek/Tavily 增量 0/0。运行源码包含该提交加保留的用户 Resume 修改；证据 `.career-runtime/target-phase2.json`。
 
 ## 2026-09-29：Target Mode Phase 1 — COMPLETE / PASS
 
