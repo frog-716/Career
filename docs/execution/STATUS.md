@@ -1,5 +1,15 @@
 # 当前状态
 
+## 2026-09-29：Target Mode Phase 8 — RESUME AI RETRIEVAL COMPLETE / SYNTHETIC PASS
+
+- 修改前完成条件：虚构机会的 AI 先依据本机会/JD/Research/当前稿指出缺失证据，再经受控 Career 检索只返回 Wiki/Project/Employment 候选 ID，回正本读取少量相关当前知识；仅在明确缺少事实细节时读取所指 Raw/Evidence。每次外发都可预览实际 DTO，Profile 只含存在状态和固定字段名，不含真实值；不得读其它机会、Person 私聊、Feedback、整库 Raw/Wiki 或旧历史。建议限 `rewrite/add/delete`，每条带来源、单独编辑/接受/拒绝、过期保护，不批量接受、不自动写事实；无相关证据时明确缺口并允许 0 建议。用隔离 TestProvider 验收及捕获实际请求，不进行第二次真实 DeepSeek 或 Tavily 调用。
+- 现状复现：当前 `_resume_ai_packet` 仅收本机会、当前稿、公司/机会 Research；没有 Career 检索。输出 schema 只支持既有字段 `rewrite`，`resolve` 可以一次接受多条，UI 有“接受选中建议”；与上述目标不符。分步先建立隔离红测试，再实现受控检索/最小 DTO，最后收敛逐条提案和用户界面。保留旧 pending 提案的读取与安全拒绝路径；受保护用户 Resume 源码修改精确分离。
+- 已实现本地受限 Career 检索：先只返回 Wiki/Project/Employment 候选 ID/revision；用户选中后才读取少量当前 Wiki 和对象最小字段。其它 Opportunity 的私有 Wiki 在 SQLite 查询层就被排除。模型确需核对所选 Wiki 已引用的 Raw/Evidence 时，另建来源请求；用户明确选中后第三次 Preview 才带入每条不超过 3000 字的原文。三轮分别确认、独立 AI operation，不自动追加 Provider 请求或重试。
+- 新建议可 `rewrite/add/delete`，新增必须引用本轮选中 Wiki；每条单独编辑、接受或拒绝，接受时复核来源、原文 hash 与当前稿 revision，新提案不能批量接受。Profile 外发仍只有存在状态和固定字段名。旧 pending 提案保留兼容读取/拒绝，不向正式 Career 资料自动写入任何建议。
+- 先红后绿测试覆盖未授权 Raw 注入、其它 Opportunity Wiki 整表读取、三轮 Preview/来源/逐条应用。工作区全量 542 passed；仅本批提交文件的独立检出全量 **542 passed**、前端 15 组测试、typecheck/build 通过。独立 Chrome 用虚构机会、Wiki、Raw、TestProvider 实走三轮 Preview、按需原文、刷新找回计划和逐条接受；实际 TestProvider 调用 3 次，真实 DeepSeek/Tavily **0/0**。浏览器脚本与截图在 `/tmp/career-target-phase8/`；这证明流程和边界，尚不证明真实模型产出质量。
+- Git `5844b3f` 已精确提交并 push main，仅含 Phase G 文件；正式 Runtime PID **36577** 已加载工作区源码和 11 个正式静态文件，HTTP 响应与验收构建逐文件 hash 相同，`AI_ENABLED`、仅监听 `127.0.0.1:8765`。重启前后 schema v6、data instance、current 44 / records 229 / revisions 203、26 条 AI operation（23 dispatched）均不变；唯一既有 `ai_secret_operation.updated_at` 在启动恢复时前进，其他正式业务行及 operation metadata 不变。切换前 SQLite 备份与逐表对比、构建/HTTP hash 见 `/tmp/career-target-phase8/`。正式源码仍包含保留的用户 Profile/PDF/Resume 工作区改动，不等同纯 Git HEAD。
+- Phase G 代码、隔离产品路径和正式装载完成；真实 Resume AI 建议质量仍 **NOT VERIFIED**，本次用户批准的唯一真实 DeepSeek 请求已在 D4 用完，不进行第二次 outbound。进入 Phase H 快捷键，`⌘⇧←/→` 需先观察 macOS/浏览器真实选区并请用户验收预期。
+
 ## 2026-09-29：Target Mode Phase 7 — OPPORTUNITY-OWNED RESUME COMPLETE / PASS
 
 - 本批真实 Provider 未调用；仅使用虚构隔离资料和 TestProvider，不新增 DeepSeek/Tavily outbound。
