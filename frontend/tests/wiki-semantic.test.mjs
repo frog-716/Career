@@ -129,6 +129,7 @@ assert.match(projectHtml, /data-d2-compile="raw-fixture" data-d2-target-scope-ty
 assert.equal(wikiCompilerAction({ kind: "work_event", source_kind: "work_event", id: "legacy" }), "",
   "旧兼容来源不能直接进入 D2 Compiler");
 assert.equal(sourceLabel({ kind: "interview_raw", source_kind: "simulation_interview_transcript" }), "模拟面试转写");
+assert.equal(sourceLabel({ kind: "raw_material", source_kind: "profile_archive" }), "旧基础资料原文");
 const simulationProjectHtml = projectWikiHTML(
   { id: "project-fixture", name: "虚构项目" },
   { raw: [{ ...raw, kind: "interview_raw", source_kind: "simulation_interview_transcript" }] },
@@ -396,10 +397,12 @@ assert.match(bindings, /startCognitionCompiler\(selected\)/,
   "用户明确选择经历后才会准备长期认知 Preview");
 assert.match(bindings, /selected\.length > 20[\s\S]*最多选择20段不同的经历/,
   "经历选择超过后端支持上限时会在本地给出明确反馈");
-assert.match(ui, /从这个项目整理长期认知/,
-  "项目完成或取消后提供显式复盘入口，不自动调用 Provider");
-assert.match(workspace, /selected\.end_date[\s\S]*data-d4-prefill-type="employment"[\s\S]*整理长期认知/,
-  "任职结束后提供显式复盘入口，不自动调用 Provider");
+assert.doesNotMatch(ui, /data-d4-start/,
+  "REMOVE 后不再从 Wiki 触发新的 D4 自动整理");
+assert.doesNotMatch(workspace, /data-d4-start/,
+  "任职页不再触发新的 D4 自动整理");
+assert.doesNotMatch(ux3Workspace, /data-d4-start/,
+  "项目页不再触发新的 D4 自动整理");
 assert.match(ux3Workspace, /<details class="ux3-more"[\s\S]*input\.actionsHTML/,
   "任职复盘入口保留在默认折叠的次级区域");
 const cognitionStartFlow = bindings.split('on("[data-d4-start]"')[1].split("function sourceChoices")[0];

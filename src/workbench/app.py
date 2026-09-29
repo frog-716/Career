@@ -35,7 +35,7 @@ from . import research_search_config
 from .local_runtime import LocalRuntimeManager, DEFAULT_BUILD_ID
 
 
-def create_app(store=None, frontend_dir=None, *, runtime_dir=None):
+def create_app(store=None, frontend_dir=None, *, runtime_dir=None, allow_retired_cognition_compiler=False):
     app=FastAPI(title='Career',docs_url=None,redoc_url=None,openapi_url=None)
     s=store or Store();app.state.store=s
 
@@ -237,7 +237,7 @@ def create_app(store=None, frontend_dir=None, *, runtime_dir=None):
     app.include_router(knowledge_router(s))
     app.include_router(raw_wiki_router(s))
     app.include_router(compiler_router(s))
-    app.include_router(cognition_router(s))
+    app.include_router(cognition_router(s, allow_compiler_start=allow_retired_cognition_compiler))
     app.include_router(ai_activity_router(s))
     app.include_router(opportunity_router(s))
     app.include_router(work_router(s))

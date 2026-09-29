@@ -38,11 +38,25 @@ def test_episode_to_project_event_achievement_evidence_survives_restart(tmp_path
     source = c.post("/api/work/sources", json={"project_id": project["id"], "scope_type": "employment", "scope_id": employment["id"], "title": "任职来源", "content": "来源原文", "semantics": "用户原始记录", "idempotency_key": "source-1"}).json()
     person = c.post(f"/api/work/employments/{employment['id']}/persons", json={"name": "虚构同事", "role": "协作者", "idempotency_key": "person-1"}).json()
     participant = c.post(f"/api/work/projects/{project['id']}/participants", json={"person_id": person["id"], "role": "共同负责", "idempotency_key": "participant-1"}).json()
-    event = c.post("/api/work/events", json={"project_id": project["id"], "title": "交付事件", "kind": "delivery", "content": "不可变事件原文", "idempotency_key": "event-1"}).json()
-    achievement = c.post("/api/work/achievements", json={"project_id": project["id"], "title": "成果", "content": "初始成果", "idempotency_key": "achievement-1"}).json()
-    evidence = c.post("/api/work/evidence", json={"scope_type": "project", "scope_id": project["id"], "title": "证据", "source_type": "document", "content": "不可变证据原文", "idempotency_key": "evidence-1"}).json()
-    link = c.post("/api/work/evidence-links", json={"achievement_id": achievement["id"], "evidence_id": evidence["id"], "idempotency_key": "link-1"}).json()
-    changed = c.post(f"/api/work/achievements/{achievement['id']}", json={"title": "成果修订", "content": "修订成果", "expected_revision": achievement["revision"], "idempotency_key": "achievement-edit-1"}).json()
+    # Preserve an old data graph without using its retired creation endpoints.
+    with store.connect() as db:
+        event = {"id": "historical-event", "target_type": "project", "target_id": project["id"],
+                 "title": "交付事件", "kind": "delivery", "content": "不可变事件原文",
+                 "created_at": "2026-01-01T00:00:00Z"}
+        store._record(db, "work_event", event)
+        achievement = store._save(db, "work_achievement", {
+            "id": "historical-achievement", "project_id": project["id"], "title": "成果",
+            "content": "初始成果", "created_at": event["created_at"]}, 0)
+        evidence = {"id": "historical-evidence", "scope_type": "project", "scope_id": project["id"],
+                    "title": "证据", "source_type": "document", "content": "不可变证据原文",
+                    "created_at": event["created_at"]}
+        store._record(db, "work_evidence", evidence)
+        link = {"id": "historical-link", "achievement_id": achievement["id"],
+                "evidence_id": evidence["id"], "achievement_revision": achievement["revision"],
+                "evidence_created_at": evidence["created_at"], "created_at": event["created_at"]}
+        store._record(db, "work_evidence_link", link)
+        changed = store._save(db, "work_achievement", dict(achievement, title="成果修订",
+                                                                content="修订成果"), achievement["revision"])
     assert changed["revision"] == achievement["revision"] + 1
     domain = c.get("/api/work-domain").json()
     assert updated_stage in domain["stages"]
@@ -68,7 +82,7 @@ def test_work_domain_scope_cas_idempotency_and_no_wiki_side_effect(tmp_path):
     project = first.json()
     assert c.post(f"/api/work/projects/{project['id']}", json={"name": "新名", "description": "", "expected_revision": 0, "idempotency_key": "edit"}).status_code == 409
     assert c.post("/api/work/sources", json={"scope_type": "episode", "scope_id": "missing", "title": "x", "content": "x", "semantics": "x", "idempotency_key": "bad-source"}).status_code == 404
-    assert c.post("/api/work/events", json={"episode_id": episode["id"], "project_id": project["id"], "title": "x", "kind": "x", "content": "x", "idempotency_key": "bad-target"}).status_code == 422
+    assert c.post("/api/work/events", json={"episode_id": episode["id"], "project_id": project["id"], "title": "x", "kind": "x", "content": "x", "idempotency_key": "bad-target"}).status_code == 409
     with store.connect(False) as db:
         assert not db.execute("SELECT 1 FROM records WHERE kind='knowledge_source'").fetchone()
 

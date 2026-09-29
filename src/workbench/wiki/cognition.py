@@ -647,7 +647,7 @@ def _with_supporting_experiences(store, c, item):
     return dict(item, supporting_experiences=experiences)
 
 
-def cognition_router(store):
+def cognition_router(store, *, allow_compiler_start=False):
     router = APIRouter()
     gateway = ModelGateway(store)
 
@@ -702,6 +702,8 @@ def cognition_router(store):
 
     @router.post("/api/wiki/cognition/compiler/prepare")
     def prepare(body: dict):
+        if not allow_compiler_start:
+            raise Conflict("cognition_compiler_retired: 自动长期认知提炼已停用")
         selected, key, model_config_id = _prepare_input(
             body, {"selected_experiences", "idempotency_key", "model_config_id"},
         )
@@ -743,6 +745,8 @@ def cognition_router(store):
 
     @router.post("/api/wiki/cognition/compiler/execute")
     def execute(body: dict):
+        if not allow_compiler_start:
+            raise Conflict("cognition_compiler_retired: 自动长期认知提炼已停用")
         allowed = {
             "selected_experiences", "idempotency_key", "model_config_id",
             "prepared_id", "payload_hash", "confirm_outbound",

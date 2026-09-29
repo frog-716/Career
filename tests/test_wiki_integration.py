@@ -1,4 +1,5 @@
 import json
+from uuid import uuid4
 from fastapi.testclient import TestClient
 from workbench.app import create_app
 from workbench.core import Store
@@ -18,10 +19,17 @@ def test_latest_confirmed_selection_in_actual_payload_and_staleness(tmp_path):
         assert r.status_code==200,r.text;return r.json()
     job=post('/jobs',dict(company='虚构甲',title='分析',jd='虚构JD',idempotency_key='job'))
     def entry(title,content,kind='project',scope_type='personal',scope_id=''):
-        source=post('/knowledge/sources',dict(title=title,content=content,source_type='text',locator='',scope_type=scope_type,scope_id=scope_id,idempotency_key=title+'raw'))
-        candidate=post('/knowledge/candidates',dict(title=title,content=content,entry_type=kind,scope_type=scope_type,scope_id=scope_id,source_ids=[source['id']],idempotency_key=title+'candidate'))
-        result=post('/knowledge/candidates/'+candidate['id']+'/resolve',dict(decision='confirm',expected_revision=candidate['revision'],idempotency_key=title+'confirm'))
-        return next(x for x in c.get('/api/knowledge').json()['entries'] if x['id']==result['entry_id'])
+        # Synthetic confirmed legacy fact, kept to verify old Context selection.
+        source_id=str(uuid4());entry_id=str(uuid4())
+        with store.connect() as connection:
+            store._record(connection,'knowledge_source',dict(
+                id=source_id,title=title,content=content,source_type='text',locator='',
+                scope_type=scope_type,scope_id=scope_id,created_at='2026-01-01T00:00:00Z'))
+            return store._save(connection,'wiki_entry',dict(
+                id=entry_id,title=title,content=content,entry_type=kind,
+                scope_type=scope_type,scope_id=scope_id,source_ids=[source_id],
+                status='active',verification='user_asserted',
+                created_at='2026-01-01T00:00:00Z'),0)
     goal=entry('目标','必须保留的约束','constraint')
     project=entry('项目甲','旧事实XYZ')
     private=entry('别的机会','跨机会机密',scope_type='job',scope_id=post('/jobs',dict(company='虚构乙',title='经理',jd='B',idempotency_key='job2'))['id'])

@@ -29,15 +29,6 @@ const esc = (value: any) =>
       ]!,
   );
 
-const entryTypes: Record<string, string> = {
-  goal: "职业目标",
-  constraint: "偏好与约束",
-  experience: "经历",
-  capability: "能力",
-  project: "项目",
-  achievement: "成果",
-};
-
 function basicsOf(profile: Obj): Obj {
   const basics = profile.basics || {};
   return {
@@ -73,16 +64,6 @@ function linkRows(links: Obj[] = []) {
 
 function basicsFields(basics: Obj) {
   return `<div class="form-grid"><label>姓名<input name="name" aria-label="姓名" maxlength="200" value="${esc(basics.name)}"></label><label>邮箱<input name="email" type="email" aria-label="邮箱" maxlength="320" value="${esc(basics.email)}"></label><label>电话<input name="phone" aria-label="电话" maxlength="100" value="${esc(basics.phone)}"></label><label>微信<input name="wechat" aria-label="微信" maxlength="500" value="${esc(basics.wechat)}"></label><label>GitHub<input name="github" type="url" aria-label="GitHub 地址" maxlength="500" value="${esc(basics.github)}" placeholder="https://github.com/用户名"></label></div><fieldset class="profile-links" data-profile-links><legend>个人网页链接</legend><p class="muted">可添加个人主页、作品集、博客等公开链接，网址请填写完整的 https:// 地址。</p><div data-profile-link-list>${linkRows(basics.links)}</div><button type="button" class="secondary" data-add-profile-link>添加网页链接</button></fieldset>`;
-}
-
-function entryTypeOptions(value = "experience") {
-  return Object.entries(entryTypes)
-    .map(([key, label]) => `<option value="${key}" ${key === value ? "selected" : ""}>${label}</option>`)
-    .join("");
-}
-
-function entryRow(entry: Obj = {}, index = 0) {
-  return `<div class="profile-entry" data-profile-entry><div class="form-grid"><label>条目类型<select name="entry_type">${entryTypeOptions(entry.entry_type)}</select></label><label>标题<input name="title" maxlength="500" value="${esc(entry.title)}" placeholder="例如：负责过的项目"></label></div><label>整理内容<textarea name="content" maxlength="100000" placeholder="只写你愿意整理为待确认候选的内容">${esc(entry.content)}</textarea></label><button type="button" class="text-btn" data-remove-profile-entry>移除此条目</button><span class="muted">候选条目 ${index + 1} · 后续仍需确认后才会进入可信资料</span></div>`;
 }
 
 function basicsForm(profile: Obj) {
@@ -190,19 +171,12 @@ function organizeDialog(ctx: ProfileContext, profile: Obj) {
   const initial = basicsOf(profile);
   ctx.modal(
     "整理旧版个人资料",
-    `<form id="profile-organize-form" data-profile-form><fieldset><p>原文会完整保留。请填写基础字段，并把需要后续确认的内容拆成条目。</p><div class="source-card"><h3>原始资料（完整只读）</h3><pre>${esc(profile.content || "")}</pre></div>${basicsFields(initial)}<label class="check-row"><input type="checkbox" name="confirmed" required>我已核对原文，确认整理后完整保留原文；当前基础资料只采用上面的基础字段</label><div id="profile-entries"><h3>待确认条目（可选）</h3><p class="muted">这些内容提交后仍是待确认候选，不会自动成为可信资料。</p><div data-profile-entry-list></div><button type="button" class="secondary" data-add-profile-entry>添加待确认条目</button></div></fieldset><div data-profile-conflict></div><div data-profile-reload-error></div><button class="primary full" type="submit">确认整理并保存</button></form>`,
+    `<form id="profile-organize-form" data-profile-form><fieldset><p>原文会作为 Raw 完整保留。请先填写基础字段；经历、能力和目标可之后在 Wiki 中手工整理。</p><div class="source-card"><h3>原始资料（完整只读）</h3><pre>${esc(profile.content || "")}</pre></div>${basicsFields(initial)}<label class="check-row"><input type="checkbox" name="confirmed" required>我已核对原文，确认整理后完整保留原文；当前基础资料只采用上面的基础字段</label></fieldset><div data-profile-conflict></div><div data-profile-reload-error></div><button class="primary full" type="submit">确认整理并保存</button></form>`,
     (dialog) => {
       const form = dialog.querySelector<HTMLFormElement>("#profile-organize-form")!;
       const fieldset = form.querySelector<HTMLFieldSetElement>("fieldset")!;
-      const list = dialog.querySelector<HTMLElement>("[data-profile-entry-list]")!;
       bindLinkControls(dialog);
       let expected = profile.revision ?? 0;
-      const add = (entry?: Obj) => {
-        list.insertAdjacentHTML("beforeend", entryRow(entry, list.children.length));
-        const row = list.lastElementChild as HTMLElement | null;
-        row?.querySelector("[data-remove-profile-entry]")?.addEventListener("click", () => row.remove());
-      };
-      dialog.querySelector("[data-add-profile-entry]")?.addEventListener("click", () => add());
       let busy = false;
       let pendingRequest: Obj | null = null;
       form.onsubmit = async (event) => {
@@ -211,15 +185,8 @@ function organizeDialog(ctx: ProfileContext, profile: Obj) {
         const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
         if (!form.checkValidity()) { form.reportValidity(); return; }
         const values = formValues(form);
-        const entries = [...list.querySelectorAll<HTMLElement>("[data-profile-entry]")]
-          .map((row) => ({
-            title: String(row.querySelector<HTMLInputElement>('[name="title"]')?.value || "").trim(),
-            content: String(row.querySelector<HTMLTextAreaElement>('[name="content"]')?.value || "").trim(),
-            entry_type: String(row.querySelector<HTMLSelectElement>('[name="entry_type"]')?.value || "experience"),
-          }))
-          .filter((entry) => entry.title || entry.content);
         const confirmed = form.querySelector<HTMLInputElement>('[name="confirmed"]')?.checked === true;
-        const request = pendingRequest || { basics: values, expected_revision: expected, idempotency_key: crypto.randomUUID(), confirmed, entries };
+        const request = pendingRequest || { basics: values, expected_revision: expected, idempotency_key: crypto.randomUUID(), confirmed, entries: [] };
         busy = true;
         fieldset.disabled = true;
         submit.disabled = true;

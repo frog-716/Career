@@ -2,6 +2,8 @@
 
 TypeScript + Vite vanilla，使用本地系统字体。页面只调用 `/api` Service，不直接读写数据库或任意文件，不将正文放进 localStorage。
 
+Phase E 当前入口：Project 的旧 Event/Achievement/Evidence 只在历史区阅读；旧 T14 仅保留已有授权的撤销。旧 `knowledge-ui` 来源、候选和 ResumeUse 只读，待审候选可拒绝，已确认旧条目可更正或撤回；新资料从 Raw + Wiki 入口维护。旧 Profile 整理只保存基础字段并把原文归档为 Raw。D4 自动 Cognition 的新发起按钮和服务端新执行入口已关闭，既有待审建议仍可继续。相关检查：`npm run test:legacy-readonly`、`npm run test:project-collaboration`、`npm run test:wiki-semantic`、`npm run test:ux3-workspaces`。
+
 ```sh
 npm ci
 npm run typecheck
@@ -48,6 +50,8 @@ PDF 由服务端从结构化简历生成受控 HTML，并使用锁定版本的�
 
 
 ## 事实闭环页面
+
+以下为旧批次页面记录；退休后的可见入口以本页顶部 Phase E 说明为准。
 
 `profile-ui.ts` 管理基础字段表单、旧文本整理与CAS；`record-ui.ts` 为机会、工作卡及聚合记录复用更正/历史/选段候选操作。`legacy-app.js` 提供明确选材和来源提示，保存工作稿成功后再发选材CAS；不确定响应复用同一请求。撤销/重做保留服务端来源历史，恢复正式版本采用冻结来源。
 

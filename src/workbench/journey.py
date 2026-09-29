@@ -192,70 +192,7 @@ def journey_router(store):
 
     @router.post("/api/journey/notes/{note_id}/candidate")
     def note_candidate(note_id: str, body: dict):
-        expected = _expected(body.get("expected_revision"))
-        title = _text(body.get("title"), "标题", 500, strip=True)
-        content = _text(body.get("content"), "内容", 100000)
-        entry_type = body.get("entry_type")
-        if not isinstance(entry_type, str) or entry_type not in {"goal", "constraint", "experience", "capability", "project", "achievement", "person", "growth", "strategy"}:
-            raise Invalid("候选条目类型不合法")
-        promote = body.get("promote_to_personal", False)
-        if not isinstance(promote, bool):
-            raise Invalid("promote_to_personal 必须是布尔值")
-        with store.connect() as c:
-            note = store._get(c, note_id, "journey_note", True)
-            if note.get("scope_type") == "job" and c.execute(
-                "SELECT 1 FROM records WHERE kind='interview' AND json_extract(body,'$.raw_note_id')=?",
-                (note_id,),
-            ).fetchone():
-                raise Conflict("interview_action_required: Interview 来源不能从旧 Candidate 入口产生 Patch")
-            fixed_submission = note.get("submission_id")
-            requested_submission = body.get("submission_id")
-            if requested_submission is not None and requested_submission != fixed_submission:
-                raise Conflict("候选不能更换原记录关联的投递")
-            _submission_for_note(store, c, note, fixed_submission)
-            effective_submission = fixed_submission
-            scope_type = body.get("scope_type")
-            scope_id = body.get("scope_id")
-            payload = dict(note_id=note_id, expected_revision=expected, title=title, content=content,
-                           entry_type=entry_type, scope_type=scope_type, scope_id=scope_id,
-                           promote_to_personal=promote, submission_id=effective_submission)
-            previous, key, fingerprint = _request(store, c, body.get("idempotency_key"), "note_candidate", payload)
-            if previous is not None:
-                return previous
-            revision_id = "note-revision:" + note_id
-            row = c.execute("SELECT revision FROM current WHERE id=?", (revision_id,)).fetchone()
-            actual = row[0] if row else 0
-            if expected != actual:
-                raise Conflict("记录已在其它窗口更正，请重新载入")
-            if promote:
-                if scope_type != "personal" or scope_id != "":
-                    raise Invalid("提升个人范围时必须明确使用 personal 且 scope_id 为空")
-            elif (scope_type, scope_id) != (note["scope_type"], note["scope_id"]):
-                raise Invalid("未明确提升时只能使用原记录范围")
-            if scope_type not in {"personal", "job", "episode"}:
-                raise Invalid("候选范围不合法")
-            if scope_type == "job":
-                store.job_view(c,scope_id)
-            elif scope_type == "episode":
-                store._get(c, scope_id, "journey_episode")
-            elif scope_id != "":
-                raise Invalid("个人范围的 scope_id 必须为空")
-            source_id = uid()
-            source_hash = digest({"title": title, "content": content})
-            note_view = _note_view(store, c, note)
-            origin_hash = digest({"title": note_view["title"], "content": note_view["content"]})
-            source = dict(id=source_id, title=title, content=content, source_type="text", locator=note_id,
-                          scope_type=scope_type, scope_id=scope_id, hash=source_hash,
-                          origin=dict(kind="journey_note", id=note_id, revision=actual, hash=origin_hash,
-                                      scope_type=note["scope_type"], scope_id=note["scope_id"]), created_at=now())
-            store._record(c, "knowledge_source", source)
-            candidate = store._save(c, "knowledge_candidate", dict(
-                id=uid(), status="pending", entry_id=None, source_ids=[source_id],
-                entry_type=entry_type, title=title, content=content,
-                scope_type=scope_type, scope_id=scope_id, created_at=now(),
-                origin=source["origin"], submission_id=effective_submission), 0)
-            _remember(store, c, key, fingerprint, candidate)
-            return candidate
+        raise Conflict("legacy_note_candidate_retired: 旧记录不能再生成知识候选，请在所属对象使用 Raw 和 Wiki")
 
     @router.post("/api/journey/plans/{job_id}")
     def save_plan(job_id: str, body: dict):

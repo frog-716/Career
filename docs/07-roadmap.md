@@ -14,7 +14,7 @@
 | D1 | Raw + Wiki Semantic Foundation | COMPLETE / PASS：自动验证、Runtime、两段用户 UI 验收、清理及 Git 收口均通过 |
 | D2 | Wiki Compiler | COMPLETE / PASS：真实 DeepSeek smoke、逐条编辑后接受、Wiki rewrite/history/source_refs、测试数据清理及 Git 收口均通过 |
 | D3 | Project / Employment / Person 工作区接入 Raw + Wiki Compiler | COMPLETE / PASS：两轮用户 UI 验收、D3.5 Fresh-Eyes UX 修复与隔离回归通过 |
-| D4 | Wiki Cognition 自动提炼 | 唯一真实 smoke 已执行；产品价值判断 **REMOVE**，停止扩建自动提炼；保留旧 pending 提案与审计，手工 Wiki Cognition 仍可用 |
+| D4 | Wiki Cognition 自动提炼 | 唯一真实 smoke 已执行；产品价值判断 **REMOVE**，新发起接口已停用；保留旧 pending 提案与审计，手工 Wiki Cognition 仍可用 |
 | UX-1 | AI 进度、对象归属及关闭/切页/刷新恢复 | COMPLETE / PASS：用户 UI、机器核验、TestProvider exactly once 与无重复 dispatch 均通过 |
 | UX-2 | Opportunity + Wiki + Shared Visual Foundation | COMPLETE / PASS：四张用户截图与 Shared Visual Foundation 验收通过，自动回归、Git 收口和正式 Runtime Update 均完成；UX-3 READY，不恢复 D4 smoke |
 | UX-3 | 项目 / 任职 / 人物工作区 | COMPLETE / PASS；Phase 1 Runtime Update 已加载 |
@@ -22,7 +22,7 @@
 | UX-4 | 简历保存回读、投递、沟通、面试与准备连续路径 | COMPLETE / PASS；已提交推送并完成 Runtime 核验 |
 | Resume AI Privacy Gate | 从空 DTO 构造允许字段，捕获请求做对抗验证 | COMPLETE / PASS；实际请求对抗与 Preview 通过，已更新 Runtime；无真实 Provider |
 | UX-5 | 全新虚构库独立盲审完整核心链 | COMPLETE / PASS；独立空库主链与修复入口复验通过；D4 可恢复至真实调用 Preview，发送仍需 Hard Gate 2 |
-| E | 分类旧数据并退役 T14、ResumeUse 与重复业务对象 | 尚未开始；目标模型优先，分类后可清理明确测试对象 |
+| E | 分类旧数据并退役 T14、ResumeUse 与重复业务对象 | 实施验证中：旧资料分类、停写和入口收口已落地；正式 Runtime 与全量回归待最终核验，未知数据保留 |
 | F | 从机会进入简历、创建/复制与版本流程 | 尚未开始 |
 | G | Resume AI 最小 DTO 与逐条建议 | 尚未开始 |
 | H | 快捷键审计、真实 macOS 行为核对和用户手工验收 | 尚未开始 |

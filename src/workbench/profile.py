@@ -2,7 +2,7 @@
 from fastapi import APIRouter
 from urllib.parse import urlsplit
 from .core import Conflict, Invalid, digest, now, uid
-from .knowledge import entry_values, expected as validate_expected, request, remember
+from .knowledge import expected as validate_expected, request, remember
 
 
 def _web_url(value):
@@ -66,24 +66,19 @@ def profile_router(store):
         if body.get('confirmed') is not True: raise Invalid('请确认已核对原文及整理后的资料边界')
         entries = body.get('entries', [])
         if not isinstance(entries, list) or len(entries) > 30: raise Invalid('一次最多整理30条候选')
-        values = []
-        for e in entries:
-            if not isinstance(e, dict): raise Invalid('候选结构不合法')
-            values.append(entry_values(e))
+        if entries: raise Conflict('legacy_profile_candidate_retired: 请在新 Wiki 中手工整理')
         with store.connect() as c:
             previous, key, fingerprint = request(store, c, body.get('idempotency_key'), 'organize_profile', body)
             if previous is not None: return previous
             old = store._get(c, 'profile', 'profile')
             if old['revision'] != expected: raise Conflict('资料已更新，请核对当前版本再整理')
             if old.get('mode') == 'structured': raise Conflict('基础资料已经整理，请直接编辑基础字段')
-            source = dict(id=uid(), title='整理前的基础资料', content=old['content'], source_type='text', locator='',
-                          scope_type='personal', scope_id='', created_at=now(),
-                          origin=dict(kind='profile', id='profile', revision=old['revision'], hash=digest(old)))
-            store._record(c, 'knowledge_source', source)
-            for kind, title, content in values:
-                store._save(c, 'knowledge_candidate', dict(id=uid(), title=title, content=content,
-                    entry_type=kind, scope_type='personal', scope_id='', source_ids=[source['id']],
-                    status='pending', entry_id=None, created_at=now()), 0)
+            payload = dict(scope_type='personal', scope_id='', source_kind='profile_archive',
+                           title='整理前的基础资料', content=old['content'])
+            store._record(c, 'raw_material', dict(id=uid(), kind='raw_material', **payload,
+                revision=1, hash=digest(payload), created_at=now(),
+                provenance=dict(kind='profile_archive', origin=dict(
+                    kind='profile', id='profile', revision=old['revision'], hash=digest(old)))))
             result = _save(store, c, old, basics, expected)
             remember(store, c, key, fingerprint, result)
             return result

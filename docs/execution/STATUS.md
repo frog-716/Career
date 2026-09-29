@@ -1,5 +1,11 @@
 # 当前状态
 
+## 2026-09-29：Target Mode Phase 6 — LEGACY RETIREMENT IN PROGRESS
+
+- 修改前完成条件：仅在可证明归属的范围分类 REAL/TEST/UNKNOWN，不删真实/未知或任何正式业务行；旧 Project Event/Achievement/Evidence/T14 的新增写入口和可见按钮退出，新 Raw+Wiki 可写/可读、旧历史/来源/PDF/冻结投递仍可读；旧 Wiki/ResumeUse 后续停写需先查全调用链和受保护文件边界。先红测试，再实现与回归；不做 schema migration 或未知归属清理。
+- 正式库只读 metadata 盘点见 `/tmp/career-target-phase6/inventory.md`：旧 work_achievement/event/evidence/link、wiki_entry、knowledge_candidate/source 有 demo 标记与 manifest 双重归属，可判 TEST；resume_use 2 条中 1 TEST、1 UNKNOWN。UNKNOWN 保留，不能因引用演示 PDF 猜测可删。当前没有必要 Gate 3/4。
+- D4 的 REMOVE 判定只停止新自动跨经历提炼；现有 pending 建议、审计及手工 Wiki 范围可读。用户已确认恢复本轮才在正式页生效的 Project/Employment/Person 显眼字号与字重；该样式修改独立执行，不动布局/功能及其他页面。
+
 ## 2026-09-29：Target Mode Phase 5 — ONE REAL SMOKE COMPLETE / REMOVE
 
 - 最新用户仅批准 A/B 两个虚构 Project 的当前 Wiki 进行一次 DeepSeek outbound，禁止 Raw、其它 Career 范围、Tavily、第二次请求、重试及正式资料自动修改。旧 Preview 已过期，因此新建本地 preparation；新 DTO 严格为 A/B 各 1 条当前 Wiki、已有 Cognition 0，内容和最终发送 payload hash `a3e7cc08…` 与已批准的预览完全一致，模型仍为 `deepseek-flash`。唯一一次执行成功返回 1 条待审建议，没有接受或应用。

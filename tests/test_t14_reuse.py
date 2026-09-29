@@ -9,6 +9,9 @@ from workbench.core import Store
 from workbench.opportunity import create_opportunity
 from workbench.providers import TestProvider
 from workbench.secret_store import SecretStore
+from workbench.core import digest, now
+from workbench.work import _achievement_hash, _employment_owner, _evidence_pointer
+from workbench import knowledge
 
 
 HEADERS = {"X-Career-Request": "1", "Content-Type": "application/json"}
@@ -73,34 +76,26 @@ def work_fixture(client):
             "idempotency_key": "t14-project",
         },
     ).json()
-    achievement = client.post(
-        "/api/work/achievements",
-        json={
-            "project_id": project["id"],
-            "title": "T14 虚构成果",
-            "content": "原始任职事实 ORIGINAL_EMPLOYMENT_FACT_CANARY",
-            "idempotency_key": "t14-achievement",
-        },
-    ).json()
-    evidence = client.post(
-        "/api/work/evidence",
-        json={
-            "scope_type": "project",
-            "scope_id": project["id"],
-            "title": "T14 证据指针",
-            "source_type": "内部文档",
-            "content": "敏感证据原文 PRIVATE_EVIDENCE_RAW_CANARY",
-            "idempotency_key": "t14-evidence",
-        },
-    ).json()
-    link = client.post(
-        "/api/work/evidence-links",
-        json={
-            "achievement_id": achievement["id"],
-            "evidence_id": evidence["id"],
-            "idempotency_key": "t14-evidence-link",
-        },
-    ).json()
+    # Reconstruct historical rows directly: the old T14 creation endpoints are retired.
+    store = client.app.state.store
+    with store.connect() as db:
+        achievement = store._save(db, "work_achievement", {
+            "id": "historical-t14-achievement", "project_id": project["id"],
+            "title": "T14 虚构成果", "content": "原始任职事实 ORIGINAL_EMPLOYMENT_FACT_CANARY",
+            "created_at": now(),
+        }, 0)
+        evidence = {
+            "id": "historical-t14-evidence", "scope_type": "project", "scope_id": project["id"],
+            "title": "T14 证据指针", "source_type": "内部文档",
+            "content": "敏感证据原文 PRIVATE_EVIDENCE_RAW_CANARY", "created_at": now(),
+        }
+        store._record(db, "work_evidence", evidence)
+        link = {
+            "id": "historical-t14-link", "achievement_id": achievement["id"],
+            "evidence_id": evidence["id"], "achievement_revision": achievement["revision"],
+            "evidence_created_at": evidence["created_at"], "created_at": now(),
+        }
+        store._record(db, "work_evidence_link", link)
     return episode, employment, project, achievement, evidence, link
 
 
@@ -128,18 +123,23 @@ def resume_fixture(store, client):
 
 
 def approve(client, achievement, *, content="脱敏后的求职表达 APPROVED_RESUME_CANARY", title="T14 脱敏成果"):
-    response = client.post(
-        f"/api/work/achievements/{achievement['id']}/reuse",
-        json={
-            "expected_revision": achievement["revision"],
-            "title": title,
-            "content": content,
-            "allow_resume_reuse": True,
-            "idempotency_key": "t14-approve-reuse",
-        },
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
+    store = client.app.state.store
+    with store.connect() as db:
+        project = store._get(db, achievement["project_id"], "work_project")
+        evidence = next(item for item in store._records(db, "work_evidence")
+                        if item["id"] == "historical-t14-evidence")
+        provenance = {
+            "kind": "work_achievement_reuse",
+            "owner": _employment_owner(store, db, project),
+            "source": {"kind": "work_achievement", "id": achievement["id"],
+                       "revision": achievement["revision"], "hash": _achievement_hash(achievement)},
+            "project_id": project["id"], "evidence_refs": [_evidence_pointer(evidence)],
+            "approved_content_hash": digest({"title": title, "content": content}),
+            "approved_at": now(), "allowed_uses": ["resume"],
+        }
+        entry = knowledge.create_reusable_personal_entry(
+            store, db, title=title, content=content, provenance=provenance)
+    return dict(entry, source_achievement_id=achievement["id"])
 
 
 def select_material(client, document, entry, *, section="projects", key="t14-select"):
@@ -369,7 +369,7 @@ def test_reuse_requires_explicit_user_permission_and_cas(tmp_path):
             "idempotency_key": "t14-no-permission",
         },
     )
-    assert missing_permission.status_code == 422
+    assert missing_permission.status_code == 409
     stale = client.post(
         f"/api/work/achievements/{achievement['id']}/reuse",
         json={

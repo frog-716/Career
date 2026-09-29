@@ -36,6 +36,8 @@ assert.match(legacySection, /return legacyHistoryDisclosureHTML\(legacyCount, bo
 assert.doesNotMatch(legacySection, /work-domain-card/);
 assert.doesNotMatch(legacySection, /<details[^>]*\bopen\b|任职协作人物|data-work-participant|关联已确认人物/);
 assert.match(legacySection, /legacyHistoryDisclosureHTML/);
+assert.doesNotMatch(legacySection, /data-work-(?:event|achievement|evidence|link-evidence|reuse)=/, "旧工作记录只回看，不再新增重复实体或授权复用");
+assert.match(legacySection, /data-work-revoke=/, "既有授权仍可撤销未来复用");
 assert.doesNotMatch(legacySection, /<summary>[^<]*(?:兼容|compatibility)/i, "用户可见折叠标题不暴露内部兼容状态");
 assert.match(main, /eligiblePeopleForProject/, "人物选择仍按 Employment 和身份边界过滤");
 

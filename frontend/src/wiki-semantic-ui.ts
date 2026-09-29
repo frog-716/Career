@@ -34,6 +34,7 @@ const sourceNames: Record<string, string> = {
   communication: "沟通记录",
 };
 export function sourceLabel(source: Obj) {
+  if (source.kind === "raw_material" && source.source_kind === "profile_archive") return "旧基础资料原文";
   if (source.kind === "interview_raw") {
     if (source.source_kind === "simulation_interview_transcript") return "模拟面试转写";
     if (source.source_kind === "real_interview_transcript") return "真实面试转写";
@@ -473,7 +474,7 @@ export function wikiSemanticView(d: Obj) {
   } else {
     const pending = cognition ? (data.cognition?.proposals || []).filter((x: Obj) => x.status === "pending") : [];
     const notices = pending.map((x: Obj) => `<div class="reading-pending"><span>有长期认知建议待处理</span><button class="text-btn" data-d4-resume-proposal="${esc(x.id)}">继续</button></div>`).join("");
-    const heading = `<header class="reading-section-heading"><h2>${esc(title)}</h2>${cognition ? '<button class="secondary" data-d4-start>选择经历整理</button>' : readingFilter()}</header>`;
+    const heading = `<header class="reading-section-heading"><h2>${esc(title)}</h2>${cognition ? "" : readingFilter()}</header>`;
     if (!scoped && ["project", "employment", "person"].includes(activeTab)) {
       const seen = new Set<string>();
       const representatives = items.filter((item: Obj) => { if (item.scope_type !== activeTab || seen.has(item.scope_id)) return false; seen.add(item.scope_id); return true; });
@@ -494,8 +495,5 @@ export function projectWikiHTML(project: Obj, data: Obj = {}) {
   const retiredView = retired.length
     ? `<details class="wiki-retired"><summary>不再有效的知识 · ${retired.length}</summary>${retired.map((item: Obj) => knowledgeCard(item, rawItems)).join("")}</details>`
     : "";
-  const recap = ["completed", "canceled"].includes(project.status)
-    ? `<button class="secondary" data-d4-start data-d4-prefill-type="project" data-d4-prefill-id="${esc(project.id)}">从这个项目整理长期认知</button>`
-    : "";
-  return `<div class="project-wiki">${recap}${currentView}${scopeRawHTML("project", project.id, rawItems)}${retiredView}</div>`;
+  return `<div class="project-wiki">${currentView}${scopeRawHTML("project", project.id, rawItems)}${retiredView}</div>`;
 }

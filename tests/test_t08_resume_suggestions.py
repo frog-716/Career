@@ -86,40 +86,27 @@ def resume_fixture(tmp_path, provider):
         "expected_revision": started.json()["revision"],
     })
     assert saved.status_code == 200, saved.text
-    source = client.post("/api/knowledge/sources", json={
-        "title": "T08 虚构来源",
-        "content": "只用于 T08 的已确认虚构来源",
-        "source_type": "text",
-        "scope_type": "personal",
-        "scope_id": "",
-        "idempotency_key": "t08-source",
-    })
-    assert source.status_code == 200, source.text
-    candidate = client.post("/api/knowledge/candidates", json={
-        "title": "T08 虚构事实",
-        "content": "只用于 T08 的已确认虚构事实",
-        "entry_type": "project",
-        "source_ids": [source.json()["id"]],
-        "scope_type": "personal",
-        "scope_id": "",
-        "expected_revision": 0,
-        "idempotency_key": "t08-candidate",
-    })
-    assert candidate.status_code == 200, candidate.text
-    confirmed = client.post(
-        f"/api/knowledge/candidates/{candidate.json()['id']}/resolve",
-        json={
-            "expected_revision": candidate.json()["revision"],
-            "decision": "confirm",
-            "idempotency_key": "t08-confirm",
-        },
-    )
-    assert confirmed.status_code == 200, confirmed.text
-    entry = next(item for item in client.get("/api/knowledge").json()["entries"] if item["id"] == confirmed.json()["entry_id"])
+    # This is a pre-D1 confirmed fact, planted as synthetic history. Its
+    # selected-fact behavior remains under test after old intake is retired.
+    with store.connect() as connection:
+        store._record(connection, "knowledge_source", {
+            "id": "t08-old-source", "title": "T08 虚构来源",
+            "content": "只用于 T08 的已确认虚构来源",
+            "source_type": "text", "locator": "", "scope_type": "personal",
+            "scope_id": "", "created_at": "2026-01-01T00:00:00Z",
+        })
+        entry = store._save(connection, "wiki_entry", {
+            "id": "t08-old-entry", "title": "T08 虚构事实",
+            "content": "只用于 T08 的已确认虚构事实",
+            "entry_type": "project", "source_ids": ["t08-old-source"],
+            "scope_type": "personal", "scope_id": "", "status": "active",
+            "verification": "user_asserted", "created_at": "2026-01-01T00:00:00Z",
+        }, 0)
+    assert entry in client.get("/api/knowledge").json()["entries"]
     selected = client.post(f"/api/resume-documents/{document_id}/select-facts", json={
         "expected_revision": saved.json()["revision"],
         "selections": [{
-            "id": confirmed.json()["entry_id"],
+            "id": entry["id"],
             "revision": entry["revision"],
             "section_type": "skills",
         }],

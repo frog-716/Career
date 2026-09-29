@@ -1,5 +1,7 @@
 # Career 本地服务
 
+Phase E 当前接口边界：旧 `POST /api/work/events|achievements|evidence|evidence-links`、旧成果编辑与 T14 新复用、`POST /api/domain/resume-uses`、旧 `/api/knowledge/sources|candidates` 新建/编辑/确认、旧 Note→Candidate 入口均返回 409，不新增旧事实。D4 Cognition 的新 prepare/execute 也返回 409，既有建议仍可读和逐条处理。旧读取、Raw 来源、已确认旧条目更正/撤回、待审旧候选拒绝、已有 T14 撤销、PDF 与冻结 Submission 继续可用。`/api/profile/organize` 不再创建旧候选，原文归档为个人 Raw；带旧 `entries` 请求返回 409。新资料使用 `/api/raw` 与 `/api/wiki`。退休保护测试见 `tests/test_legacy_*_retirement.py` 和 `tests/test_retired_cognition_start.py`。
+
 本轮统一本地检查入口为仓库根目录的 `python scripts/review_checks.py`。它执行后端回归、前端 typecheck/build、依赖、秘密扫描、Markdown 本地链接和 diff whitespace 检查；浏览器补充证据使用 `python scripts/browser_regression.py`，默认只启动隔离 `TestProvider`。
 
 当前 Production 已部署通过最终 review 的 **Batch F Opportunity MVP**，运行版本 `0.7.0-batch-f`、schema v6。正式代码位于 `/Users/frog/Projects/Career`，数据仍位于外部 `/Users/frog/Library/Application Support/Career Data`；v1→v6 migration、备份、恢复、完整性与浏览器 smoke 证据见 [Batch F §23](../../docs/execution/OPPORTUNITY-BATCH-F.md#23-opportunity-mvp-production-cutover2026-09-18)。
@@ -127,6 +129,8 @@ dry-run 默认逐 Job `defer_legacy`，不根据记录存在或 demo 猜 phase/r
 开写前 rollback 是备份恢复到另一个新目录并使用匹配 v1 代码；开写后应备份 v2 并 forward recover，不能把 user_version 改回 1 或用旧备份抹掉新增数据。本批不提供无损逆迁移，也不执行生产部署。实际证据及测试命令见[Batch B](../../docs/execution/OPPORTUNITY-BATCH-B.md)。
 
 ## 事实回流接口
+
+以下是退休前的历史接口记录；当前行为以本页顶部 Phase E 边界为准.
 
 - `work.py` T14 成果复用：`POST /api/work/achievements/{achievement_id}/reuse` 在成果版本、关联 Evidence、幂等键和 `allow_resume_reuse=true` 均通过后创建批准的 personal `wiki_entry`；`POST /api/work/reuses/{reuse_id}/revoke` 只撤销未来 Resume 使用。两者均保留原始 Achievement/Project/Evidence；`reuse_provenance` 只保存 owner、source revision/hash 和 Evidence 指针，不保存 Evidence 原文。
 

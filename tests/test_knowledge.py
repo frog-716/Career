@@ -1,6 +1,4 @@
 from batch_b_helpers import save_job
-from concurrent.futures import ThreadPoolExecutor
-
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
@@ -23,105 +21,83 @@ def make_client(tmp_path):
     return TestClient(app), store
 
 
-def source_body(key="source-1", **changes):
-    body = {
+def seed_source(store, key, **changes):
+    source = {
+        "id": f"legacy-source-{key}", "created_at": "2026-01-01T00:00:00Z",
         "title": "访谈原文", "content": "  原文保留空白  ", "source_type": "text",
         "locator": "", "scope_type": "personal", "scope_id": "",
-        "idempotency_key": key,
     }
-    body.update(changes)
-    return body
+    source.update(changes)
+    with store.connect() as connection:
+        store._record(connection, "knowledge_source", source)
+    return source
 
 
-def candidate_body(source_ids, key="candidate-1", **changes):
-    body = {
+def seed_candidate(store, key, source_ids, **changes):
+    candidate = {
+        "id": f"legacy-candidate-{key}", "created_at": "2026-01-01T00:00:00Z",
         "source_ids": source_ids, "entry_type": "experience", "title": "经历",
         "content": "负责虚构项目", "scope_type": "personal", "scope_id": "",
-        "idempotency_key": key,
+        "status": "pending", "entry_id": None,
     }
-    body.update(changes)
-    return body
+    candidate.update(changes)
+    with store.connect() as connection:
+        return store._save(connection, "knowledge_candidate", candidate, 0)
 
 
-def create_entry(client, source, entry_type="experience", scope_type="personal",
+def seed_entry(store, source, entry_type="experience", scope_type="personal",
                  scope_id="", key="candidate-1", content="当前事实"):
-    candidate = client.post("/api/knowledge/candidates", json=candidate_body(
-        [source["id"]], key, entry_type=entry_type, scope_type=scope_type,
-        scope_id=scope_id, content=content)).json()
-    resolved = client.post(f"/api/knowledge/candidates/{candidate['id']}/resolve", json={
-        "decision": "confirm", "expected_revision": candidate["revision"],
-        "idempotency_key": "resolve-" + key,
-    })
-    assert resolved.status_code == 200
-    return resolved.json(), client.get("/api/knowledge").json()["entries"][0]
+    with store.connect() as connection:
+        return store._save(connection, "wiki_entry", {
+            "id": f"legacy-entry-{key}", "title": "项目", "content": content,
+            "entry_type": entry_type, "scope_type": scope_type,
+            "scope_id": scope_id, "source_ids": [source["id"]],
+            "status": "active", "verification": "user_asserted",
+            "created_at": "2026-01-01T00:00:00Z",
+        }, 0)
 
 
-def test_source_is_immutable_preserves_original_and_idempotency(tmp_path):
-    client, _ = make_client(tmp_path)
-    locator = str(tmp_path / "must-not-be-opened")
-    body = source_body(source_type="local_repository", locator=locator)
-    first = client.post("/api/knowledge/sources", json=body)
-    assert first.status_code == 200
-    assert first.json()["content"] == body["content"] and first.json()["locator"] == locator
-    assert client.post("/api/knowledge/sources", json=body).json() == first.json()
-    assert client.post("/api/knowledge/sources", json=dict(body, content="不同原文")).status_code == 409
-    state = client.get("/api/knowledge").json()
-    assert state == {"sources": [first.json()], "candidates": [], "entries": []}
-
-
-def test_candidate_scope_cas_edit_and_confirmation_are_transactional(tmp_path):
+def test_old_source_preserves_original_content_and_locator_on_read(tmp_path):
     client, store = make_client(tmp_path)
-    personal = client.post("/api/knowledge/sources", json=source_body()).json()
-    job = save_job(store,{"company": "虚构公司", "title": "工程师", "jd": "JD"})
-    job_source = client.post("/api/knowledge/sources", json=source_body(
-        "source-job", scope_type="job", scope_id=job["id"])).json()
+    locator = str(tmp_path / "must-not-be-opened")
+    source = seed_source(store, "original", source_type="local_repository", locator=locator)
+    state = client.get("/api/knowledge").json()
+    assert state == {"sources": [source], "candidates": [], "entries": []}
+    with store.connect(False) as connection:
+        assert store._get(connection, source["id"], "knowledge_source", True) == source
 
-    cross_scope = client.post("/api/knowledge/candidates", json=candidate_body(
-        [personal["id"], job_source["id"]], "cross", scope_type="personal", scope_id=""))
-    assert cross_scope.status_code == 422
-    created = client.post("/api/knowledge/candidates", json=candidate_body([personal["id"]]))
-    assert created.status_code == 200 and created.json()["revision"] == 1
-    candidate = created.json()
-    edit = candidate_body([personal["id"]], "edit-1", title="新标题",
-                          expected_revision=candidate["revision"])
-    edited = client.post(f"/api/knowledge/candidates/{candidate['id']}", json=edit)
-    assert edited.status_code == 200 and edited.json()["revision"] == 2
-    assert client.post(f"/api/knowledge/candidates/{candidate['id']}", json=edit).json() == edited.json()
-    stale = dict(edit, idempotency_key="edit-stale", title="覆盖")
-    assert client.post(f"/api/knowledge/candidates/{candidate['id']}", json=stale).status_code == 409
 
+def test_existing_candidate_can_be_rejected_without_creating_entry(tmp_path):
+    client, store = make_client(tmp_path)
+    source = seed_source(store, "candidate")
+    candidate = seed_candidate(store, "pending", [source["id"]])
+    assert client.get("/api/knowledge").json()["candidates"] == [candidate]
     with store.connect(False) as c:
         before_epoch = store._epoch(c)
-    resolve_body = {"decision": "confirm", "expected_revision": 2,
-                    "idempotency_key": "resolve-1"}
-    resolved = client.post(f"/api/knowledge/candidates/{candidate['id']}/resolve", json=resolve_body)
-    assert resolved.status_code == 200 and resolved.json()["entry_id"]
-    assert client.post(f"/api/knowledge/candidates/{candidate['id']}/resolve", json=resolve_body).json() == resolved.json()
-    assert client.post(f"/api/knowledge/candidates/{candidate['id']}/resolve", json={
-        **resolve_body, "decision": "reject"}).status_code == 409
+    body = {"decision": "reject", "expected_revision": candidate["revision"],
+            "idempotency_key": "reject-old-pending"}
+    resolved = client.post(f"/api/knowledge/candidates/{candidate['id']}/resolve", json=body)
+    assert resolved.status_code == 200 and resolved.json()["status"] == "rejected"
+    assert client.post(f"/api/knowledge/candidates/{candidate['id']}/resolve", json=body).json() == resolved.json()
     state = client.get("/api/knowledge").json()
-    assert len(state["entries"]) == 1 and state["candidates"][0]["status"] == "confirmed"
+    assert state["entries"] == [] and state["candidates"] == [resolved.json()]
     with store.connect(False) as c:
-        assert store._epoch(c) == before_epoch + 1
+        assert store._epoch(c) == before_epoch
 
 
 def test_rejected_and_episode_material_never_enters_packet(tmp_path):
     client, store = make_client(tmp_path)
-    personal = client.post("/api/knowledge/sources", json=source_body()).json()
-    rejected = client.post("/api/knowledge/candidates", json=candidate_body(
-        [personal["id"]], "rejected", content="拒绝内容 sentinel-rejected")).json()
-    assert client.post(f"/api/knowledge/candidates/{rejected['id']}/resolve", json={
-        "decision": "reject", "expected_revision": 1, "idempotency_key": "reject-1"
-    }).status_code == 200
+    personal = seed_source(store, "rejected")
+    seed_candidate(store, "rejected", [personal["id"]],
+                   content="拒绝内容 sentinel-rejected", status="rejected")
 
     episode = client.post("/api/journey/episodes", json={
         "company": "虚构公司", "role": "工程师", "focus": "私聊"
     }).json()
-    episode_source = client.post("/api/knowledge/sources", json=source_body(
-        "episode-source", scope_type="episode", scope_id=episode["id"],
-        content="任职私聊 sentinel-private")).json()
-    _, episode_entry = create_entry(
-        client, episode_source, scope_type="episode", scope_id=episode["id"],
+    episode_source = seed_source(store, "episode", scope_type="episode", scope_id=episode["id"],
+                                 content="任职私聊 sentinel-private")
+    episode_entry = seed_entry(
+        store, episode_source, scope_type="episode", scope_id=episode["id"],
         key="episode", content="任职私聊 sentinel-private")
     with store.connect(False) as c:
         assert selected_wiki_sources(store, c, None, None) == []
@@ -142,13 +118,12 @@ def test_packet_uses_current_revision_mandatory_and_explicit_entries_only(tmp_pa
         ("project-extra", "personal", ""),
         ("job", "job", job["id"]),
     ):
-        sources[name] = client.post("/api/knowledge/sources", json=source_body(
-            "source-" + name, scope_type=scope_type, scope_id=scope_id,
-            content="原始-" + name)).json()
-    _, goal = create_entry(client, sources["goal"], "goal", key="goal", content="当前目标")
-    _, project = create_entry(client, sources["project"], "project", key="project", content="项目旧版")
-    _, job_entry = create_entry(client, sources["job"], "strategy", "job", job["id"],
-                                key="job", content="岗位策略")
+        sources[name] = seed_source(store, name, scope_type=scope_type, scope_id=scope_id,
+                                    content="原始-" + name)
+    goal = seed_entry(store, sources["goal"], "goal", key="goal", content="当前目标")
+    project = seed_entry(store, sources["project"], "project", key="project", content="项目旧版")
+    job_entry = seed_entry(store, sources["job"], "strategy", "job", job["id"],
+                           key="job", content="岗位策略")
 
     updated = client.post(f"/api/knowledge/entries/{project['id']}", json={
         "title": "项目", "content": "项目新版", "entry_type": "project",
@@ -195,26 +170,12 @@ def test_packet_uses_current_revision_mandatory_and_explicit_entries_only(tmp_pa
             raise AssertionError("withdrawn Wiki should be rejected")
 
 
-def test_concurrent_source_idempotency_creates_one_immutable_record(tmp_path):
-    client, _ = make_client(tmp_path)
-    body = source_body("concurrent-source")
-
-    def submit(_):
-        return client.post("/api/knowledge/sources", json=body)
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        responses = list(pool.map(submit, range(2)))
-    assert [response.status_code for response in responses] == [200, 200]
-    assert len({response.json()["id"] for response in responses}) == 1
-    assert len(client.get("/api/knowledge").json()["sources"]) == 1
-
-
 def test_packet_refuses_oversize_mandatory_content_without_truncation(tmp_path):
-    client, store = make_client(tmp_path)
-    first_source = client.post("/api/knowledge/sources", json=source_body("large-source-1")).json()
-    second_source = client.post("/api/knowledge/sources", json=source_body("large-source-2")).json()
-    create_entry(client, first_source, "goal", key="large-goal", content="甲" * 60000)
-    create_entry(client, second_source, "constraint", key="large-constraint", content="乙" * 60000)
+    _, store = make_client(tmp_path)
+    first_source = seed_source(store, "large-source-1")
+    second_source = seed_source(store, "large-source-2")
+    seed_entry(store, first_source, "goal", key="large-goal", content="甲" * 60000)
+    seed_entry(store, second_source, "constraint", key="large-constraint", content="乙" * 60000)
     with store.connect(False) as c:
         try:
             selected_wiki_sources(store, c, None, None)

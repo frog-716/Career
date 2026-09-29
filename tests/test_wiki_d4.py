@@ -14,7 +14,7 @@ def _harness(tmp_path, result=None):
     provider = TestProvider()
     store = Store(tmp_path / "data", provider)
     client = TestClient(
-        create_app(store), base_url="http://127.0.0.1",
+        create_app(store, allow_retired_cognition_compiler=True), base_url="http://127.0.0.1",
         headers={"X-Career-Request": "1"},
     )
     calls = []

@@ -26,6 +26,10 @@ PROJECT_STATUSES = {"active", "paused", "completed", "canceled"}
 PERSON_IDENTITY_STATUSES = {"confirmed", "unresolved"}
 
 
+def _retired_legacy_work_write():
+    raise Conflict("legacy_work_write_retired: 请使用 Raw 和 Wiki 记录新资料")
+
+
 def _text(value, field, limit=100000):
     if not isinstance(value, str) or not value.strip() or len(value) > limit:
         raise Invalid(field + "不能为空或超出长度限制")
@@ -280,6 +284,7 @@ def _employment_owner(store, c, project):
 
 
 def approve_achievement_reuse(store, achievement_id, body):
+    _retired_legacy_work_write()
     expected = _expected(body.get("expected_revision"))
     title = _text(body.get("title"), "复用表达标题", 500)
     content = _text(body.get("content"), "复用表达")
@@ -575,6 +580,7 @@ def work_router(store):
 
     @router.post("/api/work/events")
     def create_event(body: dict):
+        _retired_legacy_work_write()
         title = _text(body.get("title"), "事件标题", 500)
         content = _text(body.get("content"), "事件原文")
         kind = _text(body.get("kind"), "事件类型", 100)
@@ -591,6 +597,7 @@ def work_router(store):
 
     @router.post("/api/work/achievements")
     def create_achievement(body: dict):
+        _retired_legacy_work_write()
         title = _text(body.get("title"), "成果标题", 500)
         content = _text(body.get("content"), "成果内容")
         project_id = body.get("project_id")
@@ -607,6 +614,7 @@ def work_router(store):
 
     @router.post("/api/work/achievements/{achievement_id}")
     def update_achievement(achievement_id: str, body: dict):
+        _retired_legacy_work_write()
         expected = _expected(body.get("expected_revision"))
         title = _text(body.get("title"), "成果标题", 500)
         content = _text(body.get("content"), "成果内容")
@@ -630,6 +638,7 @@ def work_router(store):
 
     @router.post("/api/work/evidence")
     def create_evidence(body: dict):
+        _retired_legacy_work_write()
         title = _text(body.get("title"), "证据标题", 500)
         content = _text(body.get("content"), "证据原文")
         source_type = _text(body.get("source_type"), "证据类型", 100)
@@ -646,6 +655,7 @@ def work_router(store):
 
     @router.post("/api/work/evidence-links")
     def link_evidence(body: dict):
+        _retired_legacy_work_write()
         achievement_id = required(body.get("achievement_id"), "成果", 500)
         evidence_id = required(body.get("evidence_id"), "证据", 500)
         with store.connect() as c:
