@@ -241,3 +241,9 @@ F runtime 只接受 schema v6。v5→v6 迁移只写一条 hash-bound migration 
 ### Resume AI 专用隐私 DTO
 
 `resume_ai_context.py` 从空对象构造 Profile 存在状态/固定字段名及允许的分区表达和 Research 字段；`resume_documents._resume_ai_packet` 在构造时调用它，`outbound_policy` 在每次 Preview/dispatch 前严格校验，不用联系人正则过滤整稿。所有权、当前版本检查与逐条建议沿用既有合同。测试：`.venv/bin/python -m pytest -q tests/test_resume_ai_context_contract.py tests/test_resume_ai_privacy_dto.py tests/test_t08_resume_suggestions.py tests/test_outbound_policy.py`；实际捕获测试 Provider 和真实适配器的最终请求，网络被拦截。
+
+### Phase G：Resume AI 按需检索
+
+`resume_career_retrieval.py` 在本地只搜索当前 Wiki、Project、Employment，先给候选 ID/revision；其它 Opportunity 的私有 Wiki 在 SQLite 查询时就被排除。`POST /api/resume-documents/{did}/ai-suggest` 首轮仍只含当前机会/JD/Research/当前稿的最小 DTO。模型可返回 `retrieval_requests`；用户选候选后，第二轮只加入所选对象的最小字段和少量相关 Wiki。模型若明确返回 `evidence_requests`，用户可从所选 Wiki 已引用的来源中选择，第三轮才加入每条不超过 3000 字的原文。每轮均重新生成确切 payload Preview，确认后才调用 Provider；计划可由 `GET .../ai-retrieval-plans`、`GET .../ai-evidence-plans` 及对应 `/{id}/labels` 找回。
+
+新提案可给 `rewrite/add/delete`，`POST .../ai-proposals/{proposal_id}/changes/{change_id}/resolve` 逐条接受或拒绝；新增必须引用本轮选中 Wiki，现有字段改写或删除都绑定原文 hash 与工作稿 revision。旧提案仍可从原入口处理，新提案不能批量接受。来源变化会使待处理计划或提案过期；建议不会自动改稿、保存版本或修改正式 Career 资料。隔离回归：`.venv/bin/python -m pytest -q tests/test_resume_career_retrieval.py tests/test_resume_ai_context_contract.py tests/test_resume_ai_privacy_dto.py tests/test_t08_resume_suggestions.py`。

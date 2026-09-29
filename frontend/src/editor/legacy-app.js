@@ -1276,6 +1276,7 @@ async function importMaterials() {
 }
 
 function openResumeAiProposal(proposal) {
+  if (proposal.resolution_mode === "per_change") return openPerChangeResumeAiProposal(proposal);
   lockEditor(false);
   const dialog = document.createElement("dialog"); dialog.className = "restore-dialog";
   dialog.innerHTML = '<div class="dialog-head"><div><h2>AI 简历字段建议</h2><p>每条建议只允许修改白名单中的表述字段；身份、组织、职位、日期和来源不会由 AI 改写。确认前不会修改当前稿。</p></div><button data-close type="button">关闭</button></div><div data-changes></div><p data-suggestions></p><p role="alert"></p><div class="restore-actions"><button data-reject type="button">拒绝</button><button data-accept class="primary" type="button">接受选中建议</button></div>';
@@ -1321,51 +1322,172 @@ function openResumeAiProposal(proposal) {
   dialog.querySelector('[data-reject]').onclick = () => resolve('reject');
 }
 
-async function aiOptimize() {
-  if (editorLocked || !resume) return;
-  await flushSave();
-  const instruction = "围绕当前岗位优化表达，保持事实不变。";
-  const request = {instruction, idempotency_key: crypto.randomUUID()};
-  const openConfirmation = preparation => {
-    lockEditor(false);
-    const dialog = document.createElement("dialog"); dialog.className = "restore-dialog";
-    dialog.innerHTML = '<div class="dialog-head"><div><h2>确认发送简历资料</h2><p>以下是去除认证信息后的最终请求预览；确认后才会产生一次 Provider 调用。</p></div><button data-close>关闭</button></div><pre data-preview></pre><p role="alert"></p><div class="restore-actions"><button data-cancel type="button">取消</button><button data-confirm class="primary" type="button">确认发送给 Provider</button></div>';
-    dialog.querySelector('[data-preview]').textContent = JSON.stringify(preparation.payload_preview, null, 2);
-    editorRoot.append(dialog); dialog.showModal();
-    dialog.querySelector('[data-close]').onclick = () => dialog.close();
-    dialog.querySelector('[data-cancel]').onclick = () => dialog.close();
-    dialog.addEventListener('close', () => dialog.remove());
-    dialog.querySelector('[data-confirm]').onclick = async () => {
-      const button = dialog.querySelector('[data-confirm]'); button.disabled = true; button.textContent = "正在生成建议…";
-      lockEditor(true);
+function openPerChangeResumeAiProposal(proposal) {
+  lockEditor(false);
+  const dialog = document.createElement("dialog"); dialog.className = "restore-dialog";
+  dialog.innerHTML = '<div class="dialog-head"><div><h2>逐条核对简历建议</h2><p>每条单独接受、编辑后接受或拒绝；不会批量修改当前稿。</p></div><button data-close type="button">关闭</button></div><div data-changes></div><p role="alert"></p>';
+  const root = dialog.querySelector('[data-changes]');
+  for (const change of proposal.changes || []) {
+    if (change.status !== "pending") continue;
+    const row = document.createElement("article"); row.className = "ai-change";
+    const action = {rewrite: "改写", add: "新增", delete: "删除"}[change.operation] || "建议";
+    const heading = document.createElement("h3"); heading.textContent = `${action} · ${change.section_type || change.item_id || "当前简历"}`; row.append(heading);
+    if (change.before_text) { const before = document.createElement("pre"); before.textContent = `当前：${change.before_text}`; row.append(before); }
+    let textarea = null;
+    if (change.operation !== "delete") {
+      textarea = document.createElement("textarea"); textarea.value = change.proposed_text || "";
+      textarea.maxLength = 20000; textarea.setAttribute("aria-label", `${action}建议文本`); row.append(textarea);
+    }
+    const detail = document.createElement("p"); detail.className = "muted";
+    detail.textContent = `${change.reason || "请核对"}${change.requires_fact_check ? " · 请核对数字、日期和本人贡献" : ""}`; row.append(detail);
+    const refs = document.createElement("p"); refs.className = "muted";
+    refs.textContent = change.source_refs?.length ? `来源：${change.source_refs.map(ref => `${ref.id} · v${ref.revision}`).join("、")}` : "依据当前简历表达";
+    row.append(refs);
+    const actions = document.createElement("div"); actions.className = "restore-actions";
+    const reject = document.createElement("button"); reject.type = "button"; reject.textContent = "拒绝这条";
+    const accept = document.createElement("button"); accept.type = "button"; accept.className = "primary"; accept.textContent = change.operation === "delete" ? "确认删除这条" : "接受这条";
+    actions.append(reject, accept); row.append(actions); root.append(row);
+    const resolve = async decision => {
+      reject.disabled = accept.disabled = true;
       try {
-        const {data: proposal} = await requestBackend(editorBase + "/ai-suggest", {method: "POST", data: {...request, prepared_id: preparation.prepared_id, payload_hash: preparation.payload_hash, confirm_outbound: true}});
+        const data = {decision};
+        if (decision === "accept" && textarea) data.proposed_text = textarea.value;
+        const response = await requestBackend(editorBase + "/ai-proposals/" + encodeURIComponent(proposal.id) + "/changes/" + encodeURIComponent(change.change_id) + "/resolve", {method: "POST", data});
+        const updated = response.data;
+        if (updated.document) { resume = normalizeDocument(updated.document.document || updated.document); revision = updated.document.revision; savedSnapshot = snapshot(); localChangePending = false; render(); }
         dialog.close();
-        openResumeAiProposal(proposal);
-        refreshAiProposals().catch(() => {});
-      } catch (error) { lockEditor(false); dialog.querySelector('[role="alert"]').textContent = error.message; button.disabled = false; button.textContent = "检查结果 / 重试同一请求"; }
+        await refreshAiProposals();
+        if (updated.proposal?.status === "pending") openResumeAiProposal(updated.proposal);
+      } catch (error) { dialog.querySelector('[role="alert"]').textContent = error.message; reject.disabled = accept.disabled = false; }
     };
+    reject.onclick = () => resolve("reject"); accept.onclick = () => resolve("accept");
+  }
+  if (!root.children.length) root.textContent = "本轮建议已处理。";
+  editorRoot.append(dialog); dialog.showModal();
+  dialog.querySelector('[data-close]').onclick = () => dialog.close();
+  dialog.addEventListener('close', () => dialog.remove());
+}
+
+function openResumeRetrievalPlan(plan) {
+  lockEditor(false);
+  const dialog = document.createElement("dialog"); dialog.className = "restore-dialog";
+  dialog.innerHTML = '<div class="dialog-head"><div><h2>需要补充职业资料</h2><p>AI 只提出检索词；Career 在本地找到候选资料。勾选后先看发送预览，再决定是否发送。</p></div><button data-close type="button">关闭</button></div><div data-needs></div><div data-candidates></div><p role="alert"></p><div class="restore-actions"><button data-next class="primary" type="button">查看所选资料预览</button></div>';
+  const needs = dialog.querySelector('[data-needs]');
+  needs.textContent = (plan.requests || []).map(item => item.need).join("；");
+  const root = dialog.querySelector('[data-candidates]');
+  const candidates = plan.candidates || [];
+  candidates.forEach((candidate, index) => {
+    const row = document.createElement("label"); row.className = "material-choice";
+    const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.value = candidate.id; checkbox.checked = index < 3;
+    const label = document.createElement("span"); label.textContent = `相关候选 ${index + 1} · ${candidate.id}`;
+    row.append(checkbox, label); root.append(row);
+    label.dataset.candidateId = candidate.id;
+  });
+  requestBackend(editorBase + "/ai-retrieval-plans/" + encodeURIComponent(plan.id) + "/labels", {cache: "no-store"})
+    .then(({data}) => root.querySelectorAll('[data-candidate-id]').forEach(label => {
+      const title = data.labels?.[label.dataset.candidateId];
+      if (title) label.textContent = `${{wiki_knowledge: "Wiki", work_project: "项目", employment: "任职"}[candidates.find(item => item.id === label.dataset.candidateId)?.kind] || "经历"} · ${title}`;
+    })).catch(() => {});
+  if (!candidates.length) { root.textContent = "本轮没有找到相关的当前职业资料。请先核对职业资料，当前简历不会改变。"; dialog.querySelector('[data-next]').disabled = true; }
+  if (plan.stale) { dialog.querySelector('[role="alert"]').textContent = `此检索结果已过期：${plan.stale_reason || "资料已变化"}`; dialog.querySelector('[data-next]').disabled = true; }
+  editorRoot.append(dialog); dialog.showModal();
+  dialog.querySelector('[data-close]').onclick = () => dialog.close();
+  dialog.addEventListener('close', () => dialog.remove());
+  dialog.querySelector('[data-next]').onclick = async () => {
+    const ids = [...root.querySelectorAll('input:checked')].map(input => input.value);
+    if (!ids.length) { dialog.querySelector('[role="alert"]').textContent = "请至少选择一条当前职业资料。"; return; }
+    dialog.close();
+    await sendResumeAiWithPreview({instruction: "依据所选当前职业资料与本机会资料，逐条建议改写、新增或删除；不编造事实。", idempotency_key: crypto.randomUUID(), retrieval_plan_id: plan.id, selected_candidate_ids: ids});
   };
+}
+
+function openResumeEvidencePlan(plan) {
+  lockEditor(false);
+  const dialog = document.createElement("dialog"); dialog.className = "restore-dialog";
+  dialog.innerHTML = '<div class="dialog-head"><div><h2>核对指定原始依据</h2><p>AI 只请求了这些 Wiki 已引用的来源。选中后先看包含原文的最终发送预览，再决定是否发送。</p></div><button data-close type="button">关闭</button></div><div data-sources></div><p role="alert"></p><div class="restore-actions"><button data-next class="primary" type="button">查看原文发送预览</button></div>';
+  const root = dialog.querySelector('[data-sources]');
+  for (const request of plan.requests || []) {
+    const row = document.createElement("label"); row.className = "material-choice";
+    const input = document.createElement("input"); input.type = "checkbox"; input.value = request.source_id; input.checked = true;
+    const label = document.createElement("span"); label.dataset.sourceId = request.source_id;
+    label.textContent = `${request.reason} · ${request.source_id}`;
+    row.append(input, label); root.append(row);
+  }
+  requestBackend(editorBase + "/ai-evidence-plans/" + encodeURIComponent(plan.id) + "/labels", {cache: "no-store"})
+    .then(({data}) => root.querySelectorAll('[data-source-id]').forEach(label => {
+      const title = data.labels?.[label.dataset.sourceId];
+      if (title) label.textContent = `${title} · ${plan.requests.find(item => item.source_id === label.dataset.sourceId)?.reason || "核对来源"}`;
+    })).catch(() => {});
+  if (plan.stale) { dialog.querySelector('[role="alert"]').textContent = `此来源请求已过期：${plan.stale_reason || "资料已变化"}`; dialog.querySelector('[data-next]').disabled = true; }
+  editorRoot.append(dialog); dialog.showModal();
+  dialog.querySelector('[data-close]').onclick = () => dialog.close();
+  dialog.addEventListener('close', () => dialog.remove());
+  dialog.querySelector('[data-next]').onclick = async () => {
+    const ids = [...root.querySelectorAll('input:checked')].map(input => input.value);
+    if (!ids.length) { dialog.querySelector('[role="alert"]').textContent = "请至少选择一条需要核对的来源。"; return; }
+    dialog.close();
+    await sendResumeAiWithPreview({instruction: "仅依据本轮所选当前 Wiki 和明确核对的原文，逐条提出简历建议；无法确认的事实保持未知。", idempotency_key: crypto.randomUUID(), evidence_plan_id: plan.id, selected_evidence_ids: ids});
+  };
+}
+
+function openResumeAiResult(result) {
+  if (result?.status === "needs_retrieval") openResumeRetrievalPlan(result);
+  else if (result?.status === "needs_evidence") openResumeEvidencePlan(result);
+  else openResumeAiProposal(result);
+}
+
+function openResumeAiConfirmation(request, preparation) {
+  lockEditor(false);
+  const dialog = document.createElement("dialog"); dialog.className = "restore-dialog";
+  dialog.innerHTML = '<div class="dialog-head"><div><h2>确认发送简历资料</h2><p>以下是去除认证信息后的最终请求预览；确认后才会产生一次 Provider 调用。</p></div><button data-close>关闭</button></div><pre data-preview></pre><p role="alert"></p><div class="restore-actions"><button data-cancel type="button">取消</button><button data-confirm class="primary" type="button">确认发送给 Provider</button></div>';
+  dialog.querySelector('[data-preview]').textContent = JSON.stringify(preparation.payload_preview, null, 2);
+  editorRoot.append(dialog); dialog.showModal();
+  dialog.querySelector('[data-close]').onclick = () => dialog.close();
+  dialog.querySelector('[data-cancel]').onclick = () => dialog.close();
+  dialog.addEventListener('close', () => dialog.remove());
+  dialog.querySelector('[data-confirm]').onclick = async () => {
+    const button = dialog.querySelector('[data-confirm]'); button.disabled = true; button.textContent = "正在生成建议…";
+    lockEditor(true);
+    try {
+      const {data} = await requestBackend(editorBase + "/ai-suggest", {method: "POST", data: {...request, prepared_id: preparation.prepared_id, payload_hash: preparation.payload_hash, confirm_outbound: true}});
+      dialog.close(); openResumeAiResult(data); refreshAiProposals().catch(() => {});
+    } catch (error) { lockEditor(false); dialog.querySelector('[role="alert"]').textContent = error.message; button.disabled = false; button.textContent = "检查结果 / 重试同一请求"; }
+  };
+}
+
+async function sendResumeAiWithPreview(request) {
   try {
     lockEditor(true);
-    const {data: proposal} = await requestBackend(editorBase + "/ai-suggest", {method: "POST", data: request});
-    openResumeAiProposal(proposal);
+    const {data} = await requestBackend(editorBase + "/ai-suggest", {method: "POST", data: request});
+    openResumeAiResult(data);
     refreshAiProposals().catch(() => {});
   } catch (error) {
     lockEditor(false);
     if (error.status === 409 && error.payload?.status === "context_confirmation_required") {
-      openConfirmation(error.payload);
+      openResumeAiConfirmation(request, error.payload);
     } else showToast(`AI 优化失败：${error.message}`);
   }
 }
 
+async function aiOptimize() {
+  if (editorLocked || !resume) return;
+  await flushSave();
+  await sendResumeAiWithPreview({instruction: "围绕当前岗位优化表达，保持事实不变。", idempotency_key: crypto.randomUUID()});
+}
+
 async function refreshAiProposals() {
   if (!documentId || !openAiProposalsButton) return [];
-  const {data} = await requestBackend(editorBase + "/ai-proposals", {cache: "no-store"});
+  const [{data}, {data: plans}, {data: evidencePlans}] = await Promise.all([
+    requestBackend(editorBase + "/ai-proposals", {cache: "no-store"}),
+    requestBackend(editorBase + "/ai-retrieval-plans", {cache: "no-store"}),
+    requestBackend(editorBase + "/ai-evidence-plans", {cache: "no-store"}),
+  ]);
   const pending = (Array.isArray(data) ? data : []).filter(proposal => proposal.status === "pending");
-  openAiProposalsButton.hidden = pending.length === 0;
-  openAiProposalsButton.textContent = `待处理建议（${pending.length}）`;
-  openAiProposalsButton.onclick = () => aiOpenExistingProposal(pending[0]);
+  const waiting = (Array.isArray(plans) ? plans : []).filter(plan => plan.status === "needs_retrieval");
+  const evidenceWaiting = (Array.isArray(evidencePlans) ? evidencePlans : []).filter(plan => plan.status === "needs_evidence");
+  openAiProposalsButton.hidden = pending.length + waiting.length + evidenceWaiting.length === 0;
+  openAiProposalsButton.textContent = `待处理建议（${pending.length + waiting.length + evidenceWaiting.length}）`;
+  openAiProposalsButton.onclick = () => pending.length ? aiOpenExistingProposal(pending[0]) : evidenceWaiting.length ? openResumeEvidencePlan(evidenceWaiting[0]) : openResumeRetrievalPlan(waiting[0]);
   return pending;
 }
 

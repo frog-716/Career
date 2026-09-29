@@ -105,7 +105,7 @@ def _validate_manifest(manifest):
     for dependency in manifest['dependencies']:
         _keys(dependency, ('kind', 'id', 'revision', 'content_hash', 'purpose'), ('owner_id', 'expected_absent'))
         _texts(dependency, ('kind', 'id', 'purpose'))
-        if dependency['kind'] not in {'opportunity', 'resume_document', 'company_research', 'opportunity_research'}:
+        if dependency['kind'] not in {'opportunity', 'resume_document', 'company_research', 'opportunity_research', 'wiki_knowledge', 'work_project', 'employment', 'raw_material', 'work_evidence'}:
             _invalid()
         if dependency['revision'] is not None and type(dependency['revision']) is not int:
             _invalid()
@@ -122,10 +122,10 @@ def validate_packet(packet):
     constants = {
         'schemaVersion': 1, 'task_type': 'resume_optimization',
         'required_context': ['opportunity', 'current_resume_document'],
-        'optional_context': ['company_research', 'opportunity_research'],
+        'optional_context': ['company_research', 'opportunity_research', 'career_project', 'career_employment', 'career_wiki', 'career_evidence'],
         'forbidden_context': ['other_opportunities', 'other_resume_documents', 'feedback', 'full_raw_archive'],
         'allowed_patch_targets': ['current_resume_document'],
-        'confirmation_required': True, 'output_schema_version': 1,
+        'confirmation_required': True, 'output_schema_version': 2,
     }
     _keys(packet, (*constants, 'instruction', 'target', 'sources', 'manifest'), ('policy_version', 'budget_used'))
     if any(packet[key] != value for key, value in constants.items()):
@@ -139,13 +139,16 @@ def validate_packet(packet):
     if manifest_target['id'] != target['resume_document_id'] or manifest_target['opportunity_id'] != target['opportunity_id']:
         _invalid()
     sources = packet['sources']
-    if not isinstance(sources, list) or not 2 <= len(sources) <= 4:
+    if not isinstance(sources, list) or not 2 <= len(sources) <= 22:
         _invalid()
     purposes = set()
+    wiki_ids = set()
+    wiki_refs = set()
+    evidence = []
     for source in sources:
         _keys(source, ('id', 'revision', 'purpose', 'selected_content'))
         _texts(source, ('id', 'purpose'))
-        if type(source['revision']) is not int or source['purpose'] in purposes:
+        if type(source['revision']) is not int or (source['purpose'] in purposes and source['purpose'] not in {'career_wiki', 'career_project', 'career_employment'}):
             _invalid()
         purpose = source['purpose']
         purposes.add(purpose)
@@ -162,7 +165,61 @@ def validate_packet(packet):
         elif purpose in {'company_research', 'opportunity_research'}:
             if research_context(content) != content:
                 _invalid()
+        elif purpose == 'career_wiki':
+            _keys(content, ('scope_type', 'scope_id', 'knowledge_type', 'content', 'source_refs'))
+            _texts(content, ('scope_type', 'scope_id', 'knowledge_type', 'content'))
+            if content['scope_type'] not in {'personal', 'cognition', 'project', 'employment', 'opportunity'}:
+                _invalid()
+            if content['scope_type'] == 'opportunity' and content['scope_id'] != target['opportunity_id']:
+                _invalid()
+            if content['knowledge_type'] not in {'fact', 'observation', 'hypothesis'}:
+                _invalid()
+            refs = content['source_refs']
+            if not isinstance(refs, list) or len(refs) > 20:
+                _invalid()
+            for ref in refs:
+                _keys(ref, ('kind', 'id', 'revision', 'hash'))
+                _texts(ref, ('kind', 'id', 'hash'))
+                if type(ref['revision']) is not int:
+                    _invalid()
+                wiki_refs.add((ref['kind'], ref['id'], ref['revision'], ref['hash']))
+            if source['id'] in wiki_ids:
+                _invalid()
+            wiki_ids.add(source['id'])
+        elif purpose == 'career_project':
+            _keys(content, ('name', 'tags', 'status'))
+            _texts(content, ('name', 'status'))
+            if not isinstance(content['tags'], list) or any(not isinstance(tag, str) for tag in content['tags']):
+                _invalid()
+        elif purpose == 'career_employment':
+            _keys(content, ('company', 'role', 'start_date', 'end_date'))
+            _texts(content, ('company', 'role', 'start_date', 'end_date'))
+        elif purpose == 'career_evidence':
+            _keys(content, ('source_kind', 'title', 'content'))
+            _texts(content, ('source_kind', 'title', 'content'))
+            if len(content['content']) > 3000 or len(content['title']) > 200:
+                _invalid()
+            evidence.append(source)
         else:
+            _invalid()
+    if len(wiki_ids) > 8:
+        _invalid()
+    if len(evidence) > 2:
+        _invalid()
+    dependencies = packet['manifest']['dependencies']
+    for source in evidence:
+        if not any(
+            kind in {'raw_material', 'work_evidence'} and identifier == source['id']
+            and revision == source['revision']
+            and any(
+                dependency['kind'] == kind and dependency['id'] == identifier
+                and dependency['revision'] == revision
+                and dependency['content_hash'] == content_hash
+                and dependency['purpose'] == 'career_evidence'
+                for dependency in dependencies
+            )
+            for kind, identifier, revision, content_hash in wiki_refs
+        ):
             _invalid()
     if not {'opportunity', 'current_resume_document'} <= purposes:
         _invalid()

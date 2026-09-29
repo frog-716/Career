@@ -19,6 +19,7 @@ def test_profile_projection_happens_before_outbound_policy(tmp_path):
     assert current['profile'] == {'present': True, 'fields': ['name', 'contacts']}
     assert 'meta' not in current and 'formatting' not in current
     clean = sanitize_packet('resume_optimization', packet)
+    assert clean['output_schema_version'] == 2
     assert sanitize_packet('resume_optimization', clean) == clean
     for target in ['packet', 'source', 'profile', 'manifest']:
         bad = deepcopy(clean)
@@ -28,3 +29,17 @@ def test_profile_projection_happens_before_outbound_policy(tmp_path):
         holder['unknown_payload'] = {'name':'UNSAFE_CONTACT'}
         with pytest.raises(Invalid):
             sanitize_packet('resume_optimization', bad)
+
+
+def test_unrequested_raw_cannot_be_added_to_resume_packet(tmp_path):
+    client, store = client_at(tmp_path)
+    owner = opportunity(client, 'DTO Raw 边界')
+    draft = start(client, owner)
+    with store.connect(False) as conn:
+        packet = _resume_ai_packet(store, conn, draft, '优化表达')
+    packet['sources'].append({
+        'id': 'unrequested-raw', 'revision': 1, 'purpose': 'career_evidence',
+        'selected_content': {'source_kind': 'manual_text', 'title': '原文', 'content': '不应外发的内容'},
+    })
+    with pytest.raises(Invalid):
+        sanitize_packet('resume_optimization', packet)
