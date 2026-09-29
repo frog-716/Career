@@ -8,6 +8,8 @@
 - 原服务端空白建稿返回 `sections=[]`，新测试先失败；现在新建文档立即持有专业技能、工作经历、项目经历、教育背景四个可编辑分区，Profile 区沿用当前基础资料同步，未填写时不预填 GitHub。旧测试原先假定 `sections[0]` 必有选中内容，已改按类型寻找，不改变来源/投递语义。
 - 独立 macOS Chrome 用全新虚构 Store / TestProvider 实走机会 A 建稿、自动保存但无版本、命名版本；机会 B 从 A 的版本复制后独立编辑、保存版本、PDF 下载正文、恢复、PDF 预览、记录已投递、刷新找回以及投递后改稿不覆盖冻结快照。返回机会可用，正常入口没有 ResumeUse 新建。详情与截图、PDF 在 `/tmp/career-target-phase7/fresh-eyes.md`；未做 PDF 每页像素排版或快捷键验收。
 - 当前工作区全量 **539 passed**；前端 15 组测试与 typecheck 通过。仅本批暂存文件的独立检出先有 532 passed、2 failed、4 errors，均因临时检出缺少 `frontend/node_modules` 使浏览器测试无法启动 Vite；补齐本机依赖链接后，受影响文件 **10 passed**。这不代表任何正式数据或真实 Provider 已参与测试。
+- Git `8afacd7` 已精确提交并 push main；正式 Runtime 受控更新到 PID **28378**，`AI_ENABLED`、仅监听 `127.0.0.1:8765`。正式 11 个静态文件与当前临时构建及 HTTP 实际响应逐文件 hash 相同。更新前后 schema v6、data instance `42ff565e28a08e31414442521540ac3e`、current 44 / records 229 / revisions 203、ID manifest、26 条 AI operation 元数据与 23 次 dispatched 不变，DeepSeek/Tavily 增量 0/0；本机证据 `.career-runtime/target-phase7.json`。正式源码包含该提交加保留的用户旧 Resume/Profile/PDF 工作区修改，不能等同纯 Git HEAD。
+- Phase F 完成，继续 Phase G。自动简历建议目前仍只覆盖既有字段改写；相关 Wiki/Project/Cognition 的按需检索、增删建议及逐条审批尚未实现，不能因本阶段简历主链通过就宣称 Resume AI 目标完成。
 
 ## 2026-09-29：Target Mode Phase 6 — LEGACY RETIREMENT COMPLETE / PASS
 
