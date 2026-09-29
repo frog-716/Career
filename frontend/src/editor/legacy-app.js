@@ -63,6 +63,7 @@ let pendingVersion = null;
 let conflictDialog = null;
 let materialsRequest = null;
 let materialsBusy = false;
+let findPanel = null;
 
 function newId(prefix = "item") {
   const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -425,6 +426,9 @@ function bindEditable(element, value, setter, options = {}) {
   element.addEventListener("focus", () => {
     activeEditable = element;
     checkpoint();
+  });
+  element.addEventListener("beforeinput", () => {
+    if (!editorLocked) checkpoint();
   });
   element.addEventListener("input", () => {
     if (editorLocked) return;
@@ -1496,7 +1500,90 @@ function aiOpenExistingProposal(proposal) {
   openResumeAiProposal(proposal);
 }
 
+function openResumeFind() {
+  if (findPanel?.isConnected) {
+    findPanel.querySelector('[data-find]').focus();
+    findPanel.querySelector('[data-find]').select();
+    return;
+  }
+  const panel = document.createElement('section');
+  panel.className = 'resume-find-panel';
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-label', '在当前简历中查找替换');
+  panel.innerHTML = '<div class="resume-find-head"><strong>查找替换当前简历</strong><button type="button" data-close aria-label="关闭查找">关闭</button></div><label>查找<input data-find type="search" autocomplete="off"></label><label>替换为<input data-replace type="text" autocomplete="off"></label><div class="resume-find-actions"><span data-count role="status">输入要查找的文字</span><button type="button" data-next>下一处</button><button type="button" data-apply>替换当前</button></div>';
+  const search = panel.querySelector('[data-find]');
+  const replacement = panel.querySelector('[data-replace]');
+  const count = panel.querySelector('[data-count]');
+  let matches = [];
+  let position = -1;
+  const close = () => { panel.remove(); findPanel = null; };
+  const scan = () => {
+    matches = [];
+    const needle = search.value.toLocaleLowerCase();
+    if (!needle) { count.textContent = '输入要查找的文字'; return; }
+    for (const editable of paper.querySelectorAll('.editable[contenteditable="true"]')) {
+      const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        const content = node.data.toLocaleLowerCase();
+        let offset = 0;
+        while ((offset = content.indexOf(needle, offset)) !== -1) {
+          matches.push({editable, node, start: offset, end: offset + needle.length});
+          offset += Math.max(needle.length, 1);
+        }
+      }
+    }
+    count.textContent = matches.length ? `${matches.length} 处匹配` : '当前简历没有匹配文字';
+  };
+  const select = (index) => {
+    if (!matches.length) return;
+    position = ((index % matches.length) + matches.length) % matches.length;
+    const match = matches[position];
+    match.editable.focus({preventScroll: true});
+    const range = document.createRange();
+    range.setStart(match.node, match.start);
+    range.setEnd(match.node, match.end);
+    const selection = window.getSelection();
+    selection.removeAllRanges(); selection.addRange(range);
+    activeEditable = match.editable;
+    savedRange = range.cloneRange();
+    match.editable.scrollIntoView({block: 'nearest'});
+    count.textContent = `${position + 1} / ${matches.length} 处匹配`;
+  };
+  search.addEventListener('input', () => { position = -1; scan(); });
+  search.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); scan(); select(position + 1); } });
+  panel.querySelector('[data-next]').onclick = () => { scan(); select(position + 1); };
+  panel.querySelector('[data-apply]').onclick = () => {
+    if (editorLocked) return;
+    scan();
+    if (!matches.length) return;
+    if (position < 0 || position >= matches.length) select(0);
+    const match = matches[position];
+    if (!match.node.isConnected || match.node.data.slice(match.start, match.end).toLocaleLowerCase() !== search.value.toLocaleLowerCase()) {
+      scan(); select(0); return;
+    }
+    checkpoint();
+    const range = document.createRange();
+    range.setStart(match.node, match.start); range.setEnd(match.node, match.end);
+    range.deleteContents();
+    const inserted = document.createTextNode(replacement.value);
+    range.insertNode(inserted);
+    range.setStartAfter(inserted); range.collapse(true);
+    const selection = window.getSelection();
+    selection.removeAllRanges(); selection.addRange(range);
+    activeEditable = match.editable;
+    match.editable.dispatchEvent(new Event('input', {bubbles: true}));
+    position = -1;
+    scan();
+    if (matches.length) select(0);
+  };
+  panel.querySelector('[data-close]').onclick = close;
+  panel.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); close(); } });
+  editorRoot.append(panel); findPanel = panel; search.focus();
+}
+
 function wireToolbar() {
+  document.getElementById("openFindReplace")?.addEventListener("click", openResumeFind);
   undoButton.addEventListener("click", undo);
   redoButton.addEventListener("click", redo);
   document.getElementById("exportMarkdown").addEventListener("click", () => download("resume.md", markdownExport(), "text/markdown; charset=utf-8"));
@@ -1564,20 +1651,35 @@ function wireToolbar() {
   }, {signal: lifecycle.signal});
   document.addEventListener("keydown", (event) => {
     if (editorLocked) { event.preventDefault(); return; }
+    const editingPaper = event.target instanceof Element && paper.contains(event.target)
+      && Boolean(event.target.closest('.editable'));
     if (event.metaKey && !event.altKey && !event.shiftKey) {
+      if (event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (!editorRoot.querySelector('dialog[open]')) document.getElementById("saveVersion").click();
+        return;
+      }
+      if (event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        if (!editorRoot.querySelector('dialog[open]')) openResumeFind();
+        return;
+      }
       const alignments = {ArrowLeft: "left", ArrowRight: "right", ArrowDown: "center"};
       if (event.key === "b") {
+        if (!editingPaper) return;
         event.preventDefault();
         applyCommand("bold");
         return;
       }
       if (alignments[event.key]) {
+        if (!editingPaper) return;
         event.preventDefault();
         applyAlignment(alignments[event.key]);
         return;
       }
     }
     if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") return;
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
     event.preventDefault();
     if (event.shiftKey) redo(); else undo();
   }, {signal: lifecycle.signal});
@@ -1680,6 +1782,7 @@ return {
     clearTimeout(saveTimer);
     clearTimeout(toastTimer);
     lifecycle.abort();
+    findPanel?.remove(); findPanel = null;
     editorRoot.querySelectorAll("dialog[open]").forEach((dialog) => dialog.close());
   },
 };

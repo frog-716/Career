@@ -1,4 +1,5 @@
 import "./editor/legacy.css";
+import "./editor/shortcuts.css";
 import { requestLocal } from "./local-request";
 import { opportunityResumeHref } from "./resume-navigation";
 
@@ -83,6 +84,7 @@ export function resumeWorkspaceHTML(
           <details class="resume-more-menu">
             <summary>更多</summary>
             <div class="resume-more-menu-panel">
+              <button id="openFindReplace" title="在当前简历中查找替换（⌘F）">查找替换</button>
               <button id="openMaterials" title="从 Wiki 选择事实导入当前工作稿">从 Wiki 选材</button>
               <button id="openSources" title="查看当前工作稿引用的材料来源">材料来源</button>
               <button id="exportMarkdown" title="导出当前简历为 Markdown">导出 MD</button>
