@@ -34,6 +34,7 @@ const sourceNames: Record<string, string> = {
   communication: "沟通记录",
 };
 export function sourceLabel(source: Obj) {
+  if (source.kind === "raw_material" && source.source_kind === "feishu_doc") return "飞书文档";
   if (source.kind === "raw_material" && source.source_kind === "profile_archive") return "旧基础资料原文";
   if (source.kind === "interview_raw") {
     if (source.source_kind === "simulation_interview_transcript") return "模拟面试转写";

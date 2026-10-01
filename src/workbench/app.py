@@ -35,7 +35,10 @@ from . import research_search_config
 from .local_runtime import LocalRuntimeManager, DEFAULT_BUILD_ID
 
 
-def create_app(store=None, frontend_dir=None, *, runtime_dir=None, allow_retired_cognition_compiler=False):
+def create_app(
+    store=None, frontend_dir=None, *, runtime_dir=None,
+    allow_retired_cognition_compiler=False, feishu_cli_path=None,
+):
     app=FastAPI(title='Career',docs_url=None,redoc_url=None,openapi_url=None)
     s=store or Store();app.state.store=s
 
@@ -236,6 +239,8 @@ def create_app(store=None, frontend_dir=None, *, runtime_dir=None, allow_retired
     app.include_router(domain_router(s))
     app.include_router(knowledge_router(s))
     app.include_router(raw_wiki_router(s))
+    from .feishu_read import router as feishu_read_router
+    app.include_router(feishu_read_router(s, cli_path=feishu_cli_path))
     app.include_router(compiler_router(s))
     app.include_router(cognition_router(s, allow_compiler_start=allow_retired_cognition_compiler))
     app.include_router(ai_activity_router(s))

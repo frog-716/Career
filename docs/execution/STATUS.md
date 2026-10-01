@@ -1,5 +1,12 @@
 # 当前状态
 
+## 2026-10-01：Feishu Read Adapter — SYNTHETIC PASS / GATE 2 WAITING
+
+- 按用户正式任务实现单向 Feishu Read Adapter；真实 Docs/Drive 搜索和文档内容均尚未读取。Phase 1 仅检查现有 lark-cli 能力、连接状态和当前 identity；没有 login/logout、scope 修改或重新授权。当前 CLI `1.0.96`，用户身份通过现有身份命令可读，Docs/Drive JSON 读接口可用；Wiki/Base 不在 V1。
+- 架构为 Career → `FeishuReadAdapter` → 固定 allowlist 的 lark-cli → Feishu。支持连接检查、DOC/DOCX 元数据搜索、缓存选择后 Preview、用户确认后导入 `feishu_doc` Raw；只在用户选择后 fetch 对应文档正文，不自动建 Wiki，不调用 DeepSeek/Tavily，也没有 Feishu 写路径。不改 Career Domain 主模型、SQLite schema 或正式资料。
+- 全量后端回归 **557 passed**；Feishu adapter 13 项聚焦测试通过。前端 16 组测试脚本、TypeScript typecheck 与 Vite build 通过；本批 HTML 转义、URL 白名单、无正文导入请求、本地 TXT/Markdown 编码和大小边界均有合成测试。隔离浏览器用独立临时数据、合成 lark-cli、TestProvider 和 `127.0.0.1:8766` 实走 Project → 添加资料 → 飞书搜索 → 选择 → 预览 → 导入 Raw，并在设置页验证连接身份。内置浏览器未提供系统文件选择器自动化，本地文件选择 UI 路径未做浏览器实测。正式运行实例仍未改动。最终 `git diff --check` 通过；真实 Feishu 资源内容仍未读取。
+- 下一步停止于 Gate 2：获准前不执行真实搜索/读取。要进行一次有限真实验证，用户需批准并提供一个文档 URL/ID，或提供用于限定一次 Drive 搜索的关键词；获准后只搜索至多 10 条 DOC/DOCX 元数据，用户再选其中一项后读取该文档正文并核对 Preview 与 Raw 一致。
+
 ## 2026-09-29：Target Mode Phase 10 — FINAL CHAIN ACCEPTANCE COMPLETE / PASS
 
 - 本阶段真实 Provider 未再次调用：此前唯一获准的 DeepSeek outbound 已用于 D4 价值验收；本阶段只用虚构隔离资料和 TestProvider，Tavily 调用为零。

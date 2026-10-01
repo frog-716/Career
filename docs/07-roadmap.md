@@ -27,6 +27,7 @@
 | G | Resume AI 最小 DTO 与逐条建议 | COMPLETE / SYNTHETIC PASS：受控 Career 检索、三次独立 Preview、按需 Raw 和逐条确认通过；真实建议质量未验，本周期不再调用 Provider |
 | H | 快捷键审计、真实 macOS 行为核对和用户手工验收 | COMPLETE / PASS：浏览器按键回归及用户在正式 Mac 页面的三项手工验收通过 |
 | I | 全链回归、迁移副本演练与文档收口 | COMPLETE / PASS：全量回归、虚构浏览器整链、正式运行核验及隔离备份恢复通过；未对正式资料做迁移或清理 |
+| Feishu Read Adapter | lark-cli 单向只读接入、Identity 与 Raw vertical slice | SYNTHETIC PASS：自动测试和隔离浏览器通过；真实资源读取等待 Gate 2 |
 
 Project、Employment、Person不是下一周期才定义的对象。真实资料、测试资料和未知资料须分类处理；测试数据可在确认归属后清理，未知或真实资料不猜测删除。Schema migration 仍需显式、安全、可测试。真实Provider、浏览器与 macOS 结果按实际运行分别验收；Simulation Context Pack继续使用投递时冻结的Resume。
 

@@ -155,3 +155,12 @@ Spy/Fake Provider只验证请求与工作流；界面和报告必须标“测试
 - 任职原件与更正历史维持原规则；新求职Raw按O12覆盖修正且不清理旧库历史。选段默认原scope，个人提升需显式确认；候选不得作为正式事实进入普通分析payload，指定ingestion仍可读本次Raw。
 - 旧profile显式整理后完整原文仍可查，当前身份字段与Wiki职责分离；跨页未保存输入、CAS冲突及幂等重试可恢复。
 - 实际浏览器验证首次空白稿导入、未保存稿先保存、鼠标/键盘新增、撤销/重做、版本恢复与来源返回；运行证据见execution/EVIDENCE.md。
+
+## Feishu Read Adapter
+
+- 仅复用本机现有 lark-cli；Career 固定命令 allowlist 仅含连接状态、当前用户 identity、Docs/Drive 文档搜索与用户选择后的单文档 fetch。V1 只接 Docs/Drive 的 DOC/DOCX，不暴露任意命令、Wiki/Base 写入或通用连接器。
+- 浏览结果不回传搜索摘要和 provider resource ID；selection 与 preview token 短时保存在服务进程。只在用户确认导入后创建 `source_kind=feishu_doc` 的 immutable Raw，并保存 resource 类型、ID、revision 与 URL provenance；不自动建立 Wiki 或调用 AI。
+- 飞书 Identity 只用于设置页显示；验证 identity 变化不会改变 ResumeDocument、ResumeVersion 或 Submission，也不得写入 Resume 联系方式。
+- `lark-cli` 子进程固定 executable 和参数数组、`shell=False`、无 stdin、最小环境变量，限制超时与输出字节；错误不回显 stderr。拒绝空查询、未选择的资源 ID、未知请求字段、外部 URL 和 Raw API 对 Feishu source 的伪造。
+- 合成 CLI fixture 覆盖只读命令、超时/输出/JSON/退出码、隐私隔离、注入拒绝、幂等与预览一致性；浏览器合成路径覆盖搜索、选择、预览、确认导入和连接状态。真实飞书资料是否可读仍须在 Gate 2 单次授权后核验，不把合成通过称作真实资料验收。
+- 本地资料入口仅接受 UTF-8 TXT/Markdown，限制 400 KB / 100,000 字符；先预览、可编辑、再显式保存为本机 Raw。解析失败、超限、取消和重试不得产生部分 Raw 或发送到 Feishu；文件解析使用虚构数据测试。

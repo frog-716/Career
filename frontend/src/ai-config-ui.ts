@@ -11,6 +11,9 @@ const settingsTabs: [SettingsTab, string][] = [
   ['data', '数据与版本'],
 ];
 export const settingsUI: {tab: SettingsTab} = {tab: 'overview'};
+let feishuStatus: Row | null = null;
+let feishuChecking = false;
+let feishuProblem = '';
 
 export function aiSettingsView(state: Row, modeText: string) {
   const ai = state.ai || {configs: [], default_model_config_id: null};
@@ -31,7 +34,17 @@ export function aiSettingsView(state: Row, modeText: string) {
     : '尚未设置默认模型';
   const modelState = current ? secretLabel(current) : '未配置';
   const appVersion = state.diagnostics?.build_id || state.diagnostics?.app_version || '未知';
-  const overview = `<section class="settings-overview"><h3>当前状态</h3><p class="muted">点下面任一项，可以直接进入对应设置。</p><div class="settings-cards"><button type="button" class="settings-card" data-settings-open="models"><span class="settings-card-label">AI 模型</span><strong>${esc(defaultModel)}</strong><span class="settings-card-status">${esc(modelState)}</span></button><button type="button" class="settings-card" data-settings-open="search"><span class="settings-card-label">搜索服务</span><strong>Tavily</strong><span class="settings-card-status">${esc(search.configured ? searchStatus : '尚未配置')}</span></button><button type="button" class="settings-card" data-settings-open="data"><span class="settings-card-label">本机数据</span><strong>当前实例</strong><span class="settings-card-status">Career 数据保存在本机</span></button></div><div class="settings-overview-details"><div class="setting-row"><span>AI 运行模式</span><b>${esc(modeText)}</b></div><div class="setting-row"><span>应用版本</span><span>${esc(appVersion)}</span></div></div></section>`;
+  const feishuIdentity = feishuStatus?.identity;
+  const feishuLabel = feishuChecking ? '正在检查连接…'
+    : feishuStatus?.connected && feishuIdentity ? `已连接 · ${feishuIdentity.display_name}`
+      : feishuProblem || (feishuStatus ? '未连接' : '尚未检查');
+  const avatar = feishuStatus?.connected && feishuIdentity?.avatar_url
+    ? `<img src="${esc(feishuIdentity.avatar_url)}" alt="" referrerpolicy="no-referrer">`
+    : '<span class="feishu-avatar-placeholder" aria-hidden="true">飞</span>';
+  const recovery = !feishuChecking && feishuStatus && !feishuStatus.connected
+    ? '<small>请通过本机现有 lark-cli 恢复连接。</small>' : '';
+  const feishuRow = `<div class="setting-row feishu-setting-row"><span>飞书</span><div class="feishu-setting-status">${avatar}<span>${esc(feishuLabel)}${recovery}</span><button type="button" class="secondary" data-feishu-check ${feishuChecking ? 'disabled aria-busy="true"' : ''}>检查连接</button></div></div>`;
+  const overview = `<section class="settings-overview"><h3>当前状态</h3><p class="muted">点下面任一项，可以直接进入对应设置。</p><div class="settings-cards"><button type="button" class="settings-card" data-settings-open="models"><span class="settings-card-label">AI 模型</span><strong>${esc(defaultModel)}</strong><span class="settings-card-status">${esc(modelState)}</span></button><button type="button" class="settings-card" data-settings-open="search"><span class="settings-card-label">搜索服务</span><strong>Tavily</strong><span class="settings-card-status">${esc(search.configured ? searchStatus : '尚未配置')}</span></button><button type="button" class="settings-card" data-settings-open="data"><span class="settings-card-label">本机数据</span><strong>当前实例</strong><span class="settings-card-status">Career 数据保存在本机</span></button></div>${feishuRow}<div class="settings-overview-details"><div class="setting-row"><span>AI 运行模式</span><b>${esc(modeText)}</b></div><div class="setting-row"><span>应用版本</span><span>${esc(appVersion)}</span></div></div></section>`;
   const models = `<section class="settings-section"><div class="pane-heading"><div><h3>模型 Provider</h3><p class="muted">例如 DeepSeek。API Key 只保存在 macOS Keychain；Career 数据库、备份、日志和浏览器响应都不保存完整密钥。</p></div><div class="actions"><button class="primary" id="ai-add">添加模型</button></div></div><section class="ai-config-list">${rows || '<div class="empty">尚未配置 AI 模型。人工资料、简历和求职记录仍可正常使用。</div>'}</section><div class="setting-row"><span>当前模式</span><b>${esc(modeText)}</b></div><div class="setting-row"><span>默认模型</span><span>${current ? esc(`${current.provider} / ${current.model}`) : '尚未设置，AI 操作会提示进入本页配置模型'}</span></div></section>`;
   const searchProvider = `<section class="settings-section"><h3>搜索 Provider · Tavily</h3><p class="muted">这是网页搜索服务，不是模型。只有 Research 经过预览并由你确认后才会搜索。搜索 Key 单独保存在 macOS Keychain。</p><div class="setting-row"><span>配置状态</span><b>${search.configured ? '已配置' : '未配置'}</b></div><div class="setting-row"><span>Secret 状态</span><span>${searchStatus}</span></div><form id="tavily-search-key-form"><label>Tavily API Key<input name="api_key" type="password" autocomplete="new-password" maxlength="10000" required></label><div class="actions"><button class="primary" type="submit">安全保存搜索 Key</button></div><p class="muted">保存只写入并验证 Keychain；不会测试连接或发起搜索。</p></form></section>`;
   const data = `<section class="settings-section"><h3>本机数据与应用</h3><div class="setting-row"><span>数据位置</span><span>Career 本机数据目录</span></div><div class="setting-row"><span>应用版本</span><span>${esc(appVersion)}</span></div><section class="settings-local-use"><h3>本地使用</h3>${localUseNotice}</section><button class="text-btn" data-page="feedback">查看反馈记录 →</button></section>`;
@@ -62,6 +75,27 @@ export function bindAiSettings(d: Deps) {
   document.querySelectorAll<HTMLElement>('[data-settings-open]').forEach(button => {
     button.addEventListener('click', () => activateTab(button.dataset.settingsOpen as SettingsTab));
   });
+  const feishuButton = document.querySelector<HTMLButtonElement>('[data-feishu-check]');
+  const checkFeishu = async () => {
+    if (feishuChecking) return;
+    feishuChecking = true;
+    if (feishuButton) { feishuButton.disabled = true; feishuButton.setAttribute('aria-busy', 'true'); }
+    try {
+      feishuStatus = await d.api('/feishu/status', undefined, 'GET');
+      feishuProblem = feishuStatus?.connected ? '' : '未连接';
+    } catch (error) {
+      feishuStatus = {connected: false, identity: null};
+      const status = (error as {status?: number})?.status;
+      feishuProblem = status === 403 ? '当前飞书账号无法读取所选资料'
+        : status === 503 ? '连接未就绪'
+          : '检查失败，请稍后重试';
+    } finally {
+      feishuChecking = false;
+      d.render();
+    }
+  };
+  feishuButton?.addEventListener('click', () => { void checkFeishu(); });
+  if (!feishuStatus && !feishuChecking) void checkFeishu();
   const searchForm = document.querySelector<HTMLFormElement>('#tavily-search-key-form');
   searchForm?.addEventListener('submit', async event => {
     event.preventDefault();

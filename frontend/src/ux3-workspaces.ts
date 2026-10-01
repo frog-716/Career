@@ -74,7 +74,8 @@ function materialsHTML(
     ? ordered.filter((item) => item.scope_type === scopeType && item.scope_id === scopeId)
     : ordered;
   const rows = (options.limit ? visible.slice(0, options.limit) : visible).map((item: Obj) => {
-    const sourceName = item.source_kind === "manual_text" ? "手工资料"
+    const sourceName = item.source_kind === "feishu_doc" ? "飞书文档"
+      : item.source_kind === "manual_text" ? "手工资料"
       : item.source_kind === "document" ? "文档"
         : item.source_kind === "meeting" ? "会议记录" : "资料";
     return `<div class="ux3-material-row"><div class="ux3-material-main">${rawButton(item, item.title || "未命名资料")}<small>${dateLabel(item.created_at)} · ${sourceName}</small>${Number(item.pending_patch_count || 0) ? `<small>有 ${Number(item.pending_patch_count)} 条建议待处理</small>` : ""}</div><div class="ux3-material-actions">${wikiCompilerAction(item, { scope_type: scopeType, scope_id: scopeId })}</div></div>`;

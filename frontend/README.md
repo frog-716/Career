@@ -114,3 +114,9 @@ legacy typed Offer 显示“历史 Offer · 待核对”，旧 status/terms/日�
 ### UX-5 空态创建入口
 
 项目和任职的左侧加号、中央空态按钮共享相应创建动作，每个入口都绑定事件，DOM ID 不重复。真实 Chrome 回归：在仓库根目录执行 `.venv/bin/python -m pytest -q tests/test_ux5_project_empty_action.py`，核验两页的两个入口均打开表单且取消不写入。
+
+## Feishu Raw 选择
+
+Project / Employment / Person / Wiki 现有“添加资料”入口包含“粘贴文字”“本地资料”和“从飞书选择”。本地文件只支持 UTF-8 TXT/Markdown，限 400 KB 与 100,000 字符；文件内容先预览、可编辑，确认后复用本机 Raw 写入，不发给飞书。飞书流程先由 Career 搜 DOC/DOCX 标题，用户选择后预览服务端缓存的正文，再明确导入当前 scope；确认请求只提交短时 preview token、scope 和幂等键，不把正文回送 lark-cli。搜索摘要不显示，返回内容按不可信文本转义，外链仅允许 Feishu/Lark HTTPS host。设置概览提供一次“检查连接”及当前显示身份，不出现 OAuth、token 或 scope 管理。
+
+UI 边界测试：`npm --prefix frontend run test:feishu-source`；构建/typecheck：`npm --prefix frontend run build`。
