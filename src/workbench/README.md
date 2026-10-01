@@ -247,3 +247,14 @@ F runtime 只接受 schema v6。v5→v6 迁移只写一条 hash-bound migration 
 `resume_career_retrieval.py` 在本地只搜索当前 Wiki、Project、Employment，先给候选 ID/revision；其它 Opportunity 的私有 Wiki 在 SQLite 查询时就被排除。`POST /api/resume-documents/{did}/ai-suggest` 首轮仍只含当前机会/JD/Research/当前稿的最小 DTO。模型可返回 `retrieval_requests`；用户选候选后，第二轮只加入所选对象的最小字段和少量相关 Wiki。模型若明确返回 `evidence_requests`，用户可从所选 Wiki 已引用的来源中选择，第三轮才加入每条不超过 3000 字的原文。每轮均重新生成确切 payload Preview，确认后才调用 Provider；计划可由 `GET .../ai-retrieval-plans`、`GET .../ai-evidence-plans` 及对应 `/{id}/labels` 找回。
 
 新提案可给 `rewrite/add/delete`，`POST .../ai-proposals/{proposal_id}/changes/{change_id}/resolve` 逐条接受或拒绝；新增必须引用本轮选中 Wiki，现有字段改写或删除都绑定原文 hash 与工作稿 revision。旧提案仍可从原入口处理，新提案不能批量接受。来源变化会使待处理计划或提案过期；建议不会自动改稿、保存版本或修改正式 Career 资料。隔离回归：`.venv/bin/python -m pytest -q tests/test_resume_career_retrieval.py tests/test_resume_ai_context_contract.py tests/test_resume_ai_privacy_dto.py tests/test_t08_resume_suggestions.py`。
+
+## Feishu Read Adapter
+
+`feishu_read.py` 只调用当前安装的 lark-cli 固定只读命令：`auth status`、当前 user identity、Drive 搜索 `doc,docx`、用户已选结果的 Docs fetch。Career 不提供 CLI passthrough 或飞书写接口，不申请权限，也不存 Feishu Identity；`open_id` 仅映射为本接口的显示 identity 字段，不进入 Resume。
+
+- `GET /api/feishu/status`：连接状态和当前 display name/avatar。
+- `POST /api/feishu/search`：`{query,cursor?}`，最多 30 字、每页至多 10 个 DOC/DOCX；服务端短时缓存 resource ref 与分页 token。搜索不返回摘要或 resource ID。
+- `POST /api/feishu/resources/{selection_id}/preview`：仅接受空对象；只 fetch 本进程中对应的已选结果，最多 100,000 字，预览与后续 Raw 使用同一份服务端内容快照。
+- `POST /api/feishu/import`：只接受 `{preview_id,scope_type,scope_id,idempotency_key}`，创建 immutable `raw_material`，`source_kind=feishu_doc`，记录 external provenance；不自动建 Wiki。普通 `/api/raw` 不接受伪造的 `feishu_doc`。
+
+适配器使用固定 executable + 参数数组、`shell=False`、关闭 stdin、最小子进程环境、15 秒超时、stdout/stderr 上限及安全错误映射。选中项/预览项只在进程内保留 15 分钟。无 schema migration。合成接口测试：`.venv/bin/python -B -m pytest -q tests/test_feishu_read.py`；前端转义/请求契约：`npm --prefix frontend run test:feishu-source`。

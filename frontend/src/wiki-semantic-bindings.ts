@@ -5,6 +5,7 @@ import {
   wikiCompilerFrozenBefore, wikiCompilerPatchHTML, wikiCompilerPreviewHTML,
   wikiReadingQuery,
 } from "./wiki-semantic-ui";
+import { feishuImportRequest, feishuPreviewHTML, feishuResultsHTML, readLocalTextFile } from "./feishu-source-ui";
 
 type Obj = Record<string, any>;
 
@@ -353,11 +354,42 @@ export function bindWikiSemantic(ctx: Obj) {
     }).join("") || '<p class="muted">当前范围没有可引用的 Raw。可以不选来源，由用户直接写入 Wiki。</p>'}</fieldset>`;
   }
 
-  function showRawForm(scope: Obj) {
+  function setMaterialPage(dialog: HTMLDialogElement, title: string, content: string) {
+    const heading = dialog.querySelector<HTMLElement>(".modal-head h2");
+    const outlet = dialog.querySelector<HTMLElement>("[data-material-flow]");
+    const error = dialog.querySelector<HTMLElement>("#modal-error");
+    if (heading) heading.textContent = title;
+    if (outlet) outlet.innerHTML = content;
+    if (error) { error.textContent = ""; error.hidden = true; }
+    dialog.dataset.dirty = "false";
+    delete dialog.dataset.untrackedDirty;
+  }
+
+  function showRawChoice(scope: Obj) {
+    if (!scope) return;
+    const dialog = modal("添加资料", '<div data-material-flow></div>');
+    showRawChoiceInDialog(scope, dialog);
+  }
+
+  function showRawChoiceInDialog(scope: Obj, dialog: HTMLDialogElement) {
     if (!scope) return;
     const destination = scopeLabel(getData(), scope);
-    const html = `<p class="muted">保存到：${esc(destination)}</p><form class="knowledge-form"><fieldset><label>标题<input name="title" required maxlength="500"></label><label>原始资料<textarea name="content" required maxlength="100000" placeholder="粘贴需要保留的虚构或真实原文"></textarea></label><p class="muted">保存后原文不会被 Wiki 修改。</p></fieldset><button class="primary full" type="submit">保存原文</button></form>`;
-    modal("添加原始资料", html, (dialog: HTMLDialogElement) => {
+    setMaterialPage(dialog, "添加资料", `<p class="muted">保存到：${esc(destination)}</p><div class="feishu-material-choices"><button class="secondary" type="button" data-material-paste>粘贴文字</button><button class="secondary" type="button" data-material-local>本地资料</button><button class="secondary" type="button" data-material-feishu>从飞书选择</button></div>`);
+    dialog.querySelector<HTMLElement>("[data-material-paste]")?.addEventListener("click", () => showRawFormInDialog(scope, dialog));
+    dialog.querySelector<HTMLElement>("[data-material-local]")?.addEventListener("click", () => showLocalFile(scope, dialog));
+    dialog.querySelector<HTMLElement>("[data-material-feishu]")?.addEventListener("click", () => showFeishuSearch(scope, dialog));
+  }
+
+  function showRawFormInDialog(
+    scope: Obj, dialog: HTMLDialogElement,
+    initial?: { title: string; content: string }, pageTitle = "粘贴文字",
+  ) {
+    if (!scope) return;
+    const destination = scopeLabel(getData(), scope);
+    const html = `<p class="muted">保存到：${esc(destination)}</p><form class="knowledge-form"><fieldset><label>标题<input name="title" required maxlength="500" value="${esc(initial?.title)}"></label><label>原始资料<textarea name="content" required maxlength="100000" placeholder="粘贴需要保留的原文">${esc(initial?.content)}</textarea></label><p class="muted">保存后原文不会被 Wiki 修改。</p></fieldset><button class="primary full" type="submit">保存原文</button><button class="text-btn" type="button" data-material-back>返回</button></form>`;
+    setMaterialPage(dialog, pageTitle, html);
+    if (initial?.content) dialog.dataset.dirty = "true";
+    {
       const form = dialog.querySelector<HTMLFormElement>("form")!;
       const button = form.querySelector<HTMLButtonElement>("button[type=submit]")!;
       const fields = form.querySelector("fieldset")!;
@@ -389,11 +421,120 @@ export function bindWikiSemantic(ctx: Obj) {
           button.disabled = false;
         }
       };
+      dialog.querySelector<HTMLElement>("[data-material-back]")?.addEventListener("click", () => {
+        const values = new FormData(form);
+        const hasInput = [...values.values()].some((value) => String(value).trim());
+        if (hasInput && !window.confirm("放弃尚未保存的粘贴内容并返回？")) return;
+        showRawChoiceInDialog(scope, dialog);
+      });
+    }
+  }
+
+  function showLocalFile(scope: Obj, dialog: HTMLDialogElement) {
+    if (!scope) return;
+    const html = `<p class="muted">只在本机读取 TXT 或 Markdown 文件；选择后可检查并编辑原文，再明确保存到当前范围。</p><form data-local-file-form><label>选择本地资料<input name="file" type="file" accept=".txt,.md,text/plain,text/markdown" required></label><button class="text-btn" type="button" data-material-back>返回</button></form>`;
+    setMaterialPage(dialog, "本地资料", html);
+    const form = dialog.querySelector<HTMLFormElement>("[data-local-file-form]")!;
+    const input = form.querySelector<HTMLInputElement>('input[type="file"]')!;
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const draft = await readLocalTextFile(file);
+        showRawFormInDialog(scope, dialog, draft, "本地资料");
+      } catch (error) {
+        modalError(error);
+      }
     });
+    dialog.querySelector<HTMLElement>("[data-material-back]")?.addEventListener("click", () => showRawChoiceInDialog(scope, dialog));
+  }
+
+  function showFeishuSearch(scope: Obj, dialog: HTMLDialogElement, initialState?: Obj) {
+    if (!scope) return;
+    const destination = scopeLabel(getData(), scope);
+    const state: Obj = initialState || { query: "", items: [], next_cursor: null };
+    const page = () => {
+      setMaterialPage(dialog, "飞书资料", `<p class="muted">保存到：${esc(destination)}</p><p class="muted">搜索可读文档；这里只显示标题和资料信息。</p><form data-feishu-search-form><label>搜索飞书文档<input name="query" required maxlength="30" value="${esc(state.query)}" placeholder="输入关键词"></label><button class="primary" type="submit">搜索</button></form><div class="feishu-resource-list" data-feishu-results></div><button class="text-btn" type="button" data-material-back>返回</button>`);
+      const form = dialog.querySelector<HTMLFormElement>("[data-feishu-search-form]")!;
+      const results = dialog.querySelector<HTMLElement>("[data-feishu-results]")!;
+      const paint = () => {
+        results.innerHTML = feishuResultsHTML(state.items || [], Boolean(state.next_cursor), Boolean(state.searched));
+        results.querySelectorAll<HTMLElement>("[data-feishu-select]").forEach((button) => {
+          button.onclick = () => { void showFeishuPreview(scope, dialog, button.dataset.feishuSelect!, state); };
+        });
+        results.querySelector<HTMLElement>("[data-feishu-more]")?.addEventListener("click", () => { void runSearch(state.query, state.next_cursor, true); });
+      };
+      const runSearch = async (query: string, cursor: string | null = null, append = false) => {
+        const button = form.querySelector<HTMLButtonElement>("button[type=submit]")!;
+        button.disabled = true;
+        button.textContent = "正在搜索…";
+        try {
+          const response = await api("/feishu/search", cursor ? { cursor } : { query });
+          state.query = query;
+          state.searched = true;
+          state.items = append ? [...(state.items || []), ...(response.items || [])] : (response.items || []);
+          state.next_cursor = response.next_cursor || null;
+          paint();
+          dialog.dataset.dirty = "false";
+        } catch (error) {
+          modalError(error);
+        } finally {
+          button.disabled = false;
+          button.textContent = "搜索";
+        }
+      };
+      form.onsubmit = (event) => {
+        event.preventDefault();
+        const query = String(new FormData(form).get("query") || "").trim();
+        void runSearch(query);
+      };
+      form.querySelector<HTMLInputElement>('[name="query"]')?.addEventListener("input", () => { dialog.dataset.dirty = "false"; });
+      dialog.querySelector<HTMLElement>("[data-material-back]")?.addEventListener("click", () => showRawChoiceInDialog(scope, dialog));
+      paint();
+    };
+    page();
+  }
+
+  async function showFeishuPreview(scope: Obj, dialog: HTMLDialogElement, selectionId: string, searchState: Obj) {
+    setMaterialPage(dialog, "飞书资料", '<p class="muted">正在读取你选择的文档…</p>');
+    let snapshot: Obj;
+    try {
+      snapshot = await api(`/feishu/resources/${encodeURIComponent(selectionId)}/preview`, {});
+    } catch (error) {
+      setMaterialPage(dialog, "飞书资料", `<p class="muted">无法读取这份资料。</p><button class="secondary" type="button" data-feishu-back>返回搜索结果</button>`);
+      modalError(error);
+      dialog.querySelector<HTMLElement>("[data-feishu-back]")?.addEventListener("click", () => showFeishuSearch(scope, dialog, searchState));
+      return;
+    }
+    setMaterialPage(dialog, "预览飞书资料", feishuPreviewHTML(snapshot));
+    let request: Obj | null = null;
+    let saved = false;
+    const button = dialog.querySelector<HTMLButtonElement>("[data-feishu-import]")!;
+    button.onclick = async () => {
+      if (button.disabled) return;
+      if (!request) request = feishuImportRequest(snapshot.preview_id, scope, crypto.randomUUID());
+      button.disabled = true;
+      try {
+        if (!saved) {
+          await api("/feishu/import", request);
+          saved = true;
+        }
+        await load();
+        dialog.close();
+        render();
+        ctx.inform?.(`飞书资料已导入到${scopeLabel(getData(), scope)}。`);
+      } catch (error) {
+        modalError(saved ? new Error("资料已导入，页面未能更新；重试只重新读取。") : error);
+        button.textContent = saved ? "重试刷新" : "重试导入";
+      } finally {
+        button.disabled = false;
+      }
+    };
+    dialog.querySelector<HTMLElement>("[data-feishu-back]")?.addEventListener("click", () => showFeishuSearch(scope, dialog, searchState));
   }
   on("[data-d1-add-raw]", (el) => {
     const scope = selectedScope(el);
-    if (scope) showRawForm(scope);
+    if (scope) showRawChoice(scope);
   });
 
   function showKnowledgeForm(item?: Obj, explicitScope?: Obj) {
