@@ -258,3 +258,5 @@ F runtime 只接受 schema v6。v5→v6 迁移只写一条 hash-bound migration 
 - `POST /api/feishu/import`：只接受 `{preview_id,scope_type,scope_id,idempotency_key}`，创建 immutable `raw_material`，`source_kind=feishu_doc`，记录 external provenance；不自动建 Wiki。普通 `/api/raw` 不接受伪造的 `feishu_doc`。
 
 适配器使用固定 executable + 参数数组、`shell=False`、关闭 stdin、最小子进程环境、15 秒超时、stdout/stderr 上限及安全错误映射。选中项/预览项只在进程内保留 15 分钟。无 schema migration。合成接口测试：`.venv/bin/python -B -m pytest -q tests/test_feishu_read.py`；前端转义/请求契约：`npm --prefix frontend run test:feishu-source`。
+
+当前 parser 固定接受 lark-cli 1.0.96 的 `ok/identity/data/meta/_notice` envelope，读取 `data.results[]` 的 `title_highlighted` 和 `result_meta.doc_types/update_time_iso/url/token`；不使用 `summary_highlighted`，不递归猜字段。缺字段或未知字段结构 fail closed。脱敏 shape fixture：`tests/fixtures/lark_cli_1_0_96_drive_search.json`。

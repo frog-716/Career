@@ -1,0 +1,55 @@
+{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "has_more": false,
+    "page_token": "",
+    "results": [
+      {
+        "entity_type": "doc",
+        "result_meta": {
+          "create_time": 1790810000,
+          "create_time_iso": "2026-10-01T00:33:20Z",
+          "doc_types": "DOCX",
+          "edit_user_id": "ou_PRIVATE_EDIT_USER_SENTINEL",
+          "edit_user_name": "PRIVATE_EDIT_USER_NAME_SENTINEL",
+          "icon_info": "PRIVATE_ICON_INFO_SENTINEL",
+          "last_open_time": 1790815000,
+          "last_open_time_iso": "2026-10-01T01:56:40Z",
+          "owner_id": "ou_PRIVATE_OWNER_SENTINEL",
+          "owner_name": "PRIVATE_OWNER_NAME_SENTINEL",
+          "token": "doc_fixture_123",
+          "update_time": 1790820000,
+          "update_time_iso": "2026-10-01T03:20:00Z",
+          "url": "https://career-fixture.feishu.cn/docx/doc_fixture_123"
+        },
+        "summary_highlighted": "SUMMARY_MUST_NEVER_BE_USED_AS_METADATA",
+        "title_highlighted": "ai生图工作流 · <h>虚构实现方案</h>"
+      },
+      {
+        "entity_type": "doc",
+        "result_meta": {
+          "create_time": 1790800000,
+          "create_time_iso": "2026-10-01T00:00:00Z",
+          "doc_types": "DOC",
+          "edit_user_id": "ou_PRIVATE_EDIT_USER_2_SENTINEL",
+          "edit_user_name": "PRIVATE_EDIT_USER_2_NAME_SENTINEL",
+          "icon_info": "PRIVATE_ICON_INFO_2_SENTINEL",
+          "last_open_time": 1790805000,
+          "last_open_time_iso": "2026-10-01T01:23:20Z",
+          "owner_id": "ou_PRIVATE_OWNER_2_SENTINEL",
+          "owner_name": "PRIVATE_OWNER_2_NAME_SENTINEL",
+          "token": "doc_fixture_456",
+          "update_time": 1790810000,
+          "update_time_iso": "2026-10-01T02:33:20Z",
+          "url": "https://career-fixture.feishu.cn/doc/doc_fixture_456"
+        },
+        "summary_highlighted": "SECOND_SUMMARY_MUST_NEVER_BE_USED_AS_METADATA",
+        "title_highlighted": "<hb>ai生图工作流</hb> · 虚构操作指南"
+      }
+    ],
+    "total": 2
+  },
+  "meta": {},
+  "_notice": {}
+}

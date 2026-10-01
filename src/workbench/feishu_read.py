@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -29,6 +30,25 @@ MAX_STDERR_BYTES = 32 * 1024
 CLI_TIMEOUT_SECONDS = 15.0
 CACHE_TTL_SECONDS = 15 * 60
 ALLOWED_RESOURCE_TYPES = {"doc": "doc", "docx": "docx"}
+
+# lark-cli 1.0.96 drive +search JSON shape. Search v2 returns highlighted
+# titles and nests resource metadata in result_meta; summary_highlighted is
+# deliberately ignored. Keep this schema explicit so CLI changes fail closed.
+_SEARCH_ENVELOPE_KEYS = {"ok", "identity", "data", "meta", "_notice"}
+_SEARCH_DATA_KEYS = {"has_more", "page_token", "results", "total"}
+_SEARCH_ROW_KEYS = {"entity_type", "result_meta", "summary_highlighted", "title_highlighted"}
+_SEARCH_META_KEYS = {
+    "create_time", "create_time_iso", "doc_types", "edit_user_id", "edit_user_name",
+    "icon_info", "last_open_time", "last_open_time_iso", "owner_id", "owner_name",
+    "token", "update_time", "update_time_iso", "url",
+}
+_SEARCH_META_TYPES = {
+    "create_time": (int, float), "create_time_iso": str, "doc_types": str,
+    "edit_user_id": str, "edit_user_name": str, "icon_info": str,
+    "last_open_time": (int, float), "last_open_time_iso": str,
+    "owner_id": str, "owner_name": str, "token": str,
+    "update_time": (int, float), "update_time_iso": str, "url": str,
+}
 
 
 class FeishuCliError(Exception):
@@ -351,6 +371,73 @@ class FeishuReadAdapter:
             raise Invalid("翻页搜索词不能更改")
         return saved_query, page_token
 
+    @staticmethod
+    def _search_data(payload: object) -> dict:
+        if (not isinstance(payload, dict) or set(payload) != _SEARCH_ENVELOPE_KEYS
+                or payload.get("ok") is not True or payload.get("identity") != "user"
+                or not isinstance(payload.get("meta"), dict)
+                or not isinstance(payload.get("_notice"), dict)):
+            raise FeishuCliError("invalid_json", "lark-cli 搜索结果结构不符合预期")
+        data = payload.get("data")
+        if not isinstance(data, dict) or set(data) != _SEARCH_DATA_KEYS:
+            raise FeishuCliError("invalid_json", "lark-cli 搜索结果结构不符合预期")
+        rows = data.get("results")
+        total = data.get("total")
+        if (not isinstance(rows, list) or len(rows) > MAX_SEARCH_RESULTS
+                or type(data.get("has_more")) is not bool
+                or not isinstance(data.get("page_token"), str)
+                or len(data["page_token"]) > 2048
+                or type(total) is not int or total < 0):
+            raise FeishuCliError("invalid_json", "lark-cli 搜索结果结构不符合预期")
+        if data["has_more"] and not data["page_token"]:
+            raise FeishuCliError("invalid_json", "lark-cli 搜索结果结构不符合预期")
+        return data
+
+    @staticmethod
+    def _search_resource(row: object) -> tuple[str, str, str, str, str | None]:
+        if (not isinstance(row, dict) or set(row) != _SEARCH_ROW_KEYS
+                or not isinstance(row.get("entity_type"), str)
+                or not isinstance(row.get("title_highlighted"), str)):
+            raise FeishuCliError("invalid_json", "lark-cli 搜索结果结构不符合预期")
+
+        # Do not read summary_highlighted. Its presence is part of the known CLI
+        # shape, but it is never used as metadata or returned by Career.
+        highlighted_title = row["title_highlighted"]
+        if not highlighted_title.strip() or len(highlighted_title) > 1000:
+            raise FeishuCliError("invalid_json", "lark-cli 文档元数据不符合预期")
+        title = re.sub(r"</?h(?:b)?>", "", highlighted_title, flags=re.IGNORECASE).strip()
+        if not title or len(title) > 500:
+            raise FeishuCliError("invalid_json", "lark-cli 文档元数据不符合预期")
+
+        metadata = row.get("result_meta")
+        if (not isinstance(metadata, dict)
+                or set(metadata) != _SEARCH_META_KEYS):
+            raise FeishuCliError("invalid_json", "lark-cli 搜索元数据结构不符合预期")
+        for key, expected_type in _SEARCH_META_TYPES.items():
+            value = metadata.get(key)
+            valid = type(value) in expected_type if isinstance(expected_type, tuple) else isinstance(value, expected_type)
+            if not valid:
+                raise FeishuCliError("invalid_json", "lark-cli 搜索元数据结构不符合预期")
+
+        resource_type = ALLOWED_RESOURCE_TYPES.get(metadata["doc_types"].casefold())
+        resource_id = metadata["token"]
+        if (resource_type is None
+                or not re.fullmatch(r"[A-Za-z0-9_-]{1,256}", resource_id)):
+            raise FeishuCliError("invalid_json", "lark-cli 文档元数据不符合预期")
+
+        updated_at = metadata["update_time_iso"]
+        if not updated_at or len(updated_at) > 64:
+            raise FeishuCliError("invalid_json", "lark-cli 文档更新时间不符合预期")
+        try:
+            datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise FeishuCliError("invalid_json", "lark-cli 文档更新时间不符合预期") from exc
+
+        return (
+            resource_type, resource_id, title, updated_at,
+            _safe_feishu_url(metadata["url"]),
+        )
+
     def search(self, query: object = "", cursor: str | None = None) -> dict[str, object]:
         normalized = self._search_query(query, allow_blank=cursor is not None)
         cursor_data = self._cursor(cursor, normalized)
@@ -365,40 +452,21 @@ class FeishuReadAdapter:
         if page_token:
             args.extend(("--page-token", page_token))
         payload = self._run_json(args)
-        data = self._data(payload)
-        rows = data.get("results")
-        has_more = data.get("has_more", False)
-        next_page_token = data.get("page_token", "")
-        if (not isinstance(rows, list) or len(rows) > MAX_SEARCH_RESULTS
-                or type(has_more) is not bool
-                or (has_more and (not isinstance(next_page_token, str) or not next_page_token or len(next_page_token) > 2048))):
-            raise FeishuCliError("invalid_json", "lark-cli 搜索结果结构不符合预期")
+        data = self._search_data(payload)
+        rows = data["results"]
+        has_more = data["has_more"]
+        next_page_token = data["page_token"]
+        parsed_rows = [self._search_resource(row) for row in rows]
         items = []
         expires = time.monotonic() + CACHE_TTL_SECONDS
         with self._lock:
             self._prune_locked()
-            for row in rows:
-                if not isinstance(row, dict):
-                    raise FeishuCliError("invalid_json", "lark-cli 搜索结果结构不符合预期")
-                raw_type = row.get("doc_type", row.get("type"))
-                resource_type = ALLOWED_RESOURCE_TYPES.get(str(raw_type).casefold())
-                resource_id = row.get("token") or row.get("doc_token") or row.get("obj_token")
-                title = row.get("title")
-                if resource_type is None:
-                    continue
-                if (not isinstance(resource_id, str)
-                        or not re.fullmatch(r"[A-Za-z0-9_-]{1,256}", resource_id)
-                        or not isinstance(title, str) or not title.strip() or len(title) > 500):
-                    raise FeishuCliError("invalid_json", "lark-cli 文档元数据不符合预期")
-                edited_at = row.get("edit_time_iso")
-                if not isinstance(edited_at, str) or len(edited_at) > 64:
-                    edited_at = None
+            for resource_type, resource_id, title, edited_at, safe_url in parsed_rows:
                 selection_id = uid().replace(":", "_") + "_" + uid().replace(":", "_")
                 ref = FeishuResourceRef(
                     selection_id=selection_id, resource_type=resource_type,
-                    resource_id=resource_id, title=title.strip(),
-                    url=_safe_feishu_url(row.get("url")),
-                    edited_at=edited_at,
+                    resource_id=resource_id, title=title,
+                    url=safe_url, edited_at=edited_at,
                 )
                 self._resources[selection_id] = (ref, expires)
                 items.append(ref.public())
